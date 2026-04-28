@@ -7,13 +7,12 @@ import { Mail, Loader2 } from "lucide-react";
 import type { UserRole } from "@/types/database";
 import { CreateAccountInputSchema } from "@/lib/schemas/auth";
 import { createAccountAction } from "@/app/(features)/accounts/actions";
+import { BRANCHES as BRANCH_OPTIONS } from "@/config/branches";
 
 interface Props {
   currentUserRole: UserRole;
   currentUserBranch: string;
 }
-
-const BRANCH_OPTIONS = ["대치", "송도"] as const;
 
 const ROLE_OPTIONS_MASTER: Array<{ value: UserRole; label: string; hint: string }> =
   [

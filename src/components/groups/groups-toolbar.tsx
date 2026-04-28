@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useTransition } from "react";
 import { Plus, Search } from "lucide-react";
 
-const BRANCH_OPTIONS = ["전체", "대치", "송도"] as const;
+import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 
 /**
  * F2-01 · 발송 그룹 리스트 상단 툴바.
@@ -98,7 +98,7 @@ export function GroupsToolbar() {
           cursor-pointer
         "
       >
-        {BRANCH_OPTIONS.map((b) => (
+        {BRANCH_FILTER_OPTIONS.map((b) => (
           <option key={b} value={b}>
             {b === "전체" ? "전체 분원" : b}
           </option>

@@ -4,8 +4,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useTransition } from "react";
 import { Search, X, Eye } from "lucide-react";
 import type { Grade, SchoolLevel } from "@/types/database";
-
-const BRANCH_OPTIONS = ["전체", "대치", "송도"] as const;
+import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 
 /**
  * 학년·학교급 필터 옵션 (0012 정규화 enum 9종 대응).
@@ -196,7 +195,7 @@ export function StudentsFilters({
             cursor-pointer
           "
         >
-          {BRANCH_OPTIONS.map((b) => (
+          {BRANCH_FILTER_OPTIONS.map((b) => (
             <option key={b} value={b}>
               {b === "전체" ? "전체 분원" : b}
             </option>

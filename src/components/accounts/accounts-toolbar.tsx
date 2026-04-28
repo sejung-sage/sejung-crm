@@ -5,8 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useTransition } from "react";
 import { Plus, Search } from "lucide-react";
 import type { UserRole } from "@/types/database";
-
-const BRANCH_OPTIONS_MASTER = ["전체", "대치", "송도"] as const;
+import { BRANCH_FILTER_OPTIONS as BRANCH_OPTIONS_MASTER } from "@/config/branches";
 const ROLE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "", label: "전체 권한" },
   { value: "master", label: "마스터" },

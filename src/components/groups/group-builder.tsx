@@ -12,6 +12,7 @@ import {
   createGroupAction,
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
+import { BRANCHES } from "@/config/branches";
 
 interface SamplePreview {
   total: number;
@@ -49,7 +50,6 @@ const GRADE_OPTIONS_ALL: Grade[] = [
   ...GRADE_OPTIONS_HIGH,
 ];
 const SUBJECT_OPTIONS: Subject[] = ["수학", "국어", "영어", "탐구"];
-const BRANCH_OPTIONS = ["대치", "송도"] as const;
 const LEVEL_SEGMENTS: ReadonlyArray<{
   value: "전체" | "중" | "고";
   label: string;
@@ -292,7 +292,7 @@ export function GroupBuilder({
 
             <Field label="분원" required>
               <div className="flex gap-1.5">
-                {BRANCH_OPTIONS.map((b) => (
+                {BRANCHES.map((b) => (
                   <Chip
                     key={b}
                     label={b}

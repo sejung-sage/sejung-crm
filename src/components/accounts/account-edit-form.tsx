@@ -10,6 +10,7 @@ import {
   deactivateAccountAction,
   reactivateAccountAction,
 } from "@/app/(features)/accounts/actions";
+import { BRANCHES as BRANCH_OPTIONS } from "@/config/branches";
 
 interface TargetAccount {
   user_id: string;
@@ -25,8 +26,6 @@ interface Props {
   currentUserId: string;
   target: TargetAccount;
 }
-
-const BRANCH_OPTIONS = ["대치", "송도"] as const;
 
 const ROLE_OPTIONS: Array<{ value: UserRole; label: string; hint: string }> = [
   { value: "master", label: "마스터", hint: "전 분원 모든 권한" },
