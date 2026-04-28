@@ -1,7 +1,9 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
   AttendanceRow,
+  EnrollmentClassLookup,
   EnrollmentRow,
+  EnrollmentWithClass,
   StudentDetail,
   StudentMessageRow,
   StudentProfileRow,
@@ -38,9 +40,11 @@ async function getFromDevSeed(
   const profile = findDevProfileById(studentId);
   if (!profile) return null;
 
-  const enrollments = [...findDevEnrollmentsByStudentId(studentId)].sort(
-    compareEnrollmentsDesc,
-  );
+  const enrollments: EnrollmentWithClass[] = [
+    ...findDevEnrollmentsByStudentId(studentId),
+  ]
+    .sort(compareEnrollmentsDesc)
+    .map((e) => ({ ...e, class: null }));
   const attendances = [...findDevAttendancesByStudentId(studentId)].sort(
     compareAttendancesDesc,
   );
@@ -107,11 +111,62 @@ async function getFromSupabase(
   }
 
   const profile = profileRes.data as StudentProfileRow;
-  const enrollments = (enrollmentsRes.data ?? []) as EnrollmentRow[];
+  const enrollmentsRaw = (enrollmentsRes.data ?? []) as EnrollmentRow[];
   const attendances = (attendancesRes.data ?? []) as AttendanceRow[];
   const messages = mapMessageRows(messagesRes.data ?? []);
 
+  // 강좌 마스터 lookup — aca_class_id 로 묶어 1쿼리, 그 다음 머지.
+  const enrollments = await attachClassLookup(supabase, enrollmentsRaw);
+
   return { profile, enrollments, attendances, messages };
+}
+
+/**
+ * enrollments 의 aca_class_id 들을 모아 classes 를 in 쿼리로 단일 lookup 후
+ * 각 행에 class 필드로 머지한다. NULL 또는 미매칭 행은 class=null.
+ */
+async function attachClassLookup(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  enrollments: EnrollmentRow[],
+): Promise<EnrollmentWithClass[]> {
+  const ids = Array.from(
+    new Set(
+      enrollments
+        .map((e) => e.aca_class_id)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  );
+
+  if (ids.length === 0) {
+    return enrollments.map((e) => ({ ...e, class: null }));
+  }
+
+  const { data, error } = await supabase
+    .from("classes")
+    .select("aca_class_id, total_sessions, amount_per_session, teacher_name, subject, subject_raw")
+    .in("aca_class_id", ids);
+
+  if (error) {
+    throw new Error(`강좌 마스터 조회에 실패했습니다: ${error.message}`);
+  }
+
+  const lookup = new Map<string, EnrollmentClassLookup>();
+  for (const row of (data ?? []) as Array<
+    EnrollmentClassLookup & { aca_class_id: string }
+  >) {
+    lookup.set(row.aca_class_id, {
+      total_sessions: row.total_sessions,
+      amount_per_session: row.amount_per_session,
+      teacher_name: row.teacher_name,
+      subject: row.subject,
+      subject_raw: row.subject_raw,
+    });
+  }
+
+  return enrollments.map((e) => ({
+    ...e,
+    class: e.aca_class_id ? (lookup.get(e.aca_class_id) ?? null) : null,
+  }));
 }
 
 // ─── 내부 유틸 ───────────────────────────────────────────────

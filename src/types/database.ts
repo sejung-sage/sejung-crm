@@ -358,12 +358,33 @@ export interface StudentMessageRow {
 }
 
 /**
+ * 강좌 마스터에서 학생 상세 표시에 필요한 부분만 선별한 lookup 타입.
+ * EnrollmentRow.aca_class_id ↔ classes.aca_class_id 로 매칭.
+ */
+export type EnrollmentClassLookup = Pick<
+  ClassRow,
+  | "total_sessions"
+  | "amount_per_session"
+  | "teacher_name"
+  | "subject"
+  | "subject_raw"
+>;
+
+/**
+ * 수강 이력 + 강좌 마스터 lookup 머지 결과.
+ * class 가 null 이면 강좌 매칭 실패 또는 자체 등록 행 (aca_class_id NULL).
+ */
+export type EnrollmentWithClass = EnrollmentRow & {
+  class: EnrollmentClassLookup | null;
+};
+
+/**
  * 학생 상세 페이지 data loader 반환 통합 타입.
  * /students/[id] 의 프로필·수강이력·출석·발송이력 4개 영역 원본.
  */
 export type StudentDetail = {
   profile: StudentProfileRow;
-  enrollments: EnrollmentRow[];
+  enrollments: EnrollmentWithClass[];
   attendances: AttendanceRow[];
   messages: StudentMessageRow[];
 };
