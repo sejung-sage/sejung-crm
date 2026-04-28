@@ -8,6 +8,9 @@ import type { Database } from "@/types/database";
 export function createSupabaseBrowserClient() {
   return createBrowserClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL ?? "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
+    // 신·구 키 형식 모두 지원: publishable(sb_publishable_*) 우선, 구 anon(eyJ...) fallback.
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ??
+      "",
   );
 }

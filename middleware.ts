@@ -45,14 +45,17 @@ export async function middleware(request: NextRequest) {
   let response = NextResponse.next({ request });
 
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-  if (!supabaseUrl || !supabaseAnon) {
+  // 신·구 키 형식 모두 지원: publishable(sb_publishable_*) > 구 anon(eyJ...).
+  const supabasePublishable =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!supabaseUrl || !supabasePublishable) {
     // 환경변수 누락 — 미들웨어가 앱 전체를 막지 않도록 통과시키되
     // 운영에서는 서버 시작 단계에서 걸려야 함.
     return response;
   }
 
-  const supabase = createServerClient<Database>(supabaseUrl, supabaseAnon, {
+  const supabase = createServerClient<Database>(supabaseUrl, supabasePublishable, {
     cookies: {
       getAll() {
         return request.cookies.getAll();

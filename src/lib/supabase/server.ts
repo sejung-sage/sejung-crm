@@ -13,7 +13,7 @@ export async function createSupabaseServerClient() {
 
   return createServerClient<Database>(
     getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    getRequiredEnv("NEXT_PUBLIC_SUPABASE_ANON_KEY"),
+    getPublishableKey(),
     {
       cookies: {
         getAll() {
@@ -36,21 +36,21 @@ export async function createSupabaseServerClient() {
 }
 
 /**
- * Service Role 키를 사용하는 서버 전용 클라이언트.
+ * Secret(구 service_role) 키를 사용하는 서버 전용 클라이언트.
  * RLS 를 우회해야 하는 발송 큐 처리·Webhook 핸들러 등에서만 사용.
  * 절대 Client Component 에 전달하지 말 것.
  */
 export function createSupabaseServiceClient() {
   return createServerClient<Database>(
     getRequiredEnv("NEXT_PUBLIC_SUPABASE_URL"),
-    getRequiredEnv("SUPABASE_SERVICE_ROLE_KEY"),
+    getSecretKey(),
     {
       cookies: {
         getAll() {
           return [];
         },
         setAll() {
-          /* service role은 세션 쿠키 사용 안 함 */
+          /* secret 키는 세션 쿠키 사용 안 함 */
         },
       },
     },
@@ -62,6 +62,33 @@ function getRequiredEnv(key: string): string {
   if (!v) {
     throw new Error(
       `환경변수 ${key} 가 설정되어 있지 않습니다. .env.local 을 확인하세요.`,
+    );
+  }
+  return v;
+}
+
+/** 신·구 키 형식 모두 지원. publishable(sb_publishable_*) > anon(eyJ...). */
+function getPublishableKey(): string {
+  const v =
+    process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ??
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!v) {
+    throw new Error(
+      "Supabase publishable 키가 설정되어 있지 않습니다 " +
+        "(NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY 또는 NEXT_PUBLIC_SUPABASE_ANON_KEY).",
+    );
+  }
+  return v;
+}
+
+/** 신·구 키 형식 모두 지원. secret(sb_secret_*) > service_role(eyJ...). */
+function getSecretKey(): string {
+  const v =
+    process.env.SUPABASE_SECRET_KEY ?? process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!v) {
+    throw new Error(
+      "Supabase secret 키가 설정되어 있지 않습니다 " +
+        "(SUPABASE_SECRET_KEY 또는 SUPABASE_SERVICE_ROLE_KEY).",
     );
   }
   return v;
