@@ -90,10 +90,19 @@ export interface EnrollmentRow {
   course_name: string;
   teacher_name: string | null;
   subject: Subject | null;
+  /**
+   * 결제 금액(원). **실제 의미는 "회차당 금액"** — 사용자 확인.
+   * 총 결제액은 amount × classes.total_sessions 로 계산.
+   */
   amount: number;
   paid_at: string | null;
   start_date: string | null;
   end_date: string | null;
+  /**
+   * 강좌 마스터 연결 키. "{branch_id}-{V_class_list.반고유_코드}" 형태.
+   * classes.aca_class_id 와 같은 값. 0016 추가. FK 없음.
+   */
+  aca_class_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -105,6 +114,48 @@ export interface AttendanceRow {
   attended_at: string;
   status: AttendanceStatus;
   created_at: string;
+}
+
+/**
+ * 강좌 마스터 (Aca2000 V_class_list 이관 · 0015).
+ *
+ * 학생 상세 페이지에서 enrollments.amount(회차당 금액)와 함께
+ * total_sessions / total_amount 을 연계 표시할 때 사용.
+ *
+ * 자연키: aca_class_id = "{branch_id}-{V_class_list.반고유_코드}".
+ * subject 는 정규화 매칭 안 되면 NULL, 원값은 subject_raw 에 보존.
+ */
+export interface ClassRow {
+  id: string;
+  /** "{branch_id}-{반고유_코드}" — UNIQUE. 우리 자체 등록행은 null. */
+  aca_class_id: string | null;
+  /** 분원 (대치/송도/반포/방배). RLS 격리 기준. */
+  branch: string;
+  /** 반명 (V_class_list.반명). */
+  name: string;
+  teacher_name: string | null;
+  /** 아카 원본 과목명 (정규화 안 된 원값). */
+  subject_raw: string | null;
+  /** 정규화된 과목 (수학/국어/영어/탐구). 매칭 실패 시 null. */
+  subject: Subject | null;
+  /** 청구회차 (총 회차). decimal 원본. */
+  total_sessions: number | null;
+  /** 회차당 금액 (원). enrollments.amount 와 동일 의미. */
+  amount_per_session: number | null;
+  /** 강좌 정가 (원, 참고치). 보통 amount_per_session × total_sessions. */
+  total_amount: number | null;
+  capacity: number | null;
+  /** 요일 자유형 (예: "화목"). */
+  schedule_days: string | null;
+  /** 시간 자유형 (예: "18:00-22:00"). */
+  schedule_time: string | null;
+  /** 강의관+강의실 합친 표기 또는 강의실만. */
+  classroom: string | null;
+  registered_at: string | null;
+  /** V_class_list.미사용반구분 = "Y" 면 false. */
+  active: boolean;
+  created_at: string;
+  updated_at: string;
 }
 
 /**
@@ -332,6 +383,11 @@ export interface Database {
         Row: AttendanceRow;
         Insert: Omit<AttendanceRow, "id" | "created_at"> & { id?: string };
         Update: Partial<Omit<AttendanceRow, "id">>;
+      };
+      classes: {
+        Row: ClassRow;
+        Insert: Omit<ClassRow, "id" | "created_at" | "updated_at"> & { id?: string };
+        Update: Partial<Omit<ClassRow, "id">>;
       };
       groups: {
         Row: GroupRow;
