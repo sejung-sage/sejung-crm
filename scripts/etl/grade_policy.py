@@ -48,6 +48,17 @@ def _strip(v: Any) -> str:
     return str(v).strip()
 
 
+def _is_university(school: Any) -> bool:
+    """학교명에 '대학교' 가 포함되는지.
+    DB derive_school_level / normalize_student_grade 의 ILIKE '%대학교%' 분기와 동일.
+    예: '서울대학교', '연세대학교', '○○대학교 의예과'.
+    """
+    s = _strip(school)
+    if not s:
+        return False
+    return "대학교" in s
+
+
 def _is_middle_school(school: Any) -> bool:
     """학교명이 중학교 suffix 인지.
     "○○중" (마지막 1글자) 또는 "○○중학교" 로 끝나면 True.
@@ -77,6 +88,7 @@ def derive_school_level(grade_raw: Any, school: Any) -> str:
     """학교급 도출. '중' / '고' / '기타' 중 하나 반환.
 
     DB derive_school_level(grade_raw, school) 과 동일 규칙:
+      0. 학교명에 '대학교' 포함 → '기타' (UI 중/고 1차 필터 노출 X)
       1. 학교명 suffix '중'/'중학교' → '중'
       2. 학교명 suffix '고'/'고등학교' → '고'
       3. 학교명 없음 + grade_raw NULL/공백 → '기타'
@@ -84,6 +96,8 @@ def derive_school_level(grade_raw: Any, school: Any) -> str:
       5. 학교명 없음 + 정수 → '고' (학원 고등부 위주)
       6. 그 외 → '기타'
     """
+    if _is_university(school):
+        return "기타"
     if _is_middle_school(school):
         return "중"
     if _is_high_school(school):
@@ -105,6 +119,10 @@ def normalize_grade(grade_raw: Any, school: Any) -> str:
     DB normalize_student_grade(grade_raw, school) 와 동일.
     재실행 idempotent: 이미 정규화된 enum 값이면 그대로 반환.
     """
+    # 학교가 대학교 → grade_raw 와 무관하게 졸업 (최우선)
+    if _is_university(school):
+        return "졸업"
+
     g = _strip(grade_raw)
 
     # NULL / 공백 → 미정
@@ -170,5 +188,15 @@ if __name__ == "__main__":
     assert derive_school_level("졸", None) == "고"
     assert derive_school_level("고3", None) == "고"
     assert derive_school_level("abc", None) == "기타"
+
+    # 대학교 분기 (0014) — school 이 대학교면 grade_raw 와 무관하게 졸업/기타
+    assert normalize_grade(None, "서울대학교") == "졸업"
+    assert normalize_grade("2", "연세대학교") == "졸업"  # grade_raw 무시
+    assert normalize_grade("3", "○○대학교 의예과") == "졸업"
+    assert derive_school_level("2", "서울대학교") == "기타"
+    assert derive_school_level(None, "연세대학교") == "기타"
+    # "대학" 만 있고 "대학교" 가 아니면 매칭 안 됨 (의도)
+    assert normalize_grade("3", "대학원") == "고3"
+    assert derive_school_level("3", "대학원") == "고"
 
     print("✓ grade_policy self-test passed")
