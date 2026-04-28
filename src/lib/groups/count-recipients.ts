@@ -8,11 +8,17 @@
  *   - unsubscribes 에 학부모 번호 있는 학생 제외
  *   - "최근 3회 수신자 제외" 는 Phase 1 로 미룸 (여기서 다루지 않음)
  *
- * 주의: Supabase JS SDK 의 `.not('col', 'in', ...)` 에 서브쿼리 주입은
- * 인젝션 회피와 타입 안정성 이유로 **두 단계 호출** 사용:
- *   1) unsubscribes.phone 목록 페치
- *   2) student_profiles 쿼리 후 JS 레벨에서 해당 phone 제외
- * 수신거부 건수는 많지 않으므로 성능 이슈 없음.
+ * 쿼리 구조 (PostgREST `max_rows = 1000` 우회):
+ *   1) unsubscribes.phone 목록을 먼저 페치 (수신거부 건수는 많지 않음).
+ *   2) student_profiles 를 **두 번** 호출:
+ *      (A) head + count: 헤더로 총 개수만 받기 (body 없음, cap 무관).
+ *      (B) sample: 동일 필터 + LIMIT 5 로 상위 5명만.
+ *   3) 수신거부 phone 제외는 **SQL 단** (PostgREST `.or(...)`) 에서 처리.
+ *      JS 단에서 처리하면 (A)의 head 카운트가 수신거부 포함 값이 되어 부정확하므로
+ *      반드시 SQL 단에서 동일 조건으로 적용해야 두 쿼리가 일관된다.
+ *
+ * 과거 구조: 전체 row 를 받아 JS 에서 카운트/제외 → student_profiles 가 1000행을
+ * 넘으면 PostgREST 가 1000 에서 응답을 잘라 total 이 1000 에 고정되는 버그.
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -56,33 +62,30 @@ function countFromDevSeed(
   };
 }
 
-async function countFromSupabase(
+/** 수신거부 phone 값에 허용할 문자 패턴 (숫자/하이픈만). PostgREST `.or(...)` 인자로 박을 때
+ *  콤마/괄호/슬래시 등 메타문자 인젝션을 방지. */
+const SAFE_PHONE_PATTERN = /^[\d-]+$/;
+
+/**
+ * student_profiles 쿼리 빌더 헬퍼. (A) count 와 (B) sample 두 호출이 동일한 필터·동일한
+ * 수신거부 제외 조건을 갖도록 한 곳에서 조립한다.
+ *
+ * - selectExpr: (A) 는 "id" + head 모드, (B) 는 본문 컬럼 전체.
+ * - countOption: "exact" 면 head 카운트, undefined 면 일반 select.
+ * - safeUnsubPhones: 정규식 통과한 수신거부 phone 만. 빈 배열이면 OR 절 자체를 추가하지 않는다
+ *   (PostgREST 가 `not.in.()` 빈 인자에서 에러를 낼 수 있음).
+ */
+function buildStudentProfilesQuery(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   filters: GroupFilters,
   branch: string,
-): Promise<CountRecipientsResult> {
-  const supabase = await createSupabaseServerClient();
-
-  // 1) 수신거부 학부모 번호 목록 선(先)페치 → JS 레벨 제외에 사용
-  const { data: unsubRows, error: unsubError } = await supabase
-    .from("unsubscribes")
-    .select("phone");
-  if (unsubError) {
-    throw new Error(
-      `수신거부 목록 조회에 실패했습니다: ${unsubError.message}`,
-    );
-  }
-  const unsub = new Set<string>(
-    (unsubRows ?? [])
-      .map((r) => (r as { phone: string }).phone)
-      .filter((v): v is string => typeof v === "string" && v.length > 0),
-  );
-
-  // 2) student_profiles 뷰에서 분원 + filters 적용 + status ≠ '탈퇴'
+  safeUnsubPhones: string[],
+  selectExpr: string,
+  options: { count?: "exact"; head?: boolean } = {},
+) {
   let query = supabase
     .from("student_profiles")
-    .select(
-      "id, name, school, grade, track, status, branch, parent_phone, phone, registered_at, enrollment_count, total_paid, subjects, teachers, attendance_rate, last_attended_at, last_paid_at",
-    )
+    .select(selectExpr, options)
     .neq("status", "탈퇴");
 
   if (branch) {
@@ -99,27 +102,79 @@ async function countFromSupabase(
     query = query.overlaps("subjects", filters.subjects);
   }
 
-  // 카운트는 sample 5명만 서버에서 받고, total 은 별도 head 쿼리로.
-  // 단, 수신거부 제외가 JS 필터라 정확한 total 은 전체 id 목록이 있어야 계산됨.
-  // 수신거부 포함 대상 수가 수천 단위라도 (id, parent_phone) 두 컬럼이면 무겁지 않으므로
-  // 전체를 받아 JS 에서 필터한 뒤 카운트 + 샘플.
-  const { data, error } = await query.order("registered_at", {
-    ascending: false,
-    nullsFirst: false,
-  });
-
-  if (error) {
-    throw new Error(`수신자 조회에 실패했습니다: ${error.message}`);
+  // 수신거부 phone 제외를 SQL 단에서 처리.
+  // 의미: parent_phone IS NULL OR parent_phone NOT IN (수신거부 목록)
+  //  - parent_phone 미보유 학생은 수신거부 매칭 자체가 불가하므로 통과.
+  //  - 매칭되는 학생만 제외.
+  // 빈 배열일 때는 절을 추가하지 않아 전체 통과 (PostgREST 빈 in 절 회피).
+  if (safeUnsubPhones.length > 0) {
+    query = query.or(
+      `parent_phone.is.null,parent_phone.not.in.(${safeUnsubPhones.join(",")})`,
+    );
   }
 
-  const rows = (data ?? []) as StudentProfileRow[];
-  const filtered = rows.filter(
-    (r) => !(r.parent_phone && unsub.has(r.parent_phone)),
+  return query;
+}
+
+async function countFromSupabase(
+  filters: GroupFilters,
+  branch: string,
+): Promise<CountRecipientsResult> {
+  const supabase = await createSupabaseServerClient();
+
+  // 1) 수신거부 학부모 번호 목록 선(先)페치 → SQL 단 제외 절 인자로 사용.
+  //    포맷 변환은 하지 않는다 (unsubscribes.phone 과 student_profiles.parent_phone 의
+  //    포맷이 동일하다는 기존 가정 유지).
+  const { data: unsubRows, error: unsubError } = await supabase
+    .from("unsubscribes")
+    .select("phone");
+  if (unsubError) {
+    throw new Error(
+      `수신거부 목록 조회에 실패했습니다: ${unsubError.message}`,
+    );
+  }
+  const safeUnsubPhones = (unsubRows ?? [])
+    .map((r) => (r as { phone: string }).phone)
+    .filter(
+      (v): v is string =>
+        typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
+    );
+
+  // 2-A) 카운트 쿼리: head + count=exact 로 헤더만 받는다 (PostgREST max_rows cap 무관).
+  const countQuery = buildStudentProfilesQuery(
+    supabase,
+    filters,
+    branch,
+    safeUnsubPhones,
+    "id",
+    { count: "exact", head: true },
   );
+  const { count, error: countError } = await countQuery;
+  if (countError) {
+    throw new Error(`수신자 카운트 조회에 실패했습니다: ${countError.message}`);
+  }
+
+  // 2-B) 샘플 쿼리: 동일 필터에서 상위 5명만 가져와 미리보기에 사용.
+  const sampleQuery = buildStudentProfilesQuery(
+    supabase,
+    filters,
+    branch,
+    safeUnsubPhones,
+    "id, name, school, grade, track, status, branch, parent_phone, phone, registered_at, enrollment_count, total_paid, subjects, teachers, attendance_rate, last_attended_at, last_paid_at",
+  );
+  const { data: sampleData, error: sampleError } = await sampleQuery
+    .order("registered_at", { ascending: false, nullsFirst: false })
+    .limit(SAMPLE_SIZE);
+
+  if (sampleError) {
+    throw new Error(`수신자 조회에 실패했습니다: ${sampleError.message}`);
+  }
+
+  const sampleRows = (sampleData ?? []) as StudentProfileRow[];
 
   return {
-    total: filtered.length,
-    sample: filtered.slice(0, SAMPLE_SIZE).map(toSampleRow),
+    total: count ?? 0,
+    sample: sampleRows.map(toSampleRow),
   };
 }
 
