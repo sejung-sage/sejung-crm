@@ -25,6 +25,11 @@ const LEVEL_SEGMENTS: ReadonlyArray<{
 
 const GRADE_OPTIONS_HIGH: ReadonlyArray<Grade> = ["고1", "고2", "고3", "재수"];
 const GRADE_OPTIONS_MID: ReadonlyArray<Grade> = ["중1", "중2", "중3"];
+// 학년 칩은 학교급과 무관하게 항상 7종 노출. 학교급 세그먼트는 school_level 필터로만 작용.
+const GRADE_OPTIONS_ALL: ReadonlyArray<Grade> = [
+  ...GRADE_OPTIONS_MID,
+  ...GRADE_OPTIONS_HIGH,
+];
 
 const TRACK_OPTIONS = ["문과", "이과"] as const;
 const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드", "탈퇴"] as const;
@@ -110,20 +115,6 @@ export function StudentsFilters({
 
   const setLevel = (value: SchoolLevel | "전체") => {
     updateParams((p) => {
-      // 학교급이 바뀌면 다른 학교급의 학년 칩 선택은 의미를 잃으므로 정리.
-      // 사용자가 명시 선택한 학년은 새 학교급에서 유효한 것만 남긴다.
-      const currentGrades = p.getAll("grade");
-      p.delete("grade");
-      const allowed: ReadonlySet<Grade> =
-        value === "중"
-          ? new Set(GRADE_OPTIONS_MID)
-          : value === "고"
-            ? new Set(GRADE_OPTIONS_HIGH)
-            : new Set([...GRADE_OPTIONS_MID, ...GRADE_OPTIONS_HIGH]);
-      for (const g of currentGrades) {
-        if (allowed.has(g as Grade)) p.append("grade", g);
-      }
-
       if (value === "전체") p.delete("level");
       else p.set("level", value);
     });
@@ -156,13 +147,6 @@ export function StudentsFilters({
       p.delete("include_hidden");
     });
   };
-
-  // 학년 칩 후보: '중' 선택 시 중1~중3, '고' 선택 시 고1~고3·재수,
-  // '전체' 선택 시 가장 사용 빈도가 높은 고등 4종 노출.
-  const visibleGradeChips: ReadonlyArray<Grade> = useMemo(() => {
-    if (level === "중") return GRADE_OPTIONS_MID;
-    return GRADE_OPTIONS_HIGH;
-  }, [level]);
 
   const resultSummary = useMemo(
     () => `총 ${totalCount.toLocaleString()}명`,
@@ -230,7 +214,7 @@ export function StudentsFilters({
       {/* 학년 칩 */}
       <div className="flex flex-wrap gap-x-6 gap-y-3 items-center pt-1">
         <FilterGroup label="학년">
-          {visibleGradeChips.map((g) => (
+          {GRADE_OPTIONS_ALL.map((g) => (
             <Chip
               key={g}
               label={g}

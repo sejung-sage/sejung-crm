@@ -43,6 +43,11 @@ interface Props {
 const GRADE_OPTIONS_HIGH: Grade[] = ["고1", "고2", "고3", "재수"];
 const GRADE_OPTIONS_MID: Grade[] = ["중1", "중2", "중3"];
 const GRADE_OPTIONS_HIDDEN: Grade[] = ["졸업", "미정"];
+// 학년 칩은 학교급과 무관하게 항상 7종 노출. 학교급 세그먼트는 시각 분류 보조용.
+const GRADE_OPTIONS_ALL: Grade[] = [
+  ...GRADE_OPTIONS_MID,
+  ...GRADE_OPTIONS_HIGH,
+];
 const SUBJECT_OPTIONS: Subject[] = ["수학", "국어", "영어", "탐구"];
 const BRANCH_OPTIONS = ["대치", "송도"] as const;
 const LEVEL_SEGMENTS: ReadonlyArray<{
@@ -324,21 +329,7 @@ export function GroupBuilder({
                         type="button"
                         role="radio"
                         aria-checked={active}
-                        onClick={() => {
-                          setLevel(opt.value);
-                          // 학교급 변경 시 다른 학교급 학년은 정리.
-                          const allowed: ReadonlySet<Grade> =
-                            opt.value === "중"
-                              ? new Set(GRADE_OPTIONS_MID)
-                              : opt.value === "고"
-                                ? new Set(GRADE_OPTIONS_HIGH)
-                                : new Set([
-                                    ...GRADE_OPTIONS_MID,
-                                    ...GRADE_OPTIONS_HIGH,
-                                    ...GRADE_OPTIONS_HIDDEN,
-                                  ]);
-                          setGrades(grades.filter((g) => allowed.has(g)));
-                        }}
+                        onClick={() => setLevel(opt.value)}
                         className={`
                           inline-flex items-center justify-center
                           min-w-14 h-8 px-3 rounded-md
@@ -357,20 +348,18 @@ export function GroupBuilder({
                   })}
                 </div>
 
-                {/* 학년 칩 */}
+                {/* 학년 칩 — 항상 7종 노출 (학교급과 무관) */}
                 <div className="flex flex-wrap gap-1.5">
-                  {(level === "중" ? GRADE_OPTIONS_MID : GRADE_OPTIONS_HIGH).map(
-                    (g) => (
-                      <Chip
-                        key={g}
-                        label={g}
-                        active={grades.includes(g)}
-                        onClick={() =>
-                          toggleFromList(grades, g, (next) => setGrades(next))
-                        }
-                      />
-                    ),
-                  )}
+                  {GRADE_OPTIONS_ALL.map((g) => (
+                    <Chip
+                      key={g}
+                      label={g}
+                      active={grades.includes(g)}
+                      onClick={() =>
+                        toggleFromList(grades, g, (next) => setGrades(next))
+                      }
+                    />
+                  ))}
                 </div>
 
                 {/* 졸업·미정 expand */}
