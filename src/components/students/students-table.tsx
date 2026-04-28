@@ -1,5 +1,5 @@
 import Link from "next/link";
-import type { StudentProfileRow } from "@/types/database";
+import type { Grade, StudentProfileRow } from "@/types/database";
 import { formatPhone } from "@/lib/phone";
 import { StudentStatusBadge } from "@/components/students/status-badge";
 
@@ -8,8 +8,23 @@ interface Props {
 }
 
 /**
+ * 졸업·미정 학생은 운영 시야에서 시선이 가지 않게 dim 처리.
+ * `include_hidden=1` 토글이 켜졌을 때만 행에 노출되며, 그때도 회색조로 보여
+ * 정규 운영 학생과 시각적으로 분리된다.
+ */
+const DIMMED_GRADES: ReadonlySet<Grade> = new Set(["졸업", "미정"]);
+
+function isDimmed(grade: Grade | null): boolean {
+  return grade !== null && DIMMED_GRADES.has(grade);
+}
+
+/**
  * 학생 목록 테이블 (서버 렌더).
  * 컬럼: 이름 · 학교 · 학년 · 계열 · 재원 상태 · 학부모 연락처 · 최근 수강
+ *
+ * 0012 마이그레이션 이후 학년은 정규화 9종 enum 문자열 그대로 표시
+ * (예: "중2", "고3", "재수"). school_level 은 학년 라벨에 이미 포함되어
+ * 별도 컬럼을 추가하지 않음.
  */
 export function StudentsTable({ rows }: Props) {
   if (rows.length === 0) {
@@ -40,39 +55,80 @@ export function StudentsTable({ rows }: Props) {
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr
-              key={r.id}
-              className="border-b border-[color:var(--border)] last:border-b-0 hover:bg-[color:var(--bg-hover)] transition-colors"
-            >
-              <Td>
-                <Link
-                  href={`/students/${r.id}`}
-                  className="font-medium text-[color:var(--text)] hover:underline"
+          {rows.map((r) => {
+            const dim = isDimmed(r.grade);
+            return (
+              <tr
+                key={r.id}
+                className={`
+                  border-b border-[color:var(--border)] last:border-b-0
+                  hover:bg-[color:var(--bg-hover)] transition-colors
+                  ${dim ? "bg-[color:var(--bg-muted)]" : ""}
+                `}
+              >
+                <Td>
+                  <Link
+                    href={`/students/${r.id}`}
+                    className={`font-medium hover:underline ${
+                      dim
+                        ? "text-[color:var(--text-muted)]"
+                        : "text-[color:var(--text)]"
+                    }`}
+                  >
+                    {r.name}
+                  </Link>
+                </Td>
+                <Td
+                  className={
+                    dim
+                      ? "text-[color:var(--text-dim)]"
+                      : "text-[color:var(--text-muted)]"
+                  }
                 >
-                  {r.name}
-                </Link>
-              </Td>
-              <Td className="text-[color:var(--text-muted)]">
-                {r.school ?? "-"}
-              </Td>
-              <Td className="text-center text-[color:var(--text)]">
-                {r.grade ? `고${r.grade}` : "-"}
-              </Td>
-              <Td className="text-center text-[color:var(--text-muted)]">
-                {r.track ?? "-"}
-              </Td>
-              <Td className="text-center">
-                <StudentStatusBadge status={r.status} />
-              </Td>
-              <Td className="text-[color:var(--text-muted)] tabular-nums">
-                {formatPhone(r.parent_phone) || "-"}
-              </Td>
-              <Td className="text-[color:var(--text-muted)]">
-                {formatRecentEnrollment(r)}
-              </Td>
-            </tr>
-          ))}
+                  {r.school ?? "-"}
+                </Td>
+                <Td
+                  className={`text-center ${
+                    dim
+                      ? "text-[color:var(--text-muted)]"
+                      : "text-[color:var(--text)]"
+                  }`}
+                >
+                  {r.grade ?? "-"}
+                </Td>
+                <Td
+                  className={`text-center ${
+                    dim
+                      ? "text-[color:var(--text-dim)]"
+                      : "text-[color:var(--text-muted)]"
+                  }`}
+                >
+                  {r.track ?? "-"}
+                </Td>
+                <Td className="text-center">
+                  <StudentStatusBadge status={r.status} />
+                </Td>
+                <Td
+                  className={`tabular-nums ${
+                    dim
+                      ? "text-[color:var(--text-dim)]"
+                      : "text-[color:var(--text-muted)]"
+                  }`}
+                >
+                  {formatPhone(r.parent_phone) || "-"}
+                </Td>
+                <Td
+                  className={
+                    dim
+                      ? "text-[color:var(--text-dim)]"
+                      : "text-[color:var(--text-muted)]"
+                  }
+                >
+                  {formatRecentEnrollment(r)}
+                </Td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

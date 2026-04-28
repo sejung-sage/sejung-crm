@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ChevronLeft } from "lucide-react";
 import type { GroupFilters } from "@/lib/schemas/group";
-import type { Subject } from "@/types/database";
+import type { Grade, Subject } from "@/types/database";
 import type { CountRecipientsResult } from "@/lib/groups/count-recipients";
 import {
   countRecipientsAction,
@@ -34,9 +34,25 @@ interface Props {
   mode: "create" | "edit";
 }
 
-const GRADE_OPTIONS: Array<1 | 2 | 3> = [1, 2, 3];
+/**
+ * 0012 정규화 enum 9종에 맞춘 학년 옵션.
+ * - 1차 옵션: 학교급 토글(중/고/전체) + 빈도 높은 9종 중 7종.
+ * - 졸업·미정은 expand 영역(체크박스)으로 분리. 대량 발송에서 운영 의도가
+ *   강한 만큼 노출을 한 단계 숨겨 오·발송을 줄임.
+ */
+const GRADE_OPTIONS_HIGH: Grade[] = ["고1", "고2", "고3", "재수"];
+const GRADE_OPTIONS_MID: Grade[] = ["중1", "중2", "중3"];
+const GRADE_OPTIONS_HIDDEN: Grade[] = ["졸업", "미정"];
 const SUBJECT_OPTIONS: Subject[] = ["수학", "국어", "영어", "탐구"];
 const BRANCH_OPTIONS = ["대치", "송도"] as const;
+const LEVEL_SEGMENTS: ReadonlyArray<{
+  value: "전체" | "중" | "고";
+  label: string;
+}> = [
+  { value: "전체", label: "전체" },
+  { value: "고", label: "고등" },
+  { value: "중", label: "중등" },
+];
 const SCHOOL_VISIBLE_LIMIT = 8;
 const DEBOUNCE_MS = 300;
 
@@ -68,10 +84,25 @@ export function GroupBuilder({
   // 폼 상태
   const [name, setName] = useState<string>(initial.name);
   const [branch, setBranch] = useState<string>(initial.branch);
-  const [grades, setGrades] = useState<number[]>(initial.filters.grades);
+  const [grades, setGrades] = useState<Grade[]>(initial.filters.grades);
   const [schools, setSchools] = useState<string[]>(initial.filters.schools);
   const [subjects, setSubjects] = useState<string[]>(initial.filters.subjects);
   const [showAllSchools, setShowAllSchools] = useState<boolean>(false);
+
+  // 학교급 세그먼티드 토글. 초기값은 기존에 선택된 학년에서 추론.
+  const [level, setLevel] = useState<"전체" | "중" | "고">(() => {
+    const initialGrades = initial.filters.grades;
+    if (initialGrades.length === 0) return "전체";
+    const allMid = initialGrades.every((g) => GRADE_OPTIONS_MID.includes(g));
+    const allHigh = initialGrades.every((g) => GRADE_OPTIONS_HIGH.includes(g));
+    if (allMid) return "중";
+    if (allHigh) return "고";
+    return "전체";
+  });
+  // '졸업·미정' 학년 영역 expand. 초기값은 현재 선택된 grades 에 포함되면 펼침.
+  const [showHiddenGrades, setShowHiddenGrades] = useState<boolean>(() =>
+    initial.filters.grades.some((g) => GRADE_OPTIONS_HIDDEN.includes(g)),
+  );
 
   // 실시간 프리뷰
   const [preview, setPreview] = useState<SamplePreview>(initialPreview);
@@ -90,9 +121,7 @@ export function GroupBuilder({
   // 실제 서버로 보낼 filters
   const filters: GroupFilters = useMemo(
     () => ({
-      grades: grades.filter((g): g is 1 | 2 | 3 =>
-        g === 1 || g === 2 || g === 3,
-      ),
+      grades,
       schools,
       subjects: subjects.filter((s): s is Subject =>
         SUBJECT_OPTIONS.includes(s as Subject),
@@ -280,17 +309,100 @@ export function GroupBuilder({
               label="학년"
               hint={grades.length === 0 ? "선택 안 함 = 전 학년" : undefined}
             >
-              <div className="flex flex-wrap gap-1.5">
-                {GRADE_OPTIONS.map((g) => (
-                  <Chip
-                    key={g}
-                    label={`고${g}`}
-                    active={grades.includes(g)}
-                    onClick={() =>
-                      toggleFromList(grades, g, (next) => setGrades(next))
-                    }
-                  />
-                ))}
+              <div className="space-y-2.5">
+                {/* 학교급 세그먼티드 */}
+                <div
+                  role="radiogroup"
+                  aria-label="학교급 선택"
+                  className="inline-flex h-9 rounded-lg border border-[color:var(--border)] bg-white p-0.5"
+                >
+                  {LEVEL_SEGMENTS.map((opt) => {
+                    const active = opt.value === level;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="radio"
+                        aria-checked={active}
+                        onClick={() => {
+                          setLevel(opt.value);
+                          // 학교급 변경 시 다른 학교급 학년은 정리.
+                          const allowed: ReadonlySet<Grade> =
+                            opt.value === "중"
+                              ? new Set(GRADE_OPTIONS_MID)
+                              : opt.value === "고"
+                                ? new Set(GRADE_OPTIONS_HIGH)
+                                : new Set([
+                                    ...GRADE_OPTIONS_MID,
+                                    ...GRADE_OPTIONS_HIGH,
+                                    ...GRADE_OPTIONS_HIDDEN,
+                                  ]);
+                          setGrades(grades.filter((g) => allowed.has(g)));
+                        }}
+                        className={`
+                          inline-flex items-center justify-center
+                          min-w-14 h-8 px-3 rounded-md
+                          text-[13px] font-medium
+                          transition-colors
+                          ${
+                            active
+                              ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
+                              : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                          }
+                        `}
+                      >
+                        {opt.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* 학년 칩 */}
+                <div className="flex flex-wrap gap-1.5">
+                  {(level === "중" ? GRADE_OPTIONS_MID : GRADE_OPTIONS_HIGH).map(
+                    (g) => (
+                      <Chip
+                        key={g}
+                        label={g}
+                        active={grades.includes(g)}
+                        onClick={() =>
+                          toggleFromList(grades, g, (next) => setGrades(next))
+                        }
+                      />
+                    ),
+                  )}
+                </div>
+
+                {/* 졸업·미정 expand */}
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowHiddenGrades((v) => !v)}
+                    aria-expanded={showHiddenGrades}
+                    className="
+                      inline-flex items-center gap-1
+                      text-[12px] text-[color:var(--text-muted)]
+                      hover:text-[color:var(--text)]
+                      transition-colors
+                    "
+                  >
+                    {showHiddenGrades ? "− 졸업·미정 숨기기" : "+ 졸업·미정 포함"}
+                  </button>
+                  {showHiddenGrades && (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {GRADE_OPTIONS_HIDDEN.map((g) => (
+                        <Chip
+                          key={g}
+                          label={g}
+                          active={grades.includes(g)}
+                          onClick={() =>
+                            toggleFromList(grades, g, (next) => setGrades(next))
+                          }
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             </Field>
 
@@ -447,7 +559,7 @@ export function GroupBuilder({
                         {s.school ?? "-"}
                       </span>
                       <span className="text-[color:var(--text-muted)]">
-                        {s.grade ? `고${s.grade}` : ""}
+                        {s.grade ?? ""}
                       </span>
                     </li>
                   ))}

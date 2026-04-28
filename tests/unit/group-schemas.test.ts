@@ -20,8 +20,8 @@ describe("GroupFiltersSchema", () => {
     });
 
     it("grades 고2·고3 복수 선택 성공", () => {
-      const r = GroupFiltersSchema.parse({ grades: [2, 3] });
-      expect(r.grades).toEqual([2, 3]);
+      const r = GroupFiltersSchema.parse({ grades: ["고2", "고3"] });
+      expect(r.grades).toEqual(["고2", "고3"]);
       expect(r.schools).toEqual([]);
       expect(r.subjects).toEqual([]);
     });
@@ -38,8 +38,9 @@ describe("GroupFiltersSchema", () => {
   });
 
   describe("경계값 · 유효성 거부", () => {
-    it("grades 에 4 가 섞이면 실패(고1/2/3만 허용)", () => {
+    it("grades 에 정규화 enum 외 값(예: 숫자 4 / '고4')이 섞이면 실패", () => {
       expect(() => GroupFiltersSchema.parse({ grades: [4] })).toThrow();
+      expect(() => GroupFiltersSchema.parse({ grades: ["고4"] })).toThrow();
     });
 
     it("subjects 에 '기타'는 공통 Subject enum 에 없음 → 실패", () => {
@@ -58,11 +59,11 @@ describe("CreateGroupInputSchema", () => {
       const r = CreateGroupInputSchema.parse({
         name: "대치 고2 전체",
         branch: "대치",
-        filters: { grades: [2], schools: [], subjects: [] },
+        filters: { grades: ["고2"], schools: [], subjects: [] },
       });
       expect(r.name).toBe("대치 고2 전체");
       expect(r.branch).toBe("대치");
-      expect(r.filters.grades).toEqual([2]);
+      expect(r.filters.grades).toEqual(["고2"]);
     });
 
     it("filters 빈 객체 · 기본 빈 배열로 채워짐", () => {
@@ -146,9 +147,9 @@ describe("UpdateGroupInputSchema", () => {
     it("id + filters 만 주는 부분 수정 성공", () => {
       const r = UpdateGroupInputSchema.parse({
         id: validId,
-        filters: { grades: [3], schools: [], subjects: [] },
+        filters: { grades: ["고3"], schools: [], subjects: [] },
       });
-      expect(r.filters?.grades).toEqual([3]);
+      expect(r.filters?.grades).toEqual(["고3"]);
     });
   });
 

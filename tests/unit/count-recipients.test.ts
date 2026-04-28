@@ -18,18 +18,18 @@ describe("countRecipients · dev seed", () => {
   });
 
   describe("grades 필터", () => {
-    it("grades=[2] · branch='대치' → DC0001·DC0002 2명", async () => {
+    it("grades=['고2'] · branch='대치' → DC0001·DC0002 2명", async () => {
       const r = await countRecipients(
-        { ...emptyFilters, grades: [2] },
+        { ...emptyFilters, grades: ["고2"] },
         "대치",
       );
       expect(r.total).toBe(2);
       expect(r.sample.length).toBe(2);
     });
 
-    it("grades=[3] · branch='대치' → 고3 2명(DC0003·DC0005)", async () => {
+    it("grades=['고3'] · branch='대치' → 고3 2명(DC0003·DC0005)", async () => {
       const r = await countRecipients(
-        { ...emptyFilters, grades: [3] },
+        { ...emptyFilters, grades: ["고3"] },
         "대치",
       );
       expect(r.total).toBe(2);

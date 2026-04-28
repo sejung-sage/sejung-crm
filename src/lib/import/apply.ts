@@ -77,7 +77,22 @@ type StudentUpsertPayload = {
   name: string;
   phone: string | null;
   school: string | null;
-  grade: 1 | 2 | 3 | null;
+  /**
+   * 정규화된 학년 (중1/중2/중3/고1/고2/고3/재수/졸업/미정 9종).
+   * 0012 마이그레이션 후 DB students.grade CHECK 제약 통과.
+   */
+  grade:
+    | "중1"
+    | "중2"
+    | "중3"
+    | "고1"
+    | "고2"
+    | "고3"
+    | "재수"
+    | "졸업"
+    | "미정";
+  /** 사용자 입력 원본 학년 문자열. DB students.grade_raw 에 저장. */
+  grade_raw: string | null;
   track: "문과" | "이과" | null;
   status: "재원생" | "수강이력자" | "신규리드" | "탈퇴";
   branch: string;
@@ -226,6 +241,7 @@ export async function applyImport(
     phone: s.phone,
     school: s.school,
     grade: s.grade,
+    grade_raw: s.grade_raw,
     track: s.track,
     status: s.status,
     branch: s.branch,

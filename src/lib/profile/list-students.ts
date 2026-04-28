@@ -1,6 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { StudentProfileRow } from "@/types/database";
 import type { ListStudentsInput } from "@/lib/schemas/student";
+import { HIDDEN_GRADES_BY_DEFAULT } from "@/lib/schemas/common";
 import { DEV_STUDENT_PROFILES, isDevSeedMode } from "./students-dev-seed";
 
 export interface ListStudentsResult {
@@ -54,12 +55,31 @@ async function listFromSupabase(
     query = query.in("grade", input.grades);
   }
 
+  if (input.schoolLevels.length > 0) {
+    query = query.in("school_level", input.schoolLevels);
+  }
+
   if (input.tracks.length > 0) {
     query = query.in("track", input.tracks);
   }
 
   if (input.statuses.length > 0) {
     query = query.in("status", input.statuses);
+  }
+
+  // 기본 숨김: includeHidden=false 이고 사용자가 학년 칩으로 명시적으로
+  // 졸업·미정 을 선택하지 않은 경우에만 자동 숨김 적용.
+  // 사용자가 grades 에 '졸업'/'미정' 을 포함시켰으면 그 의도를 존중.
+  if (!input.includeHidden && input.grades.length === 0) {
+    // PostgREST: grade NOT IN ('미정','졸업'). null grade 도 함께 보여주려면
+    // .or("grade.is.null,grade.not.in.(미정,졸업)") 가 정확하지만,
+    // 0012 마이그레이션 백필 후엔 grade 가 항상 9종 enum 중 하나이므로
+    // 단순 NOT IN 으로 충분.
+    query = query.not(
+      "grade",
+      "in",
+      `(${HIDDEN_GRADES_BY_DEFAULT.join(",")})`,
+    );
   }
 
   const { data, count, error } = await query.range(from, to);
@@ -102,6 +122,13 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
     rows = rows.filter((r) => r.grade !== null && input.grades.includes(r.grade));
   }
 
+  if (input.schoolLevels.length > 0) {
+    rows = rows.filter(
+      (r) =>
+        r.school_level !== null && input.schoolLevels.includes(r.school_level),
+    );
+  }
+
   if (input.tracks.length > 0) {
     rows = rows.filter(
       (r) => r.track !== null && input.tracks.includes(r.track),
@@ -110,6 +137,15 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
 
   if (input.statuses.length > 0) {
     rows = rows.filter((r) => input.statuses.includes(r.status));
+  }
+
+  // 기본 숨김 (Supabase 경로와 동일 규칙).
+  if (!input.includeHidden && input.grades.length === 0) {
+    rows = rows.filter(
+      (r) =>
+        r.grade === null ||
+        !HIDDEN_GRADES_BY_DEFAULT.includes(r.grade),
+    );
   }
 
   // 등록일 역순 정렬 (null은 뒤로)

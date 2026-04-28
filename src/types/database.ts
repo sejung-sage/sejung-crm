@@ -14,7 +14,25 @@
 // ─── Enum 리터럴 ────────────────────────────────────────────
 
 export type Branch = "대치" | "송도" | string;
-export type Grade = 1 | 2 | 3;
+/**
+ * 학년 (정규화 9종 enum).
+ * 0012 마이그레이션에서 자유형식 TEXT → enum 으로 전환.
+ * 단일 출처는 `@/lib/schemas/common.GradeSchema`.
+ */
+export type Grade =
+  | "중1"
+  | "중2"
+  | "중3"
+  | "고1"
+  | "고2"
+  | "고3"
+  | "재수"
+  | "졸업"
+  | "미정";
+/**
+ * 학교급. school + grade_raw 조합으로 derive_school_level() 도출.
+ */
+export type SchoolLevel = "중" | "고" | "기타";
 export type Track = "문과" | "이과";
 export type StudentStatus =
   | "재원생"
@@ -43,7 +61,12 @@ export interface StudentRow {
   phone: string | null;
   parent_phone: string | null;
   school: string | null;
+  /** 정규화된 학년 (중1~고3/재수/졸업/미정 9종). 0012 에서 enum 화. */
   grade: Grade | null;
+  /** 아카(Aca2000) V_student_list.학년 원본 값 ("1"~"10"/"고3"/"졸"/NULL). 0012 추가. */
+  grade_raw: string | null;
+  /** 학교급 (중/고/기타). 0012 추가. school+grade_raw 로 derive_school_level() 도출. */
+  school_level: SchoolLevel | null;
   track: Track | null;
   status: StudentStatus;
   branch: string;
@@ -247,7 +270,12 @@ export interface StudentProfileRow {
   id: string;
   name: string;
   school: string | null;
+  /** 정규화된 학년 (중1~고3/재수/졸업/미정 9종). 0012 에서 enum 화. */
   grade: Grade | null;
+  /** 아카 원본 학년 값 (디버그·ETL 재처리용). 0012 추가. */
+  grade_raw: string | null;
+  /** 학교급 (중/고/기타). 0012 추가. */
+  school_level: SchoolLevel | null;
   track: Track | null;
   status: StudentStatus;
   branch: string;

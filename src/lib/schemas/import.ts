@@ -1,10 +1,12 @@
 import { z } from "zod";
 import {
   AttendanceStatusSchema,
+  GradeSchema,
   PhoneSchema,
   StudentStatusSchema,
   SubjectSchema,
   TrackSchema,
+  type Grade,
 } from "./common";
 
 /**
@@ -16,6 +18,12 @@ import {
  *  - 한글 헤더("고1", "550,000" 등) 가 혼재하므로 Zod 진입 전 전처리 헬퍼로
  *    문자열을 표준형으로 맞춘다.
  *  - branch 는 분원 확장 여지를 위해 enum 체크하지 않고 trim 된 TEXT 로 수락.
+ *
+ * 0012 마이그레이션 반영:
+ *  - students.grade 가 자유형식 TEXT → 9종 enum (중1~고3/재수/졸업/미정).
+ *  - normalizeGrade(rawGrade, school) 는 DB 의 normalize_student_grade(...)
+ *    함수와 동일 규칙. CSV 헤더는 기존 "학년" / "grade" 그대로 수용하되,
+ *    값은 아카 원값 ("1"~"10"/"고3"/"졸"/NULL) 또는 정규화 enum 두 형태 모두 허용.
  */
 
 // ============================================================
@@ -33,20 +41,83 @@ export function emptyToNull(v: unknown): unknown {
 }
 
 /**
- * "고1" / "고2" / "고3" / "1" / 1 → 1|2|3, 그 외 → null.
+ * 학교명이 중학교 suffix 인지 판정.
+ * "○○중" 또는 "○○중학교" 로 끝나면 true.
  */
-export function normalizeGrade(input: unknown): 1 | 2 | 3 | null {
-  if (input === null || input === undefined) return null;
-  if (typeof input === "number") {
-    return input === 1 || input === 2 || input === 3 ? input : null;
+function isMiddleSchool(school: string | null | undefined): boolean {
+  if (school === null || school === undefined) return false;
+  const s = String(school).trim();
+  if (s === "") return false;
+  if (s.endsWith("중학교")) return true;
+  // suffix '중' 1자: '휘문고' 와 충돌하지 않도록 마지막 1글자만 비교.
+  return s.charAt(s.length - 1) === "중";
+}
+
+/**
+ * CSV/Excel 가져오기에서 사용자 입력 grade 값을 정규화 9종 enum 으로 매핑.
+ * DB 의 public.normalize_student_grade(grade_raw, school) 와 동일 규칙.
+ *
+ * 매핑표:
+ *   '1'/'2'/'3'  + 학교 suffix '중' → 중1/중2/중3
+ *   '1'/'2'/'3'  + 그 외             → 고1/고2/고3
+ *   '4'                              → 재수
+ *   '0'/'5'~'10'/'졸'                → 졸업
+ *   '고3'                            → 고3
+ *   '중1'~'중3'/'고1'~'고2'/'재수'/'졸업'/'미정' (이미 정규화된 값) → 그대로
+ *   그 외 / NULL / 공백              → 미정 (방어적)
+ *
+ * 결과는 항상 Grade enum 9종 중 하나. null 반환 안 함 (DB CHECK 통과 보장).
+ */
+export function normalizeGrade(
+  rawGrade: string | number | null | undefined,
+  school: string | null | undefined,
+): Grade {
+  // NULL / undefined / 빈값 → 미정
+  if (rawGrade === null || rawGrade === undefined) return "미정";
+  const s = String(rawGrade).trim();
+  if (s === "") return "미정";
+
+  // 이미 정규화된 enum 값이면 그대로 통과 (재실행 idempotent).
+  if (
+    s === "중1" ||
+    s === "중2" ||
+    s === "중3" ||
+    s === "고1" ||
+    s === "고2" ||
+    s === "고3" ||
+    s === "재수" ||
+    s === "졸업" ||
+    s === "미정"
+  ) {
+    return s;
   }
-  if (typeof input !== "string") return null;
-  const s = input.trim();
-  if (s === "") return null;
-  const m = s.match(/([123])/);
-  if (!m) return null;
-  const n = Number(m[1]);
-  return n === 1 || n === 2 || n === 3 ? n : null;
+
+  // 명시적 한글 표기
+  if (s === "졸") return "졸업";
+
+  // 정수 1/2/3 + 학교 suffix 로 중/고 분기
+  if (s === "1") return isMiddleSchool(school) ? "중1" : "고1";
+  if (s === "2") return isMiddleSchool(school) ? "중2" : "고2";
+  if (s === "3") return isMiddleSchool(school) ? "중3" : "고3";
+
+  // 4 = 재수
+  if (s === "4") return "재수";
+
+  // 0, 5~10 = 장기 재수 / 졸업과 통합
+  if (
+    s === "0" ||
+    s === "5" ||
+    s === "6" ||
+    s === "7" ||
+    s === "8" ||
+    s === "9" ||
+    s === "10"
+  ) {
+    return "졸업";
+  }
+
+  // 알 수 없는 값 → 방어적으로 미정
+  return "미정";
 }
 
 /**
@@ -204,43 +275,94 @@ const RequiredDate = z.preprocess(
 
 // ============================================================
 // 1) ImportStudentRowSchema
+//
+// grade 정규화는 school 컨텍스트가 필요하므로 (예: '2' + 학교 suffix '중'
+// → '중2') 단일 필드 preprocess 가 아니라 object 단위 transform 으로
+// school 과 함께 normalizeGrade(rawGrade, school) 를 호출한다.
+//
+// 결과 타입의 grade 는 항상 Grade enum 9종 중 하나 (null 아님 — '미정'
+// 으로 흡수). grade_raw 는 원본 문자열 보존 (DB grade_raw 컬럼에 그대로).
 // ============================================================
 
-export const ImportStudentRowSchema = z.object({
-  parent_phone: RequiredPhone,
-  name: RequiredTrimString(1, 20, "이름"),
-  phone: OptionalPhone,
-  school: OptionalTrimString(50),
-  grade: z
-    .preprocess(
-      (v) => {
+/**
+ * grade 입력의 원시 형태.
+ * - 빈값/공백/null/undefined → null (정규화 시 '미정' 흡수)
+ * - 문자열 → trim
+ * - 숫자 → 문자열 변환 후 trim
+ */
+const RawGradeField = z
+  .preprocess((v) => {
+    const e = emptyToNull(v);
+    if (e === null) return null;
+    if (typeof e === "string") return e.trim();
+    if (typeof e === "number") return String(e);
+    return null;
+  }, z.union([z.string(), z.null()]))
+  .nullable();
+
+export const ImportStudentRowSchema = z
+  .object({
+    parent_phone: RequiredPhone,
+    name: RequiredTrimString(1, 20, "이름"),
+    phone: OptionalPhone,
+    school: OptionalTrimString(50),
+    /** 사용자가 CSV/XLSX 에 적은 grade 원시 문자열. transform 단계에서 grade enum 으로 정규화. */
+    grade: RawGradeField,
+    track: z
+      .preprocess((v) => {
         const e = emptyToNull(v);
         if (e === null) return null;
-        return normalizeGrade(e);
-      },
-      z.union([z.literal(1), z.literal(2), z.literal(3), z.null()]),
-    )
-    .nullable(),
-  track: z
-    .preprocess((v) => {
-      const e = emptyToNull(v);
-      if (e === null) return null;
-      if (typeof e === "string") return e.trim();
-      return e;
-    }, z.union([TrackSchema, z.null()]))
-    .nullable(),
-  status: z
-    .preprocess((v) => {
-      const e = emptyToNull(v);
-      if (e === null) return "재원생";
-      if (typeof e === "string") return e.trim();
-      return e;
-    }, StudentStatusSchema)
-    .default("재원생"),
-  branch: RequiredTrimString(1, 20, "분원"),
-  registered_at: OptionalDate,
-  aca2000_id: OptionalTrimString(50),
-});
+        if (typeof e === "string") return e.trim();
+        return e;
+      }, z.union([TrackSchema, z.null()]))
+      .nullable(),
+    status: z
+      .preprocess((v) => {
+        const e = emptyToNull(v);
+        if (e === null) return "재원생";
+        if (typeof e === "string") return e.trim();
+        return e;
+      }, StudentStatusSchema)
+      .default("재원생"),
+    branch: RequiredTrimString(1, 20, "분원"),
+    registered_at: OptionalDate,
+    aca2000_id: OptionalTrimString(50),
+  })
+  .transform((row) => {
+    const rawGrade = row.grade; // string | null
+    const grade = normalizeGrade(rawGrade, row.school);
+    return {
+      parent_phone: row.parent_phone,
+      name: row.name,
+      phone: row.phone,
+      school: row.school,
+      /** 정규화된 학년 (Grade enum 9종). DB students.grade 에 그대로 저장. */
+      grade,
+      /** 사용자 입력 원본 학년 문자열. DB students.grade_raw 에 저장. null 가능. */
+      grade_raw: rawGrade,
+      track: row.track,
+      status: row.status,
+      branch: row.branch,
+      registered_at: row.registered_at,
+      aca2000_id: row.aca2000_id,
+    };
+  })
+  // transform 결과를 한 번 더 Grade enum 으로 검증 (정합성 보장).
+  .pipe(
+    z.object({
+      parent_phone: z.string(),
+      name: z.string(),
+      phone: z.string().nullable(),
+      school: z.string().nullable(),
+      grade: GradeSchema,
+      grade_raw: z.string().nullable(),
+      track: TrackSchema.nullable(),
+      status: StudentStatusSchema,
+      branch: z.string(),
+      registered_at: z.string().nullable(),
+      aca2000_id: z.string().nullable(),
+    }),
+  );
 
 export type ImportStudentRow = z.infer<typeof ImportStudentRowSchema>;
 

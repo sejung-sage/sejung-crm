@@ -81,44 +81,77 @@ describe("import helpers · normalizeKoreanPhone", () => {
 });
 
 describe("import helpers · normalizeGrade", () => {
-  it('"고1" / "고2" / "고3" → 1|2|3', () => {
-    expect(normalizeGrade("고1")).toBe(1);
-    expect(normalizeGrade("고2")).toBe(2);
-    expect(normalizeGrade("고3")).toBe(3);
+  // 0012 마이그레이션 정규화 모델: (rawGrade, school) → Grade enum 9종.
+  // 결과는 항상 enum 중 하나, null 반환 안 함 (DB CHECK 통과 보장).
+  // DB 의 normalize_student_grade(grade_raw, school) 와 동일 룰.
+
+  it("이미 정규화된 enum 값은 그대로 통과", () => {
+    expect(normalizeGrade("중1", null)).toBe("중1");
+    expect(normalizeGrade("고3", null)).toBe("고3");
+    expect(normalizeGrade("재수", "휘문고")).toBe("재수");
+    expect(normalizeGrade("졸업", null)).toBe("졸업");
+    expect(normalizeGrade("미정", null)).toBe("미정");
   });
 
-  it('"1" / "2" / "3" → 1|2|3', () => {
-    expect(normalizeGrade("1")).toBe(1);
-    expect(normalizeGrade("3")).toBe(3);
+  it('정수 "1"/"2"/"3" + 학교 "○○중" → 중1/중2/중3', () => {
+    expect(normalizeGrade("1", "대왕중")).toBe("중1");
+    expect(normalizeGrade("2", "대왕중")).toBe("중2");
+    expect(normalizeGrade("3", "대왕중")).toBe("중3");
   });
 
-  it("숫자 1/2/3 → 그대로", () => {
-    expect(normalizeGrade(1)).toBe(1);
-    expect(normalizeGrade(2)).toBe(2);
-    expect(normalizeGrade(3)).toBe(3);
+  it('정수 "1"/"2"/"3" + 학교 "○○중학교" → 중1/중2/중3', () => {
+    expect(normalizeGrade("2", "휘문중학교")).toBe("중2");
   });
 
-  it("4 / 0 같은 비허용 숫자 → null", () => {
-    expect(normalizeGrade(4)).toBeNull();
-    expect(normalizeGrade(0)).toBeNull();
+  it('정수 "1"/"2"/"3" + 학교 "○○고" → 고1/고2/고3', () => {
+    expect(normalizeGrade("1", "휘문고")).toBe("고1");
+    expect(normalizeGrade("2", "단대부고")).toBe("고2");
+    expect(normalizeGrade("3", "휘문고등학교")).toBe("고3");
   });
 
-  it('"고2반" → 2 (첫 번째 [123] 매칭)', () => {
-    expect(normalizeGrade("고2반")).toBe(2);
+  it("정수 + 학교 NULL → 고등부 추정 (학원 운영상 다수가 고등부)", () => {
+    expect(normalizeGrade("1", null)).toBe("고1");
+    expect(normalizeGrade("2", null)).toBe("고2");
+    expect(normalizeGrade("3", null)).toBe("고3");
   });
 
-  it("빈 문자열 → null", () => {
-    expect(normalizeGrade("")).toBeNull();
+  it("숫자 입력도 문자열과 동일하게 처리", () => {
+    expect(normalizeGrade(1, "대왕중")).toBe("중1");
+    expect(normalizeGrade(2, "휘문고")).toBe("고2");
+    expect(normalizeGrade(3, null)).toBe("고3");
   });
 
-  it('"abc" / "고" → null', () => {
-    expect(normalizeGrade("abc")).toBeNull();
-    expect(normalizeGrade("고")).toBeNull();
+  it('"4" → 재수', () => {
+    expect(normalizeGrade("4", null)).toBe("재수");
+    expect(normalizeGrade(4, "휘문고")).toBe("재수");
   });
 
-  it("null / undefined → null", () => {
-    expect(normalizeGrade(null)).toBeNull();
-    expect(normalizeGrade(undefined)).toBeNull();
+  it('"0" / "5"~"10" / "졸" → 졸업 (장기 재수 통합)', () => {
+    expect(normalizeGrade("0", null)).toBe("졸업");
+    expect(normalizeGrade("5", null)).toBe("졸업");
+    expect(normalizeGrade("8", null)).toBe("졸업");
+    expect(normalizeGrade("10", null)).toBe("졸업");
+    expect(normalizeGrade("졸", "휘문고")).toBe("졸업");
+  });
+
+  it("NULL / 공백 → 미정", () => {
+    expect(normalizeGrade(null, null)).toBe("미정");
+    expect(normalizeGrade(undefined, null)).toBe("미정");
+    expect(normalizeGrade("", null)).toBe("미정");
+    expect(normalizeGrade("   ", null)).toBe("미정");
+  });
+
+  it("알 수 없는 값 → 미정 (방어적)", () => {
+    expect(normalizeGrade("abc", null)).toBe("미정");
+    expect(normalizeGrade("고4", null)).toBe("미정");
+    expect(normalizeGrade("고2반", null)).toBe("미정");
+  });
+
+  it('학교 suffix 1자 "중" 비교에서 "휘문고등학교" 가 잘못 매칭되지 않음', () => {
+    // "휘문고등학교" 는 마지막 글자가 '교' 라 '중' 매칭 안 됨.
+    expect(normalizeGrade("2", "휘문고등학교")).toBe("고2");
+    // "○○중" 1자 suffix 와 다른 한자/문자: '중앙고' 의 '고' 마지막. '중' 끝 아님.
+    expect(normalizeGrade("2", "중앙고")).toBe("고2");
   });
 });
 

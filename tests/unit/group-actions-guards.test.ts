@@ -30,7 +30,7 @@ describe("Server Actions · dev-seed 조기 반환", () => {
       const r = await createGroupAction({
         name: "테스트 그룹",
         branch: "대치",
-        filters: { grades: [2], schools: [], subjects: [] },
+        filters: { grades: ["고2"], schools: [], subjects: [] },
       });
       expect(r.status).toBe("dev_seed_mode");
     });
@@ -75,7 +75,7 @@ describe("countRecipientsAction · dev-seed 에서도 정상 동작", () => {
 
   it("정상 필터·분원 → success + data.total/sample 반환", async () => {
     const r = await countRecipientsAction(
-      { grades: [2], schools: [], subjects: [] },
+      { grades: ["고2"], schools: [], subjects: [] },
       "대치",
     );
     expect(r.status).toBe("success");
@@ -97,7 +97,13 @@ describe("countRecipientsAction · dev-seed 에서도 정상 동작", () => {
   });
 
   it("filters 가 잘못된 값이면 failed(한글 메시지)", async () => {
-    const r = await countRecipientsAction({ grades: [5] }, "대치");
+    // 일부러 잘못된 값을 넣어 Zod 가드 검증.
+    const r = await countRecipientsAction(
+      { grades: ["대학생"] } as unknown as Parameters<
+        typeof countRecipientsAction
+      >[0],
+      "대치",
+    );
     expect(r.status).toBe("failed");
   });
 });

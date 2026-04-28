@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SubjectSchema } from "./common";
+import { GradeSchema, SubjectSchema } from "./common";
 
 /**
  * 발송 그룹(F2) Zod 스키마
@@ -17,10 +17,11 @@ import { SubjectSchema } from "./common";
  * 모든 필드는 선택이며, 빈 배열은 "조건 없음(전체 허용)" 의미.
  */
 export const GroupFiltersSchema = z.object({
-  /** 학년: 1/2/3 중 다중 선택. 빈 배열이면 전 학년 */
-  grades: z
-    .array(z.union([z.literal(1), z.literal(2), z.literal(3)]))
-    .default([]),
+  /**
+   * 학년: 정규화된 9종 enum (중1~고3/재수/졸업/미정). 빈 배열이면 전 학년.
+   * 0012 마이그레이션 이후 students.grade 와 동일한 enum 사용.
+   */
+  grades: z.array(GradeSchema).default([]),
   /** 학교명: 자유 입력 문자열 배열. 빈 배열이면 전 학교 */
   schools: z.array(z.string().trim().min(1).max(40)).default([]),
   /** 과목: 공통 SubjectSchema 재사용. 빈 배열이면 전 과목 */

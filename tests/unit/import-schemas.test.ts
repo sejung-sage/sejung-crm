@@ -18,7 +18,7 @@ describe("ImportStudentRowSchema", () => {
     branch: "대치",
   };
 
-  it("정상 필수값만 있어도 통과 · status 기본 '재원생'", () => {
+  it("정상 필수값만 있어도 통과 · status 기본 '재원생' · grade 미입력은 '미정'", () => {
     const r = ImportStudentRowSchema.safeParse(baseRow);
     expect(r.success).toBe(true);
     if (r.success) {
@@ -26,7 +26,9 @@ describe("ImportStudentRowSchema", () => {
       expect(r.data.name).toBe("김민준");
       expect(r.data.branch).toBe("대치");
       expect(r.data.status).toBe("재원생");
-      expect(r.data.grade).toBeNull();
+      // 0012 마이그레이션 후: grade 미입력 → '미정' 으로 정규화
+      expect(r.data.grade).toBe("미정");
+      expect(r.data.grade_raw).toBeNull();
       expect(r.data.track).toBeNull();
     }
   });
@@ -72,33 +74,81 @@ describe("ImportStudentRowSchema", () => {
     }
   });
 
-  it('grade "고3" → 3 으로 정규화', () => {
+  it('grade "고3" → "고3" (이미 정규화 enum) 통과', () => {
     const r = ImportStudentRowSchema.safeParse({ ...baseRow, grade: "고3" });
     expect(r.success).toBe(true);
-    if (r.success) expect(r.data.grade).toBe(3);
+    if (r.success) {
+      expect(r.data.grade).toBe("고3");
+      expect(r.data.grade_raw).toBe("고3");
+    }
   });
 
-  it('grade "고1" / "2" / 숫자 2 각각 정규화', () => {
+  it('grade "고1" → "고1" 그대로 / 숫자 "2" + 학교 없음 → "고2"', () => {
     const a = ImportStudentRowSchema.safeParse({ ...baseRow, grade: "고1" });
-    expect(a.success && a.data.grade).toBe(1);
+    expect(a.success && a.data.grade).toBe("고1");
+    // 정수 "2" + school 없음 → 고2 추정 (DB normalize_student_grade 와 동일)
     const b = ImportStudentRowSchema.safeParse({ ...baseRow, grade: "2" });
-    expect(b.success && b.data.grade).toBe(2);
+    expect(b.success && b.data.grade).toBe("고2");
+    if (b.success) expect(b.data.grade_raw).toBe("2");
+    // 숫자 입력도 동일
     const c = ImportStudentRowSchema.safeParse({ ...baseRow, grade: 2 });
-    expect(c.success && c.data.grade).toBe(2);
+    expect(c.success && c.data.grade).toBe("고2");
   });
 
-  it('grade "고4" → preprocess 에서 null 로 변환되어 통과 (nullable)', () => {
-    // normalizeGrade 는 [123] 매칭 기반이라 "고4" 는 매칭 안되어 null 반환.
-    // 스키마는 null 을 허용하므로 success.
+  it('grade 정수 "2" + school "대왕중" → "중2"', () => {
+    const r = ImportStudentRowSchema.safeParse({
+      ...baseRow,
+      grade: "2",
+      school: "대왕중",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.grade).toBe("중2");
+      expect(r.data.school).toBe("대왕중");
+      expect(r.data.grade_raw).toBe("2");
+    }
+  });
+
+  it('grade 정수 "3" + school "휘문중학교" → "중3"', () => {
+    const r = ImportStudentRowSchema.safeParse({
+      ...baseRow,
+      grade: "3",
+      school: "휘문중학교",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.grade).toBe("중3");
+  });
+
+  it('grade "4" → "재수"', () => {
+    const r = ImportStudentRowSchema.safeParse({ ...baseRow, grade: "4" });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.grade).toBe("재수");
+  });
+
+  it('grade "졸" / "0" / "8" → "졸업"', () => {
+    for (const g of ["졸", "0", "8"]) {
+      const r = ImportStudentRowSchema.safeParse({ ...baseRow, grade: g });
+      expect(r.success).toBe(true);
+      if (r.success) expect(r.data.grade).toBe("졸업");
+    }
+  });
+
+  it('grade "고4" 등 알 수 없는 값 → "미정"', () => {
     const r = ImportStudentRowSchema.safeParse({ ...baseRow, grade: "고4" });
     expect(r.success).toBe(true);
-    if (r.success) expect(r.data.grade).toBeNull();
+    if (r.success) {
+      expect(r.data.grade).toBe("미정");
+      expect(r.data.grade_raw).toBe("고4");
+    }
   });
 
-  it("grade 빈 문자열 → null", () => {
+  it("grade 빈 문자열 → '미정' · grade_raw null", () => {
     const r = ImportStudentRowSchema.safeParse({ ...baseRow, grade: "" });
     expect(r.success).toBe(true);
-    if (r.success) expect(r.data.grade).toBeNull();
+    if (r.success) {
+      expect(r.data.grade).toBe("미정");
+      expect(r.data.grade_raw).toBeNull();
+    }
   });
 
   it('track "문과" / "이과" 통과', () => {

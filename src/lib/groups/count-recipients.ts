@@ -17,7 +17,7 @@
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { GroupFilters } from "@/lib/schemas/group";
-import type { StudentProfileRow } from "@/types/database";
+import type { Grade, StudentProfileRow } from "@/types/database";
 import {
   DEV_STUDENT_PROFILES,
   isDevSeedMode,
@@ -29,7 +29,7 @@ export interface CountRecipientsResult {
   sample: Array<{
     name: string;
     school: string | null;
-    grade: number | null;
+    grade: Grade | null;
   }>;
 }
 

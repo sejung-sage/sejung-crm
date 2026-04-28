@@ -56,7 +56,7 @@ export function GroupStudentsTable({ rows }: Props) {
                 {r.school ?? "-"}
               </Td>
               <Td className="text-center text-[color:var(--text)]">
-                {r.grade ? `고${r.grade}` : "-"}
+                {r.grade ?? "-"}
               </Td>
               <Td className="text-center">
                 <StudentStatusBadge status={r.status} />
