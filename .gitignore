@@ -40,3 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 supabase/.temp/
+
+# ETL · Python
+.venv/
+scripts/etl/.env
+scripts/etl/explore_output/
+__pycache__/
+*.pyc
