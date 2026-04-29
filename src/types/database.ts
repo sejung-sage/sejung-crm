@@ -40,7 +40,17 @@ export type StudentStatus =
   | "신규리드"
   | "탈퇴";
 export type Subject = "수학" | "국어" | "영어" | "탐구";
-export type AttendanceStatus = "출석" | "지각" | "결석" | "조퇴";
+/**
+ * 출결 상태. 0018 에서 '보강' 추가 (5종).
+ * 보강 = 결석분을 동영상강의로 대체 수강한 케이스.
+ * 출석률 계산에서는 '출석' + '지각' + '보강' 모두 출석 인정.
+ */
+export type AttendanceStatus =
+  | "출석"
+  | "지각"
+  | "결석"
+  | "조퇴"
+  | "보강";
 export type TemplateType = "SMS" | "LMS" | "ALIMTALK";
 export type CampaignStatus =
   | "임시저장"
@@ -113,6 +123,17 @@ export interface AttendanceRow {
   enrollment_id: string | null;
   attended_at: string;
   status: AttendanceStatus;
+  /**
+   * 아카 V_Attend_List.출결_코드 추적 키.
+   * "{branch_id}-{출결_코드}" 형태. 0017 추가. NULL 다중 허용.
+   */
+  aca_attendance_id: string | null;
+  /**
+   * V_Attend_List.반고유_코드 추적 키. "{branch_id}-{반고유_코드}" 형태.
+   * classes.aca_class_id 와 매칭. FK 없음. 0018 추가.
+   * 학생 상세 "강좌 × 일자 격자" UI 의 group by 키.
+   */
+  aca_class_id: string | null;
   created_at: string;
 }
 
@@ -379,13 +400,35 @@ export type EnrollmentWithClass = EnrollmentRow & {
 };
 
 /**
+ * 강좌 마스터에서 출석 격자 UI 표시에 필요한 부분만 선별.
+ * AttendanceRow.aca_class_id ↔ classes.aca_class_id 매칭.
+ */
+export type AttendanceClassLookup = Pick<
+  ClassRow,
+  | "name"
+  | "teacher_name"
+  | "subject"
+  | "subject_raw"
+  | "schedule_days"
+  | "schedule_time"
+>;
+
+/**
+ * 출석 + 강좌 마스터 lookup 머지 결과.
+ * class 가 null 이면 강좌 매칭 실패 또는 자체 등록 (aca_class_id NULL).
+ */
+export type AttendanceWithClass = AttendanceRow & {
+  class: AttendanceClassLookup | null;
+};
+
+/**
  * 학생 상세 페이지 data loader 반환 통합 타입.
  * /students/[id] 의 프로필·수강이력·출석·발송이력 4개 영역 원본.
  */
 export type StudentDetail = {
   profile: StudentProfileRow;
   enrollments: EnrollmentWithClass[];
-  attendances: AttendanceRow[];
+  attendances: AttendanceWithClass[];
   messages: StudentMessageRow[];
 };
 
