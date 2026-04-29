@@ -1,6 +1,8 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type {
+  AttendanceClassLookup,
   AttendanceRow,
+  AttendanceWithClass,
   EnrollmentClassLookup,
   EnrollmentRow,
   EnrollmentWithClass,
@@ -45,9 +47,11 @@ async function getFromDevSeed(
   ]
     .sort(compareEnrollmentsDesc)
     .map((e) => ({ ...e, class: null }));
-  const attendances = [...findDevAttendancesByStudentId(studentId)].sort(
-    compareAttendancesDesc,
-  );
+  const attendances: AttendanceWithClass[] = [
+    ...findDevAttendancesByStudentId(studentId),
+  ]
+    .sort(compareAttendancesDesc)
+    .map((a) => ({ ...a, class: null }));
   const messages = [...findDevMessagesByStudentId(studentId)].sort(
     compareMessagesDesc,
   );
@@ -112,11 +116,17 @@ async function getFromSupabase(
 
   const profile = profileRes.data as StudentProfileRow;
   const enrollmentsRaw = (enrollmentsRes.data ?? []) as EnrollmentRow[];
-  const attendances = (attendancesRes.data ?? []) as AttendanceRow[];
+  const attendancesRaw = (attendancesRes.data ?? []) as AttendanceRow[];
   const messages = mapMessageRows(messagesRes.data ?? []);
 
   // 강좌 마스터 lookup — aca_class_id 로 묶어 1쿼리, 그 다음 머지.
+  // enrollments 와 attendances 는 같은 aca_class_id 풀을 공유하지만
+  // select 컬럼/진화 방향이 달라 함수를 분리해 결합도를 낮췄다.
   const enrollments = await attachClassLookup(supabase, enrollmentsRaw);
+  const attendances = await attachAttendanceClassLookup(
+    supabase,
+    attendancesRaw,
+  );
 
   return { profile, enrollments, attendances, messages };
 }
@@ -166,6 +176,62 @@ async function attachClassLookup(
   return enrollments.map((e) => ({
     ...e,
     class: e.aca_class_id ? (lookup.get(e.aca_class_id) ?? null) : null,
+  }));
+}
+
+/**
+ * attendances 의 aca_class_id 들을 모아 classes 를 in 쿼리로 단일 lookup 후
+ * 각 행에 class 필드로 머지한다. NULL/빈문자열/미매칭 행은 class=null.
+ *
+ * 학생 상세 "강좌 × 일자 격자" UI 의 group by 키 + 표시용 메타 (반명·교사·요일·시간) 제공.
+ * enrollments 용 lookup 과는 select 컬럼이 다르므로 별도 함수로 유지.
+ */
+async function attachAttendanceClassLookup(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  attendances: AttendanceRow[],
+): Promise<AttendanceWithClass[]> {
+  const ids = Array.from(
+    new Set(
+      attendances
+        .map((a) => a.aca_class_id)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  );
+
+  if (ids.length === 0) {
+    return attendances.map((a) => ({ ...a, class: null }));
+  }
+
+  const { data, error } = await supabase
+    .from("classes")
+    .select(
+      "aca_class_id, name, teacher_name, subject, subject_raw, schedule_days, schedule_time",
+    )
+    .in("aca_class_id", ids);
+
+  if (error) {
+    throw new Error(
+      `출석 격자용 강좌 마스터 조회에 실패했습니다: ${error.message}`,
+    );
+  }
+
+  const lookup = new Map<string, AttendanceClassLookup>();
+  for (const row of (data ?? []) as Array<
+    AttendanceClassLookup & { aca_class_id: string }
+  >) {
+    lookup.set(row.aca_class_id, {
+      name: row.name,
+      teacher_name: row.teacher_name,
+      subject: row.subject,
+      subject_raw: row.subject_raw,
+      schedule_days: row.schedule_days,
+      schedule_time: row.schedule_time,
+    });
+  }
+
+  return attendances.map((a) => ({
+    ...a,
+    class: a.aca_class_id ? (lookup.get(a.aca_class_id) ?? null) : null,
   }));
 }
 

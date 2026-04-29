@@ -487,6 +487,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0001",
     attended_at: "2026-04-07",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-07T18:00:00+09:00",
   },
   {
@@ -495,6 +497,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0001",
     attended_at: "2026-04-10",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-10T18:00:00+09:00",
   },
   {
@@ -503,6 +507,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0001",
     attended_at: "2026-04-14",
     status: "지각",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-14T18:00:00+09:00",
   },
   {
@@ -511,6 +517,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0001",
     attended_at: "2026-04-17",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-17T18:00:00+09:00",
   },
   {
@@ -519,6 +527,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0001",
     attended_at: "2026-04-21",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-21T18:00:00+09:00",
   },
   // 이서연 · 4건
@@ -528,6 +538,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0002",
     attended_at: "2026-04-08",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-08T19:00:00+09:00",
   },
   {
@@ -536,6 +548,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0002",
     attended_at: "2026-04-11",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-11T19:00:00+09:00",
   },
   {
@@ -544,6 +558,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0002",
     attended_at: "2026-04-15",
     status: "결석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-15T19:00:00+09:00",
   },
   {
@@ -552,6 +568,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0002",
     attended_at: "2026-04-21",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-21T19:00:00+09:00",
   },
   // 박지후 · 8건 (출석률 100%)
@@ -561,6 +579,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0003",
     attended_at: "2026-04-06",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-06T18:30:00+09:00",
   },
   {
@@ -569,6 +589,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0003",
     attended_at: "2026-04-09",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-09T18:30:00+09:00",
   },
   {
@@ -577,6 +599,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0003",
     attended_at: "2026-04-13",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-13T18:30:00+09:00",
   },
   {
@@ -585,6 +609,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0003",
     attended_at: "2026-04-16",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-16T18:30:00+09:00",
   },
   {
@@ -593,6 +619,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0004",
     attended_at: "2026-04-18",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-18T20:30:00+09:00",
   },
   {
@@ -601,6 +629,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0003",
     attended_at: "2026-04-20",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-20T18:30:00+09:00",
   },
   {
@@ -609,6 +639,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0004",
     attended_at: "2026-04-21",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-21T20:30:00+09:00",
   },
   {
@@ -617,6 +649,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0003",
     attended_at: "2026-04-22",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-22T18:30:00+09:00",
   },
   // 강도윤 · 6건
@@ -626,6 +660,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0006",
     attended_at: "2026-04-07",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-07T18:00:00+09:00",
   },
   {
@@ -634,6 +670,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0007",
     attended_at: "2026-04-09",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-09T20:00:00+09:00",
   },
   {
@@ -642,6 +680,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0006",
     attended_at: "2026-04-14",
     status: "조퇴",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-14T18:00:00+09:00",
   },
   {
@@ -650,6 +690,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0007",
     attended_at: "2026-04-16",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-16T20:00:00+09:00",
   },
   {
@@ -658,6 +700,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0008",
     attended_at: "2026-04-18",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-18T14:00:00+09:00",
   },
   {
@@ -666,6 +710,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0006",
     attended_at: "2026-04-21",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-21T18:00:00+09:00",
   },
   // 윤지우 · 3건
@@ -675,6 +721,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0009",
     attended_at: "2026-04-08",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-08T17:00:00+09:00",
   },
   {
@@ -683,6 +731,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0009",
     attended_at: "2026-04-15",
     status: "지각",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-15T17:00:00+09:00",
   },
   {
@@ -691,6 +741,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0009",
     attended_at: "2026-04-22",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-22T17:00:00+09:00",
   },
   // 임하윤 · 5건
@@ -700,6 +752,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0010",
     attended_at: "2026-04-06",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-06T19:00:00+09:00",
   },
   {
@@ -708,6 +762,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0011",
     attended_at: "2026-04-09",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-09T20:30:00+09:00",
   },
   {
@@ -716,6 +772,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0010",
     attended_at: "2026-04-13",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-13T19:00:00+09:00",
   },
   {
@@ -724,6 +782,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0011",
     attended_at: "2026-04-16",
     status: "지각",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-16T20:30:00+09:00",
   },
   {
@@ -732,6 +792,8 @@ export const DEV_ATTENDANCES: AttendanceRow[] = [
     enrollment_id: "dev-ENR-0010",
     attended_at: "2026-04-20",
     status: "출석",
+    aca_attendance_id: null,
+    aca_class_id: null,
     created_at: "2026-04-20T19:00:00+09:00",
   },
 ];
