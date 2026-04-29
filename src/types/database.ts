@@ -180,6 +180,16 @@ export interface ClassRow {
 }
 
 /**
+ * 강좌 리스트 화면 (/classes) 행 타입.
+ * ClassRow 기본 필드 + 수강생 수 집계 (enrollments 와 join 한 결과).
+ * 향후 출석률 평균 등 집계가 늘어나면 여기 확장.
+ */
+export interface ClassListItem extends ClassRow {
+  /** 이 강좌의 수강 등록 학생 수 (enrollments 행 카운트, 학생 단위 distinct). */
+  enrolled_student_count: number;
+}
+
+/**
  * groups.filters (JSONB) 의 정규 구조는 Zod 스키마에서 단일 출처로 관리.
  * 타입만 import 하여 순환 참조를 피함. (런타임 값 import 금지)
  *

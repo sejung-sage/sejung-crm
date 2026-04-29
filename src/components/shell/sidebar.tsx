@@ -3,6 +3,7 @@ import {
   Search,
   Users,
   GraduationCap,
+  BookOpen,
   MessageSquare,
   Upload,
   UserCircle2,
@@ -10,6 +11,7 @@ import {
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { RoleBadge } from "@/components/auth/role-badge";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
+import { SidebarNavLink } from "./sidebar-nav-link";
 
 /**
  * 좌측 사이드바 (폭 240px 고정)
@@ -43,6 +45,11 @@ const NAV_ITEMS: NavItem[] = [
     href: "/students",
     label: "학생 명단",
     icon: GraduationCap,
+  },
+  {
+    href: "/classes",
+    label: "강좌",
+    icon: BookOpen,
   },
   {
     href: "/campaigns",
@@ -125,14 +132,16 @@ export async function Sidebar() {
                   {item.sectionLabel}
                 </div>
               )}
-              <Link
+              <SidebarNavLink
                 href={item.href}
+                matchPrefix
                 className="
                   flex items-center gap-3 h-10 px-3 rounded-lg
-                  text-[15px] text-[color:var(--text)]
-                  hover:bg-[color:var(--bg-hover)]
+                  text-[15px]
                   transition-colors
                 "
+                activeClassName="bg-[color:var(--bg-hover)] text-[color:var(--text)] font-medium"
+                inactiveClassName="text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
               >
                 <item.icon
                   className="size-[18px] text-[color:var(--text-muted)]"
@@ -140,25 +149,25 @@ export async function Sidebar() {
                   aria-hidden
                 />
                 <span>{item.label}</span>
-              </Link>
+              </SidebarNavLink>
 
               {/* 하위 메뉴 (문자 발송 전용) */}
               {item.children && (
                 <ul className="mt-0.5 ml-10 flex flex-col gap-0.5">
                   {item.children.map((child) => (
                     <li key={child.href + child.label}>
-                      <Link
+                      <SidebarNavLink
                         href={child.href}
                         className="
                           flex items-center h-9 px-3 rounded-lg
-                          text-[14px] text-[color:var(--text-muted)]
-                          hover:bg-[color:var(--bg-hover)]
-                          hover:text-[color:var(--text)]
+                          text-[14px]
                           transition-colors
                         "
+                        activeClassName="bg-[color:var(--bg-hover)] text-[color:var(--text)] font-medium"
+                        inactiveClassName="text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]"
                       >
                         {child.label}
-                      </Link>
+                      </SidebarNavLink>
                     </li>
                   ))}
                 </ul>
