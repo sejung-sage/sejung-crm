@@ -442,6 +442,51 @@ export type StudentDetail = {
   messages: StudentMessageRow[];
 };
 
+// ─── 강좌 상세(/classes/[id]) 조인 타입 ─────────────────────
+
+/**
+ * 강좌 상세 페이지(/classes/[id]) 의 수강생 행.
+ * student_profiles 뷰의 핵심 컬럼만 선별 + 그 학생의 강좌별 출석 카운트.
+ */
+export interface ClassStudentRow {
+  id: string;
+  name: string;
+  school: string | null;
+  grade: Grade | null;
+  parent_phone: string | null;
+  /** 이 강좌에서의 출석 카운트 (status='출석'). */
+  attended_count: number;
+  /** 이 강좌에서의 결석 카운트. */
+  absent_count: number;
+  /** 이 강좌에서의 지각 카운트. */
+  late_count: number;
+  /** 이 강좌에서의 조퇴 카운트. */
+  early_leave_count: number;
+  /** 이 강좌에서의 보강(동영상) 카운트. */
+  makeup_count: number;
+  /** 이 강좌에서의 출결 총 회수 (5종 합). */
+  total_count: number;
+}
+
+/**
+ * 강좌 상세 페이지 data loader 반환.
+ * 강좌 메타 + 수강생 명단 + 학생×일자 출석 매트릭스 원본.
+ */
+export interface ClassDetail {
+  /** 강좌 마스터 자체. */
+  class: ClassRow;
+  /** 이 강좌 enrollments 가 있는 학생들 (수강생 명단). */
+  students: ClassStudentRow[];
+  /**
+   * 이 강좌의 모든 출결 기록.
+   * UI 에서 attended_at + student_id 로 group 해 학생×일자 격자 빌드.
+   */
+  attendances: Pick<
+    AttendanceRow,
+    "id" | "student_id" | "attended_at" | "status" | "aca_class_id"
+  >[];
+}
+
 // ─── Supabase Database 스키마 (client typing용) ─────────────
 
 export interface Database {

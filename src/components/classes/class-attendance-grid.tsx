@@ -1,43 +1,67 @@
 import type {
+  AttendanceRow,
   AttendanceStatus,
-  AttendanceWithClass,
+  ClassStudentRow,
 } from "@/types/database";
 import { AttendanceStatusChip } from "@/components/students/attendance-status-chip";
 
+type AttendanceMatrixRow = Pick<
+  AttendanceRow,
+  "id" | "student_id" | "attended_at" | "status" | "aca_class_id"
+>;
+
 interface Props {
-  // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
-  // 격자 컬럼은 과거→최근 오름차순으로 펼쳐야 가독성이 좋다.
-  attendances: AttendanceWithClass[];
+  students: ClassStudentRow[];
+  attendances: AttendanceMatrixRow[];
 }
 
 /**
- * 학생 상세 · 출석 패널 (강좌 × 일자 격자).
+ * 강좌 상세 · 학생 × 일자 출결 격자.
  *
- * Aca2000 의 학생별 출결 화면과 동일한 정보를 흰+검정 미니멀 톤으로 재현.
- * - 좌측 고정: 강좌 메타 + 카운트 요약 (총·출·결·지·조·보)
- * - 우측 가로 스크롤: 학생 전체 출결의 distinct 일자 (과거→최근)
- * - 각 셀은 (강좌 × 일자) 매트릭스에 row 가 있으면 상태 칩, 없으면 공란
+ * 학생 상세의 `student-attendances-panel.tsx` 매트릭스 빌더 로직을 미러링.
+ * 단 축이 뒤집힘:
+ *   - 기존: row=강좌, col=일자
+ *   - 신규: row=학생, col=일자
  *
- * Server Component — group by/matrix 빌드는 렌더 1회.
- * 한 학생 attendances 가 1000행, 일자 distinct 100~200 정도여도 충분.
+ * 좌측 sticky:
+ *   - 학생 이름 셀
+ *   - 카운트 6 칸 (총·출·결·지·조·보)
+ * 가로 스크롤로 전 일자(MM/DD) 컬럼을 펼친다.
+ *
+ * 빈 상태(attendances 없음): 격자 자체를 안 그리고 빈 카드.
+ *
+ * Server Component — 매트릭스 빌드는 렌더 1회. 학생 30명 × 일자 60 정도면
+ * 충분히 가볍다. PostgREST cap 1000 행 도달 시는 loader 가 warn 함.
  */
-export function StudentAttendancesPanel({ attendances }: Props) {
+export function ClassAttendanceGrid({ students, attendances }: Props) {
   if (attendances.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
-          출석 기록이 없습니다.
+          출결 기록이 없습니다.
         </p>
       </div>
     );
   }
 
-  const matrix = buildMatrix(attendances);
+  const matrix = buildMatrix(students, attendances);
+
+  // 모든 학생이 출결 0 인 비정상 케이스는 빈 격자가 되므로 빈 상태 처리.
+  // (loader 가 attendances 가 0 이 아니면 여기로 오지만, students 는 비어 있을 수 있다.)
+  if (matrix.rows.length === 0 || matrix.dates.length === 0) {
+    return (
+      <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
+        <p className="text-[15px] text-[color:var(--text-muted)]">
+          출결 기록이 없습니다.
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <section aria-label="출석 격자" className="space-y-2">
+    <section aria-label="학생별 일자 출결 격자" className="space-y-2">
       <p className="text-[13px] text-[color:var(--text-muted)]">
-        강좌별 일자 출결. 가로로 스크롤해 전체 기간을 확인할 수 있습니다.
+        학생별 일자 출결. 가로로 스크롤해 전체 기간을 확인할 수 있습니다.
       </p>
 
       <div className="rounded-xl border border-[color:var(--border)] bg-white overflow-hidden">
@@ -52,10 +76,10 @@ export function StudentAttendancesPanel({ attendances }: Props) {
                     px-4 py-3 text-left text-[13px] font-medium
                     text-[color:var(--text-muted)] tracking-wide
                     border-b border-r border-[color:var(--border)]
-                    min-w-[220px]
+                    min-w-[180px]
                   "
                 >
-                  강좌
+                  학생
                 </th>
                 {COUNT_COLUMNS.map((col, i) => (
                   <th
@@ -93,11 +117,11 @@ export function StudentAttendancesPanel({ attendances }: Props) {
               </tr>
             </thead>
             <tbody>
-              {matrix.groups.map((g, idx) => (
+              {matrix.rows.map((r, idx) => (
                 <tr
-                  key={g.key}
+                  key={r.key}
                   className={
-                    idx === matrix.groups.length - 1
+                    idx === matrix.rows.length - 1
                       ? ""
                       : "border-b border-[color:var(--border)]"
                   }
@@ -112,16 +136,11 @@ export function StudentAttendancesPanel({ attendances }: Props) {
                     "
                   >
                     <div className="text-[14px] font-medium text-[color:var(--text)]">
-                      {g.title}
+                      {r.title}
                     </div>
-                    {g.subtitle && (
+                    {r.subtitle && (
                       <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)]">
-                        {g.subtitle}
-                      </div>
-                    )}
-                    {g.note && (
-                      <div className="mt-0.5 text-[12px] text-[color:var(--text-dim)]">
-                        {g.note}
+                        {r.subtitle}
                       </div>
                     )}
                   </th>
@@ -136,13 +155,13 @@ export function StudentAttendancesPanel({ attendances }: Props) {
                       `}
                       style={{ left: COUNT_LEFT_OFFSETS[i] }}
                     >
-                      {g.counts[col.key] || (
+                      {r.counts[col.key] || (
                         <span className="text-[color:var(--text-dim)]">·</span>
                       )}
                     </td>
                   ))}
                   {matrix.dates.map((d) => {
-                    const status = g.byDate.get(d.iso);
+                    const status = r.byDate.get(d.iso);
                     return (
                       <td
                         key={d.iso}
@@ -180,25 +199,22 @@ export function StudentAttendancesPanel({ attendances }: Props) {
 
 interface DateColumn {
   iso: string; // YYYY-MM-DD
-  month: string; // MM
-  day: string; // DD
+  month: string; // "M월"
+  day: string; // "D일"
 }
 
-interface GroupRow {
-  key: string; // aca_class_id 또는 "__unmatched__"
-  title: string;
-  subtitle: string | null;
-  note: string | null;
+interface StudentRow {
+  key: string; // student_id
+  title: string; // 학생 이름
+  subtitle: string | null; // 학교+학년 (없으면 null)
   counts: Record<AttendanceStatus | "총", number>;
   byDate: Map<string, AttendanceStatus>;
 }
 
 interface Matrix {
   dates: DateColumn[];
-  groups: GroupRow[];
+  rows: StudentRow[];
 }
-
-const UNMATCHED_KEY = "__unmatched__";
 
 const COUNT_COLUMNS: { key: AttendanceStatus | "총"; label: string }[] = [
   { key: "총", label: "총" },
@@ -209,19 +225,22 @@ const COUNT_COLUMNS: { key: AttendanceStatus | "총"; label: string }[] = [
   { key: "보강", label: "보" },
 ];
 
-// 좌측 sticky 컬럼들의 누적 left offset (강좌 220 + 카운트 6 × 44).
-// CSS sticky 는 left 값으로 누적 위치를 잡아줘야 하므로 px 로 직접 계산.
+// 좌측 sticky 컬럼 누적 left offset (학생 180 + 카운트 6 × 44).
+// 학생 격자는 학생 이름 셀이 학생 상세의 강좌 셀(220)보다 짧아도 충분.
 const COUNT_LEFT_OFFSETS = [
-  220,
-  220 + 44,
-  220 + 44 * 2,
-  220 + 44 * 3,
-  220 + 44 * 4,
-  220 + 44 * 5,
+  180,
+  180 + 44,
+  180 + 44 * 2,
+  180 + 44 * 3,
+  180 + 44 * 4,
+  180 + 44 * 5,
 ];
 
-function buildMatrix(attendances: AttendanceWithClass[]): Matrix {
-  // 1) distinct 일자 (오름차순)
+function buildMatrix(
+  students: ClassStudentRow[],
+  attendances: AttendanceMatrixRow[],
+): Matrix {
+  // 1) distinct 일자 (오름차순).
   const dateSet = new Set<string>();
   for (const a of attendances) {
     if (a.attended_at) dateSet.add(a.attended_at);
@@ -233,66 +252,45 @@ function buildMatrix(attendances: AttendanceWithClass[]): Matrix {
       return { iso, month: `${Number(m)}월`, day: `${Number(d)}일` };
     });
 
-  // 2) group by aca_class_id
-  const groupMap = new Map<string, GroupRow>();
+  // 2) student_id × date → status 매트릭스.
+  // 같은 (학생, 일자) 에 행이 여러 개면 마지막 값으로 덮어쓰기.
+  const byStudent = new Map<string, Map<string, AttendanceStatus>>();
   for (const a of attendances) {
-    const key = a.aca_class_id ?? UNMATCHED_KEY;
-    let g = groupMap.get(key);
-    if (!g) {
-      g = {
-        key,
-        ...buildGroupHeader(a),
-        counts: { 총: 0, 출석: 0, 지각: 0, 결석: 0, 조퇴: 0, 보강: 0 },
-        byDate: new Map<string, AttendanceStatus>(),
-      };
-      groupMap.set(key, g);
+    let dm = byStudent.get(a.student_id);
+    if (!dm) {
+      dm = new Map<string, AttendanceStatus>();
+      byStudent.set(a.student_id, dm);
     }
-    // 동일 (강좌, 일자) 에 row 가 두 개 이상인 비정상 케이스는 마지막 값 유지.
-    // 원본 정렬이 attended_at DESC + created_at 이라 같은 날 여러 row 면
-    // 가장 최근 created 가 먼저 처리되고, 이후 덮어쓰기 = 가장 오래된 created 가 남음.
-    // 이 패널 목적상 한 셀에 어떤 상태든 보이면 충분하므로 단순 덮어쓰기.
-    g.byDate.set(a.attended_at, a.status);
-    g.counts[a.status] += 1;
-    g.counts["총"] += 1;
+    dm.set(a.attended_at, a.status);
   }
 
-  // 3) 그룹 정렬 — 매칭된 강좌(이름순) 먼저, "강좌 미매칭" 마지막
-  const groups = Array.from(groupMap.values()).sort((a, b) => {
-    if (a.key === UNMATCHED_KEY) return 1;
-    if (b.key === UNMATCHED_KEY) return -1;
-    return a.title.localeCompare(b.title, "ko");
-  });
+  // 3) students 의 한글 정렬 순서를 그대로 유지 (loader 가 정렬 보장).
+  // 출결 행이 0 인 학생은 격자에서 제외. 학생 명단 패널이 이미 보여주므로
+  // 격자에서 비어 있는 row 가 길게 나열되는 것은 정보가치 없음.
+  const rows: StudentRow[] = [];
+  for (const s of students) {
+    const byDate = byStudent.get(s.id) ?? new Map<string, AttendanceStatus>();
+    if (byDate.size === 0) continue;
 
-  return { dates, groups };
-}
+    const subtitleParts: string[] = [];
+    if (s.school) subtitleParts.push(s.school);
+    if (s.grade) subtitleParts.push(s.grade);
 
-function buildGroupHeader(a: AttendanceWithClass): {
-  title: string;
-  subtitle: string | null;
-  note: string | null;
-} {
-  if (!a.aca_class_id) {
-    return {
-      title: "강좌 미매칭",
-      subtitle: null,
-      note: "출결에 강좌 정보가 없는 항목",
-    };
+    rows.push({
+      key: s.id,
+      title: s.name,
+      subtitle: subtitleParts.length > 0 ? subtitleParts.join(" · ") : null,
+      counts: {
+        총: s.total_count,
+        출석: s.attended_count,
+        결석: s.absent_count,
+        지각: s.late_count,
+        조퇴: s.early_leave_count,
+        보강: s.makeup_count,
+      },
+      byDate,
+    });
   }
-  if (!a.class) {
-    return {
-      title: `강좌 #${a.aca_class_id.slice(-8)}`,
-      subtitle: null,
-      note: "(강좌 마스터 미동기)",
-    };
-  }
-  const c = a.class;
-  const subtitleParts: string[] = [];
-  if (c.teacher_name) subtitleParts.push(`${c.teacher_name} 선생님`);
-  const sched = [c.schedule_days, c.schedule_time].filter(Boolean).join(" ");
-  if (sched) subtitleParts.push(sched);
-  return {
-    title: c.name,
-    subtitle: subtitleParts.length > 0 ? subtitleParts.join(" · ") : null,
-    note: null,
-  };
+
+  return { dates, rows };
 }
