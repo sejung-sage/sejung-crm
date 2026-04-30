@@ -20,11 +20,14 @@ function isDimmed(grade: Grade | null): boolean {
 
 /**
  * 학생 목록 테이블 (서버 렌더).
- * 컬럼: 이름 · 학교 · 학년 · 계열 · 재원 상태 · 학부모 연락처 · 최근 수강
+ * 컬럼: 이름 · 학교 · 학년 · 계열 · 재원 상태 · 출석률 · 수강 · 학부모 연락처 · 최근 수강
  *
  * 0012 마이그레이션 이후 학년은 정규화 9종 enum 문자열 그대로 표시
  * (예: "중2", "고3", "재수"). school_level 은 학년 라벨에 이미 포함되어
  * 별도 컬럼을 추가하지 않음.
+ *
+ * 정렬 enum (출석률·수강·누적결제) 결과를 시각적으로 확인할 수 있도록
+ * attendance_rate / enrollment_count 컬럼을 노출.
  */
 export function StudentsTable({ rows }: Props) {
   if (rows.length === 0) {
@@ -50,6 +53,8 @@ export function StudentsTable({ rows }: Props) {
             <Th className="w-20 text-center">학년</Th>
             <Th className="w-20 text-center">계열</Th>
             <Th className="w-28 text-center">재원 상태</Th>
+            <Th className="w-24 text-right">출석률</Th>
+            <Th className="w-20 text-right">수강</Th>
             <Th className="w-40">학부모 연락처</Th>
             <Th>최근 수강</Th>
           </tr>
@@ -109,6 +114,24 @@ export function StudentsTable({ rows }: Props) {
                   <StudentStatusBadge status={r.status} />
                 </Td>
                 <Td
+                  className={`text-right tabular-nums ${
+                    dim
+                      ? "text-[color:var(--text-dim)]"
+                      : "text-[color:var(--text)]"
+                  }`}
+                >
+                  {formatAttendanceRate(r.attendance_rate)}
+                </Td>
+                <Td
+                  className={`text-right tabular-nums ${
+                    dim
+                      ? "text-[color:var(--text-dim)]"
+                      : "text-[color:var(--text-muted)]"
+                  }`}
+                >
+                  {r.enrollment_count > 0 ? r.enrollment_count : "-"}
+                </Td>
+                <Td
                   className={`tabular-nums ${
                     dim
                       ? "text-[color:var(--text-dim)]"
@@ -133,6 +156,16 @@ export function StudentsTable({ rows }: Props) {
       </table>
     </div>
   );
+}
+
+/**
+ * 출석률 표기. NULL / 미수강은 "-".
+ * 소수점은 1자리까지만 (가독성). 100% 일 땐 정수 그대로.
+ */
+function formatAttendanceRate(rate: number | null): string {
+  if (rate === null || Number.isNaN(rate)) return "-";
+  if (rate >= 99.95) return "100%";
+  return `${rate.toFixed(1)}%`;
 }
 
 function Th({

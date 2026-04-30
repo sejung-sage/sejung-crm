@@ -1,5 +1,6 @@
 import { Plus } from "lucide-react";
 import { listStudents } from "@/lib/profile/list-students";
+import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { parseStudentsSearchParams } from "@/lib/schemas/student";
 import { StudentsTable } from "@/components/students/students-table";
 import { StudentsFilters } from "@/components/students/students-filters";
@@ -10,6 +11,12 @@ import { Pagination } from "@/components/students/pagination";
  *
  * Server Component. URL searchParams 기반 필터.
  * Next 16 에서 searchParams 는 Promise — 반드시 await.
+ *
+ * 강사·학교 필터 옵션은 별도로 prefetch 하여 클라이언트 컴포넌트에 prop 으로
+ * 내려준다. 분원 변경 시 강사·학교 풀이 달라지므로 branch 인자에 의존.
+ *
+ * TODO: 학생 6만 규모에서 distinct 풀 스캔이 느려지면 PG 함수
+ *       `list_distinct_teachers_and_schools(branch text)` 로 이전.
  */
 export default async function StudentsPage({
   searchParams,
@@ -18,7 +25,12 @@ export default async function StudentsPage({
 }) {
   const raw = await searchParams;
   const input = parseStudentsSearchParams(raw);
-  const result = await listStudents(input);
+
+  // 학생 리스트 + 필터 옵션 prefetch 를 병렬 실행.
+  const [result, filterOptions] = await Promise.all([
+    listStudents(input),
+    listStudentFilterOptions(input.branch),
+  ]);
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -50,7 +62,12 @@ export default async function StudentsPage({
         </header>
 
         {/* 검색 + 필터 */}
-        <StudentsFilters totalCount={result.total} source={result.source} />
+        <StudentsFilters
+          totalCount={result.total}
+          source={result.source}
+          teacherOptions={filterOptions.teachers}
+          schoolOptions={filterOptions.schools}
+        />
 
         {/* 테이블 */}
         <StudentsTable rows={result.rows} />
