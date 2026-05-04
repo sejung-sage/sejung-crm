@@ -10,9 +10,10 @@
  *   3) 페이지의 aca_class_id 들로 enrollments 한 번 조회 →
  *      JS 에서 Map<aca_class_id, Set<student_id>> 로 distinct count 집계.
  *
- * 정렬 정책 (사용자 확정 · `ClassSort` 11종 enum):
+ * 정렬 정책 (사용자 확정 · `ClassSort` 13종 enum):
  *   - default               : branch ASC > subject ASC NULLS LAST > name ASC (현행)
  *   - registered_desc/asc   : 등록일 (NULLS LAST)
+ *   - start_date_desc/asc   : 개강일 (NULLS LAST) + name ASC tiebreak
  *   - name_asc/desc         : 반명
  *   - capacity_desc         : 정원 많은 순 (NULLS LAST) + name ASC tiebreak
  *   - amount_per_session_*  : 회당단가 (NULLS LAST) + name ASC tiebreak
@@ -215,6 +216,7 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
  * tiebreaker 정책:
  *   - default                 : branch ASC > subject ASC NULLS LAST > name ASC (현행 3단)
  *   - registered_*            : 단일 키 (학생 리스트와 동일하게 보조 키 미부여 — 시간 충돌 가능성 낮음)
+ *   - start_date_*            : 1차 키 동률 시 name ASC 보조 (개강일 같은 반 다수 — 가나다순 안정화)
  *   - name_*                  : 단일 키
  *   - capacity/amount/total_* : 1차 키 동률 시 name ASC 보조
  *   - enrolled_count_*        : DB 측은 default 와 동일하게 페이지 fetch 후
@@ -248,6 +250,19 @@ function applyClassesSort<Q extends ClassesOrderBuilder>(
         ascending: true,
         nullsFirst: false,
       }) as Q;
+
+    case "start_date_desc":
+      // 최근 개강순. start_date 는 NULL 가능 (백필 미적용 행) — NULLS LAST 로 뒤로 밀고
+      // 개강일 동률 반들은 name ASC(가나다) 로 안정 정렬.
+      return query
+        .order("start_date", { ascending: false, nullsFirst: false })
+        .order("name", { ascending: true }) as Q;
+
+    case "start_date_asc":
+      // 오래된 개강순. NULLS LAST + name ASC tiebreak (위와 동일 정책).
+      return query
+        .order("start_date", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true }) as Q;
 
     case "name_asc":
       // 반명 가나다순.

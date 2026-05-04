@@ -37,15 +37,18 @@ const SUBJECT_OPTIONS = ["전체", "수학", "국어", "영어", "탐구"] as co
 
 /**
  * 정렬 enum → 한글 라벨 매핑.
- * CLASS_SORT_VALUES 11종 동기화 필수 — 누락 시 컴파일 오류 (Record<ClassSort, ...>).
+ * CLASS_SORT_VALUES 13종 동기화 필수 — 누락 시 컴파일 오류 (Record<ClassSort, ...>).
  *
  * enrolled_count_* 는 backend-dev 보고대로 페이지 한정 정렬 (DB 측 집계
  * 컬럼 부재). 사용자 혼동 방지를 위해 옵션 라벨 옆에 작은 muted 주석을 단다.
+ * start_date_* 는 DB 단 ORDER BY (NULLS LAST) 라 페이지 한정 X — 일반 라벨.
  */
 const SORT_LABELS: Record<ClassSort, string> = {
   default: "기본 정렬 (분원 > 과목 > 반명)",
   registered_desc: "최근 등록순",
   registered_asc: "오래된 등록순",
+  start_date_desc: "최근 개강순",
+  start_date_asc: "오래된 개강순",
   name_asc: "반명 가나다순",
   name_desc: "반명 가나다 역순",
   enrolled_count_desc: "수강생 많은 순 (현재 페이지 내 정렬)",

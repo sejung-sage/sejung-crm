@@ -32,6 +32,9 @@ export function ClassDetailHeader({ cls }: Props) {
   if (cls.schedule_time) scheduleParts.push(cls.schedule_time);
   const scheduleLine = scheduleParts.length > 0 ? scheduleParts.join(" ") : null;
 
+  // 개강일 — DATE("YYYY-MM-DD") 그대로 노출. 백필 미적용 강좌 (~15%) 는 "—".
+  const startDateLine = cls.start_date ?? "—";
+
   // 정원.
   const capacityLine = cls.capacity != null ? `정원 ${cls.capacity}명` : null;
 
@@ -78,6 +81,7 @@ export function ClassDetailHeader({ cls }: Props) {
             {scheduleLine && (
               <MetaRow label="요일·시간" value={scheduleLine} />
             )}
+            <MetaRow label="개강일" value={startDateLine} />
             {capacityLine && <MetaRow label="정원" value={capacityLine} />}
             {pricingLine && <MetaRow label="회차·단가" value={pricingLine} />}
             {classroomLine && (

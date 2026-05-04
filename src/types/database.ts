@@ -173,6 +173,12 @@ export interface ClassRow {
   /** 강의관+강의실 합친 표기 또는 강의실만. */
   classroom: string | null;
   registered_at: string | null;
+  /**
+   * 강좌 개강일 (DATE). V_class_list 원본에 없어 enrollments.start_date 의
+   * 강좌별 MIN 으로 파생/백필. NULL 가능 (자체 등록 강좌 또는 enrollment 부재).
+   * 0019 마이그레이션 추가.
+   */
+  start_date: string | null;
   /** V_class_list.미사용반구분 = "Y" 면 false. */
   active: boolean;
   created_at: string;

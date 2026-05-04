@@ -21,6 +21,8 @@ import { SubjectSchema } from "./common";
  *
  * - default               : 기본 — branch ASC > subject ASC NULLS LAST > name ASC (현행 동작)
  * - registered_desc/asc   : 강좌 등록일(registered_at)
+ * - start_date_desc/asc   : 개강일(start_date) — 0019 마이그레이션으로 추가된 컬럼.
+ *                            NULLS LAST 일관 (백필 미적용 행은 항상 뒤로).
  * - name_asc/desc         : 반명(name)
  * - enrolled_count_*      : 수강생 수 (ClassListItem 집계 필드 · 정원 미달 케어용 asc 포함)
  * - capacity_desc         : 정원(capacity) 많은 순
@@ -31,6 +33,8 @@ export const CLASS_SORT_VALUES = [
   "default",
   "registered_desc",
   "registered_asc",
+  "start_date_desc",
+  "start_date_asc",
   "name_asc",
   "name_desc",
   "enrolled_count_desc",
