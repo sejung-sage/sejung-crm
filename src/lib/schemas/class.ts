@@ -23,6 +23,8 @@ import { SubjectSchema } from "./common";
  * - registered_desc/asc   : 강좌 등록일(registered_at)
  * - start_date_desc/asc   : 개강일(start_date) — 0019 마이그레이션으로 추가된 컬럼.
  *                            NULLS LAST 일관 (백필 미적용 행은 항상 뒤로).
+ * - end_date_desc/asc     : 종강일(end_date) — 0020 마이그레이션으로 추가된 컬럼.
+ *                            NULLS LAST 일관 (진행 중 표기인 NULL/미정행은 뒤로).
  * - name_asc/desc         : 반명(name)
  * - enrolled_count_*      : 수강생 수 (ClassListItem 집계 필드 · 정원 미달 케어용 asc 포함)
  * - capacity_desc         : 정원(capacity) 많은 순
@@ -35,6 +37,8 @@ export const CLASS_SORT_VALUES = [
   "registered_asc",
   "start_date_desc",
   "start_date_asc",
+  "end_date_desc",
+  "end_date_asc",
   "name_asc",
   "name_desc",
   "enrolled_count_desc",
@@ -89,6 +93,21 @@ export const ClassFiltersSchema = z.object({
    * URL `?active=0` 일 때만 false (검색 옵션).
    */
   active: z.coerce.boolean().optional().default(true),
+  /**
+   * 진행/종강 상태 필터. 기본 "all" (필터 미적용).
+   *
+   * 앱 레이어 derive 룰 (오늘 KST 기준):
+   *  - "progressing" : end_date IS NULL OR end_date >= 오늘
+   *  - "graduated"   : end_date < 오늘
+   *  - "all"         : 필터 미적용
+   *
+   * (0020 마이그레이션 후 백필 분포: NULL 440 / 미정(>=2050) 695 /
+   *  종강(<오늘) 1,782 / 진행 중(명시) 2 — "미정" 행도 진행 중으로 분류됨.)
+   */
+  status: z
+    .enum(["all", "progressing", "graduated"])
+    .optional()
+    .default("all"),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   /** 정렬 옵션. 기본은 현행 동작(default · branch>subject>name). */
@@ -107,6 +126,8 @@ export type ClassFilters = z.infer<typeof ClassFiltersSchema>;
  *   ?teacher=김선생&teacher=박선생   → teachers (다중)
  *   ?day=화&day=목                   → days (다중)
  *   ?active=0                        → active=false (그 외에는 항상 true)
+ *   ?status=progressing              → status=progressing (화이트리스트 외엔 all)
+ *   ?status=graduated                → status=graduated
  *   ?sort=enrolled_count_desc        → sort (화이트리스트 외엔 default)
  *   ?page=1                          → page
  *   ?size=20                         → pageSize
@@ -139,6 +160,16 @@ export function parseClassSearchParams(
   const activeRaw = typeof raw.active === "string" ? raw.active : undefined;
   const active = activeRaw === "0" ? false : true;
 
+  // status 는 화이트리스트 검사 후 통과. 그 외(미지정 포함)는 undefined → 스키마 default("all").
+  const statusWhitelist: ReadonlySet<string> = new Set([
+    "all",
+    "progressing",
+    "graduated",
+  ]);
+  const statusRaw = typeof raw.status === "string" ? raw.status : undefined;
+  const status =
+    statusRaw && statusWhitelist.has(statusRaw) ? statusRaw : undefined;
+
   // sort 는 화이트리스트 검사 후 통과. 그 외는 undefined → 스키마 default("default").
   const sortWhitelist: ReadonlySet<string> = new Set(CLASS_SORT_VALUES);
   const sortRaw = typeof raw.sort === "string" ? raw.sort : undefined;
@@ -154,6 +185,7 @@ export function parseClassSearchParams(
     teachers: cleanFreeText(toArray(raw.teacher)),
     days: toArray(raw.day).filter((d) => dayWhitelist.has(d)),
     active,
+    status,
     page: raw.page ?? 1,
     pageSize: raw.size ?? 20,
     sort,

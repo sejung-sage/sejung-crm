@@ -179,6 +179,18 @@ export interface ClassRow {
    * 0019 마이그레이션 추가.
    */
   start_date: string | null;
+  /**
+   * 강좌 종강일 (DATE). V_class_list 원본에 없어 enrollments.end_date 의
+   * 강좌별 MAX 으로 파생/백필. 2050-01-01 이상은 Aca2000 의 "미정" placeholder.
+   * NULL 은 enrollments 매칭 실패 (자체 등록 또는 수강 0).
+   *
+   * 진행/종강 상태 derive (앱 레이어):
+   *   end_date IS NULL OR end_date >= 오늘 → 진행 중
+   *   end_date < 오늘                       → 종강
+   *
+   * 0020 마이그레이션 추가.
+   */
+  end_date: string | null;
   /** V_class_list.미사용반구분 = "Y" 면 false. */
   active: boolean;
   created_at: string;

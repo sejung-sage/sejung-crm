@@ -1,0 +1,118 @@
+name: Aca2000 → Supabase 동기화
+
+# 매일 02:00 UTC = 11:00 KST 자동 실행 + workflow_dispatch 로 수동 실행 가능.
+# ETL 스크립트들은 모두 UPSERT 라 재실행 안전 (idempotent).
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+# 동시 실행 방지 — 자동 트리거와 수동 트리거가 겹쳐 prod 에 동시 INSERT 하지 않도록.
+concurrency:
+  group: aca-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: ETL 동기화
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    env:
+      ACA_MSSQL_USER: sejung_user
+      ACA_MSSQL_PASSWORD: ${{ secrets.ACA_MSSQL_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      # 자동 실행은 항상 실 적재. DRY_RUN 으로 돌려보고 싶으면 workflow_dispatch
+      # 입력 추가하거나 로컬에서 DRY_RUN=1 로 실행할 것.
+      DRY_RUN: "0"
+
+    steps:
+      - name: 체크아웃
+        uses: actions/checkout@v4
+
+      - name: Python 설치
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: 시스템 라이브러리 (freetds for pymssql)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq freetds-dev
+
+      - name: Python 의존성
+        run: |
+          python -m pip install --upgrade pip
+          pip install pymssql 'supabase>=2' python-dotenv
+
+      # ─── ETL 순차 실행 ────────────────────────────────────────
+      # 의존성 순서:
+      #   1) students  → 다른 ETL 의 학생 매핑 source
+      #   2) classes   → enrollments / attendances 의 강좌 매칭 source
+      #   3) enrollments → students.aca2000_id 매핑 필요
+      #   4) attendances → students.aca2000_id 매핑 필요
+      # 각 step 실패 시 다음 중단 (default behavior).
+
+      - name: 1) 학생 동기화
+        run: python scripts/etl/migrate_students.py
+
+      - name: 2) 강좌 마스터 동기화
+        run: python scripts/etl/migrate_classes.py
+
+      - name: 3) 수강 이력 동기화
+        run: python scripts/etl/migrate_enrollments.py
+
+      - name: 4) 출결 동기화
+        run: python scripts/etl/migrate_attendances.py
+
+      # 0019/0020 의 백필 SQL — enrollments.start_date MIN / end_date MAX 를
+      # classes.start_date / classes.end_date 로 파생.
+      # 새 enrollment 가 들어오면 매일 갱신해야 정렬·진행/종강 derive 일관성 유지.
+      # 두 UPDATE 를 한 psql 호출로 묶어 round-trip 1회로 처리.
+      - name: 5) classes.start_date / end_date 재백필
+        env:
+          PGURL_PSQL_SAFE: ${{ secrets.SUPABASE_DB_URL }}
+        if: env.PGURL_PSQL_SAFE != ''
+        run: |
+          sudo apt-get install -y -qq postgresql-client
+          psql "$PGURL_PSQL_SAFE" -c "
+            UPDATE public.classes c
+            SET start_date = sub.min_start
+            FROM (
+              SELECT e.aca_class_id, MIN(e.start_date) AS min_start
+              FROM public.enrollments e
+              WHERE e.aca_class_id IS NOT NULL AND e.start_date IS NOT NULL
+              GROUP BY e.aca_class_id
+            ) AS sub
+            WHERE c.aca_class_id = sub.aca_class_id
+              AND (c.start_date IS NULL OR c.start_date IS DISTINCT FROM sub.min_start);
+
+            UPDATE public.classes c
+            SET end_date = sub.max_end
+            FROM (
+              SELECT e.aca_class_id, MAX(e.end_date) AS max_end
+              FROM public.enrollments e
+              WHERE e.aca_class_id IS NOT NULL AND e.end_date IS NOT NULL
+              GROUP BY e.aca_class_id
+            ) AS sub
+            WHERE c.aca_class_id = sub.aca_class_id
+              AND (c.end_date IS NULL OR c.end_date IS DISTINCT FROM sub.max_end);
+          "
+
+      # ─── Slack 알림 ──────────────────────────────────────────
+      - name: Slack 성공 알림
+        if: success()
+        run: |
+          curl -sS -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\":white_check_mark: Aca2000 → Supabase 동기화 성공 (#${{ github.run_number }})\"}" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
+
+      - name: Slack 실패 알림
+        if: failure()
+        run: |
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          curl -sS -X POST -H 'Content-type: application/json' \
+            --data "{\"text\":\":x: Aca2000 → Supabase 동기화 실패 (#${{ github.run_number }})\\n로그: $RUN_URL\"}" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"

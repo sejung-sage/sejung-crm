@@ -10,10 +10,11 @@
  *   3) 페이지의 aca_class_id 들로 enrollments 한 번 조회 →
  *      JS 에서 Map<aca_class_id, Set<student_id>> 로 distinct count 집계.
  *
- * 정렬 정책 (사용자 확정 · `ClassSort` 13종 enum):
+ * 정렬 정책 (사용자 확정 · `ClassSort` 15종 enum):
  *   - default               : branch ASC > subject ASC NULLS LAST > name ASC (현행)
  *   - registered_desc/asc   : 등록일 (NULLS LAST)
  *   - start_date_desc/asc   : 개강일 (NULLS LAST) + name ASC tiebreak
+ *   - end_date_desc/asc     : 종강일 (NULLS LAST) + name ASC tiebreak
  *   - name_asc/desc         : 반명
  *   - capacity_desc         : 정원 많은 순 (NULLS LAST) + name ASC tiebreak
  *   - amount_per_session_*  : 회당단가 (NULLS LAST) + name ASC tiebreak
@@ -62,6 +63,28 @@ const MAX_PAGE_SIZE = 200;
  */
 function sanitizeSearchTerm(s: string): string {
   return s.replace(/[(),]/g, "").trim();
+}
+
+/**
+ * "오늘"의 KST 날짜 문자열을 'YYYY-MM-DD' 형태로 반환한다.
+ *
+ * Node 서버는 보통 UTC 로 동작 → `new Date().toISOString().slice(0,10)` 만
+ * 쓰면 한국 시간 기준 자정 직후 9시간(또는 그 반대) 윈도우에서 하루가
+ * 어긋난다. 학원 운영 기준은 KST 라 진행/종강 분류 경계도 KST 자정이어야
+ * 자연스럽다.
+ *
+ * 구현: `Intl.DateTimeFormat('en-CA', timeZone:'Asia/Seoul')` 는 ko-KR 가
+ * 만드는 "2026. 04. 28." 같은 점/공백 포맷이 아닌 ISO 호환 "2026-04-28" 을
+ * 그대로 출력해 추가 파싱 없이 PostgREST 인자에 안전하게 넣을 수 있다.
+ */
+function todayKstDateString(): string {
+  // en-CA 로케일은 'YYYY-MM-DD' 포맷을 보장 (ISO 8601 호환).
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 export async function listClasses(
@@ -177,6 +200,19 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     q = q.eq("active", true) as Q;
   }
 
+  // 진행/종강 상태 필터 — 오늘(KST) 기준 derive (앱 레이어 통일 룰).
+  //  - "progressing" : end_date IS NULL OR end_date >= 오늘
+  //  - "graduated"   : end_date < 오늘
+  //  - "all"         : 필터 미적용 (분기 진입 안 함)
+  // today 는 'YYYY-MM-DD' ISO 포맷 — 콤마/괄호 없어 .or() 인젝션 안전.
+  if (filters.status === "progressing") {
+    const today = todayKstDateString();
+    q = q.or(`end_date.is.null,end_date.gte.${today}`) as Q;
+  } else if (filters.status === "graduated") {
+    const today = todayKstDateString();
+    q = q.lt("end_date", today) as Q;
+  }
+
   // 강사명 다중 필터 — classes.teacher_name 정확 일치 (IN).
   // 빈 문자열은 schema 단계에서 trim 되었으나 한 번 더 가드.
   if (filters.teachers.length > 0) {
@@ -217,6 +253,7 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
  *   - default                 : branch ASC > subject ASC NULLS LAST > name ASC (현행 3단)
  *   - registered_*            : 단일 키 (학생 리스트와 동일하게 보조 키 미부여 — 시간 충돌 가능성 낮음)
  *   - start_date_*            : 1차 키 동률 시 name ASC 보조 (개강일 같은 반 다수 — 가나다순 안정화)
+ *   - end_date_*              : 1차 키 동률 시 name ASC 보조 (종강일 같은 반 다수 — 가나다순 안정화)
  *   - name_*                  : 단일 키
  *   - capacity/amount/total_* : 1차 키 동률 시 name ASC 보조
  *   - enrolled_count_*        : DB 측은 default 와 동일하게 페이지 fetch 후
@@ -262,6 +299,19 @@ function applyClassesSort<Q extends ClassesOrderBuilder>(
       // 오래된 개강순. NULLS LAST + name ASC tiebreak (위와 동일 정책).
       return query
         .order("start_date", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true }) as Q;
+
+    case "end_date_desc":
+      // 최근 종강순. end_date 는 NULL 가능 (백필 미적용 = 진행 중 표기) —
+      // NULLS LAST 로 뒤로 밀고 종강일 동률 반들은 name ASC(가나다) 로 안정 정렬.
+      return query
+        .order("end_date", { ascending: false, nullsFirst: false })
+        .order("name", { ascending: true }) as Q;
+
+    case "end_date_asc":
+      // 오래된 종강순. NULLS LAST + name ASC tiebreak (위와 동일 정책).
+      return query
+        .order("end_date", { ascending: true, nullsFirst: false })
         .order("name", { ascending: true }) as Q;
 
     case "name_asc":
@@ -423,6 +473,7 @@ interface ClassQueryBuilder {
   eq(column: string, value: string | boolean): ClassQueryBuilder;
   in(column: string, values: readonly string[]): ClassQueryBuilder;
   or(filters: string): ClassQueryBuilder;
+  lt(column: string, value: string): ClassQueryBuilder;
 }
 
 /**

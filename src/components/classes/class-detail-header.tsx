@@ -35,6 +35,17 @@ export function ClassDetailHeader({ cls }: Props) {
   // 개강일 — DATE("YYYY-MM-DD") 그대로 노출. 백필 미적용 강좌 (~15%) 는 "—".
   const startDateLine = cls.start_date ?? "—";
 
+  // 종강일 — 0020 마이그레이션으로 추가. 표기 규약:
+  //  - end_date IS NULL          → "—"
+  //  - end_date >= 2050-01-01    → "미정" (placeholder 백필)
+  //  - 그 외                      → 그대로 'YYYY-MM-DD'
+  const endDateLine = formatEndDate(cls.end_date);
+
+  // 진행/종강 derive — 오늘 KST 기준.
+  //  - end_date IS NULL OR end_date >= 오늘 → 진행 중 (미정 placeholder 도 포함)
+  //  - end_date < 오늘                       → 종강
+  const status = deriveStatus(cls.end_date);
+
   // 정원.
   const capacityLine = cls.capacity != null ? `정원 ${cls.capacity}명` : null;
 
@@ -56,6 +67,7 @@ export function ClassDetailHeader({ cls }: Props) {
               {cls.name}
             </h1>
             <BranchBadge branch={cls.branch} />
+            <StatusBadge status={status} />
             {!cls.active && (
               <span
                 className="
@@ -82,6 +94,7 @@ export function ClassDetailHeader({ cls }: Props) {
               <MetaRow label="요일·시간" value={scheduleLine} />
             )}
             <MetaRow label="개강일" value={startDateLine} />
+            <MetaRow label="종강일" value={endDateLine} />
             {capacityLine && <MetaRow label="정원" value={capacityLine} />}
             {pricingLine && <MetaRow label="회차·단가" value={pricingLine} />}
             {classroomLine && (
@@ -136,4 +149,84 @@ function formatPricing(cls: ClassRow): string | null {
 function formatSessions(v: number): string {
   if (Number.isInteger(v)) return v.toString();
   return v.toFixed(1);
+}
+
+/**
+ * 종강일 표시 규약.
+ *  - NULL                      → "—"  (정보 없음)
+ *  - >= "2050-01-01"           → "미정" (placeholder 백필)
+ *  - 그 외                      → 그대로 'YYYY-MM-DD'
+ */
+function formatEndDate(end: string | null): string {
+  if (end == null) return "—";
+  if (end >= "2050-01-01") return "미정";
+  return end;
+}
+
+type ClassStatus = "progressing" | "graduated";
+
+/**
+ * UI 측 진행/종강 derive (오늘 KST 기준).
+ *  - end_date IS NULL OR end_date >= 오늘   → 진행 중
+ *  - end_date >= "2050-01-01"               → 진행 중 (미정 placeholder)
+ *  - end_date < 오늘                         → 종강
+ *
+ * 백엔드 `applyClassFilters(status=...)` 와 동일 룰. ISO YYYY-MM-DD 의 사전식
+ * 비교가 곧 날짜 비교라 별도 파싱 없이 문자열 비교로 충분.
+ */
+function deriveStatus(end: string | null): ClassStatus {
+  if (end == null) return "progressing";
+  if (end >= "2050-01-01") return "progressing";
+  const todayKst = todayKstDateString();
+  return end < todayKst ? "graduated" : "progressing";
+}
+
+/** "YYYY-MM-DD" KST 오늘 — backend `todayKstDateString` 의 클라 미러. */
+function todayKstDateString(): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  return fmt.format(new Date()); // en-CA → "YYYY-MM-DD"
+}
+
+/**
+ * 진행/종강 칩.
+ *
+ * 디자인 결정:
+ *  - 진행 중 → 차분한 녹색 톤 (text-emerald-700 + bg-emerald-50 + border-emerald-200)
+ *  - 종강    → 회색 톤 (text-muted + bg-muted + border)
+ *
+ * 색만으로 의미 전달 금지 — 텍스트 라벨 ("진행 중" / "종강") 동반.
+ * BranchBadge 와 동일 사이즈 토큰 (px-2 py-0.5 / 12px / rounded-md) 으로 정렬.
+ */
+function StatusBadge({ status }: { status: ClassStatus }) {
+  if (status === "graduated") {
+    return (
+      <span
+        className="
+          inline-flex items-center px-2 py-0.5 rounded-md
+          text-[12px] font-medium
+          bg-[color:var(--bg-muted)] text-[color:var(--text-muted)]
+          border border-[color:var(--border)]
+        "
+      >
+        종강
+      </span>
+    );
+  }
+  return (
+    <span
+      className="
+        inline-flex items-center px-2 py-0.5 rounded-md
+        text-[12px] font-medium
+        bg-emerald-50 text-emerald-700
+        border border-emerald-200
+      "
+    >
+      진행 중
+    </span>
+  );
 }

@@ -16,7 +16,7 @@ import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
 /**
  * F0 · 강좌 리스트 상단 툴바.
  *
- * - 1행(검색·드롭다운): 검색 + 분원 + 과목 + 정렬 + 미사용 토글
+ * - 1행(검색·드롭다운): 검색 + 분원 + 과목 + 정렬 + 진행/종강 segment
  * - 2행(요일 칩): 월~일 7종 다중 토글 (학생 리스트 학년 칩 패턴 미러)
  * - 3행(강사 + 초기화): 강사 다중 선택 드롭다운 + 선택 칩 + 필터 초기화
  *
@@ -27,10 +27,14 @@ import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
  *  - ?teacher=A&teacher=B             : 강사 (다중)
  *  - ?day=월&day=수                   : 요일 (다중)
  *  - ?sort=enrolled_count_desc        : 정렬 (단일)
- *  - ?active=0                        : 미사용 강좌 포함
+ *  - ?status=progressing|graduated|all : 진행/종강 (단일, default all)
  *
  * 분원 변경 시 강사 선택은 자동 초기화 (분원이 바뀌면 강사 풀이 달라지므로).
  * 필터 변경 시 page 는 항상 1 로 리셋.
+ *
+ * 0020 마이그레이션 이후 "미사용 포함" 토글은 제거 — V_class_list 의 active
+ * 신호가 사실상 100% true 로 들어와 분별 가치가 사라졌다. 그 자리에 진행/종강
+ * status segment 를 둔다. backend 의 active 필터 코드는 그대로 유지 (무해).
  */
 
 const SUBJECT_OPTIONS = ["전체", "수학", "국어", "영어", "탐구"] as const;
@@ -49,6 +53,8 @@ const SORT_LABELS: Record<ClassSort, string> = {
   registered_asc: "오래된 등록순",
   start_date_desc: "최근 개강순",
   start_date_asc: "오래된 개강순",
+  end_date_desc: "최근 종강순",
+  end_date_asc: "오래된 종강순",
   name_asc: "반명 가나다순",
   name_desc: "반명 가나다 역순",
   enrolled_count_desc: "수강생 많은 순 (현재 페이지 내 정렬)",
@@ -58,6 +64,23 @@ const SORT_LABELS: Record<ClassSort, string> = {
   amount_per_session_asc: "회당단가 낮은 순",
   total_sessions_desc: "총회차 많은 순",
 };
+
+/**
+ * 진행/종강 status segment 라벨.
+ * URL 미존재 → backend default "all" 동작 (전체 노출).
+ * 사용자가 명시적으로 선택해야 필터 적용 — 작업지시 결정 (a) 채택.
+ */
+type StatusSegment = "all" | "progressing" | "graduated";
+const STATUS_SEGMENTS: ReadonlyArray<{ value: StatusSegment; label: string }> = [
+  { value: "progressing", label: "진행 중만" },
+  { value: "all", label: "전체" },
+  { value: "graduated", label: "종강" },
+];
+const STATUS_WHITELIST: ReadonlySet<string> = new Set([
+  "all",
+  "progressing",
+  "graduated",
+]);
 
 const SORT_WHITELIST: ReadonlySet<string> = new Set(CLASS_SORT_VALUES);
 const DAY_WHITELIST: ReadonlySet<string> = new Set(CLASS_DAY_VALUES);
@@ -90,8 +113,13 @@ export function ClassesToolbar({ teacherOptions }: Props) {
     .getAll("day")
     .filter((d): d is ClassDay => DAY_WHITELIST.has(d));
 
-  // active 의 기본은 true (미사용 숨김). ?active=0 이면 미사용 포함(체크됨).
-  const includeInactive = searchParams.get("active") === "0";
+  // 진행/종강 status segment. URL 미존재(또는 화이트리스트 외) → "all".
+  // backend default 와 동일하므로 화면상 "전체" 가 기본 활성으로 보인다.
+  const statusRaw = searchParams.get("status");
+  const status: StatusSegment =
+    statusRaw && STATUS_WHITELIST.has(statusRaw)
+      ? (statusRaw as StatusSegment)
+      : "all";
 
   const sortRaw = searchParams.get("sort");
   const sort: ClassSort =
@@ -146,10 +174,11 @@ export function ClassesToolbar({ teacherOptions }: Props) {
     });
   };
 
-  const toggleIncludeInactive = () => {
+  const onStatusChange = (value: StatusSegment) => {
     updateParams((p) => {
-      if (includeInactive) p.delete("active");
-      else p.set("active", "0");
+      // "all" 은 기본값이라 URL 에서 제거 (canonical URL 짧게 유지).
+      if (value === "all") p.delete("status");
+      else p.set("status", value);
     });
   };
 
@@ -173,7 +202,7 @@ export function ClassesToolbar({ teacherOptions }: Props) {
     subject !== "전체" ||
     teachers.length > 0 ||
     days.length > 0 ||
-    includeInactive;
+    status !== "all";
 
   const clearAll = () => {
     updateParams((p) => {
@@ -182,14 +211,14 @@ export function ClassesToolbar({ teacherOptions }: Props) {
       p.delete("subject");
       p.delete("teacher");
       p.delete("day");
-      p.delete("active");
+      p.delete("status");
       // 정렬은 의도적으로 유지 — 사용자가 명시적으로 바꾼 보기 옵션.
     });
   };
 
   return (
     <div className="space-y-4" aria-busy={isPending}>
-      {/* 1행: 검색 + 분원 + 과목 + 정렬 + 미사용 포함 */}
+      {/* 1행: 검색 + 분원 + 과목 + 정렬 + 진행/종강 segment */}
       <div className="flex flex-col md:flex-row md:items-center gap-3">
         <form onSubmit={onSearchSubmit} className="flex-1">
           <label className="relative block">
@@ -275,23 +304,40 @@ export function ClassesToolbar({ teacherOptions }: Props) {
           ))}
         </select>
 
-        <label
+        <div
+          role="radiogroup"
+          aria-label="진행 상태"
           className="
-            inline-flex items-center gap-2 h-10 px-3 rounded-lg
+            inline-flex items-stretch h-10 rounded-lg
             bg-white border border-[color:var(--border)]
-            text-[14px] text-[color:var(--text-muted)]
-            hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]
-            cursor-pointer transition-colors select-none
+            overflow-hidden
           "
         >
-          <input
-            type="checkbox"
-            checked={includeInactive}
-            onChange={toggleIncludeInactive}
-            className="size-4 cursor-pointer accent-[color:var(--action)]"
-          />
-          미사용 포함
-        </label>
+          {STATUS_SEGMENTS.map((seg, idx) => {
+            const active = status === seg.value;
+            return (
+              <button
+                key={seg.value}
+                type="button"
+                role="radio"
+                aria-checked={active}
+                onClick={() => onStatusChange(seg.value)}
+                className={`
+                  px-3 text-[14px] font-medium transition-colors
+                  focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]
+                  ${idx > 0 ? "border-l border-[color:var(--border)]" : ""}
+                  ${
+                    active
+                      ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
+                      : "bg-white text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                  }
+                `}
+              >
+                {seg.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* 2행: 요일 칩 (다중 토글) */}
