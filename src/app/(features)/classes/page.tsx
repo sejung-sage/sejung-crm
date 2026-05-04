@@ -1,4 +1,5 @@
 import { listClasses } from "@/lib/classes/list-classes";
+import { listClassFilterOptions } from "@/lib/classes/list-class-filter-options";
 import { parseClassSearchParams } from "@/lib/schemas/class";
 import { ClassesToolbar } from "@/components/classes/classes-toolbar";
 import { ClassesTable } from "@/components/classes/classes-table";
@@ -23,7 +24,13 @@ export default async function ClassesPage({
 }) {
   const raw = await searchParams;
   const filters = parseClassSearchParams(raw);
-  const result = await listClasses(filters);
+
+  // 강좌 리스트 + 강사 필터 옵션 prefetch 를 병렬 실행.
+  // 강좌 6,000 규모라 한 번의 distinct 스캔으로 충분 (학생 리스트 패턴 미러).
+  const [result, filterOptions] = await Promise.all([
+    listClasses(filters),
+    listClassFilterOptions(filters.branch),
+  ]);
   const devMode = isDevSeedMode();
 
   return (
@@ -39,7 +46,7 @@ export default async function ClassesPage({
       </header>
 
       {/* 툴바 (검색 + 필터) */}
-      <ClassesToolbar />
+      <ClassesToolbar teacherOptions={filterOptions.teachers} />
 
       {devMode && (
         <div

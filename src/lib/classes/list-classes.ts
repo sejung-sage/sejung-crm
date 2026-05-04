@@ -10,18 +10,26 @@
  *   3) 페이지의 aca_class_id 들로 enrollments 한 번 조회 →
  *      JS 에서 Map<aca_class_id, Set<student_id>> 로 distinct count 집계.
  *
- * 정렬 정책 (사용자 확정):
- *   - 1순위 branch ASC
- *   - 2순위 subject ASC NULLS LAST
- *   - 3순위 name ASC
+ * 정렬 정책 (사용자 확정 · `ClassSort` 11종 enum):
+ *   - default               : branch ASC > subject ASC NULLS LAST > name ASC (현행)
+ *   - registered_desc/asc   : 등록일 (NULLS LAST)
+ *   - name_asc/desc         : 반명
+ *   - capacity_desc         : 정원 많은 순 (NULLS LAST) + name ASC tiebreak
+ *   - amount_per_session_*  : 회당단가 (NULLS LAST) + name ASC tiebreak
+ *   - total_sessions_desc   : 총회차 (NULLS LAST) + name ASC tiebreak
+ *   - enrolled_count_*      : DB 측 집계 컬럼 부재 (페이지 결과에 JS 단 머지) →
+ *                             DB 쿼리는 `default` 동일 정렬로 페이지 fetch 후
+ *                             JS 단에서 enrolled_student_count 기준 재정렬.
+ *                             ※ 페이지 한정 정렬 (페이지네이션 일관성은 깨지나
+ *                                집계 컬럼 부재로 인한 자연스러운 한계).
+ *
+ * NULLS 정책: 학생 리스트와 동일 — 모든 정렬에서 NULL 은 항상 뒤(NULLS LAST).
  *
  * 검색 escape 정책:
  *   - PostgREST `.or(...)` 는 콤마/괄호로 토큰을 분리하므로 사용자 입력에서
  *     `,` 와 `()` 를 제거 (sanitizeSearchTerm). count-recipients.ts 의 phone
- *     정규식 화이트리스트와 같은 정책 — "안전한 문자만 통과시키되, 강좌 검색은
- *     한글·영문·숫자·공백 등 폭이 넓으므로 블랙리스트 방식으로 메타문자만 제거".
- *   - `%` 와 `_` 는 ilike 와일드카드로 동작하지만, 사용자가 입력했을 때 의도치
- *     않은 매칭이 일어날 뿐 인젝션 위험은 아니므로 그대로 둔다.
+ *     정규식 화이트리스트와 같은 정책.
+ *   - days 필터는 z.enum(7종 한 글자) 화이트리스트라 메타문자 인젝션 불가.
  *
  * dev seed 모드:
  *   - 학생 dev seed 에는 강좌 시드가 없어 의미 있는 출력을 만들 수 없다.
@@ -29,7 +37,7 @@
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { ClassFilters } from "@/lib/schemas/class";
+import type { ClassFilters, ClassSort } from "@/lib/schemas/class";
 import type { ClassListItem, ClassRow } from "@/types/database";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 
@@ -91,14 +99,11 @@ async function listFromSupabase(
     filters,
   );
 
-  const pageQuery = applyClassFilters(
-    supabase.from("classes").select("*"),
-    filters,
-  )
-    .order("branch", { ascending: true })
-    .order("subject", { ascending: true, nullsFirst: false })
-    .order("name", { ascending: true })
-    .range(from, to);
+  // 정렬은 DB 측(applyClassesSort) 적용 후 .range() 로 페이지 자르기.
+  const pageQuery = applyClassesSort(
+    applyClassFilters(supabase.from("classes").select("*"), filters),
+    filters.sort,
+  ).range(from, to);
 
   const [countResult, pageResult] = await Promise.all([countQuery, pageQuery]);
 
@@ -130,8 +135,14 @@ async function listFromSupabase(
         : 0,
   }));
 
+  // enrolled_count_* 정렬은 DB 측 집계 컬럼이 없어 페이지 fetch 후
+  // JS 단에서 한 번 더 정렬한다. 페이지 한정 정렬이라 페이지네이션 전체 일관성은
+  // 깨지지만 (다음 페이지의 작은 enrolled_count 가 현재 페이지보다 클 수 있음),
+  // 집계 컬럼 부재로 인한 자연스러운 한계 — UX 상 현재 페이지 내 순서만 보정.
+  const finalRows = applyEnrolledCountSortInPage(rows, filters.sort);
+
   return {
-    rows,
+    rows: finalRows,
     total,
     page,
     pageSize,
@@ -165,6 +176,22 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     q = q.eq("active", true) as Q;
   }
 
+  // 강사명 다중 필터 — classes.teacher_name 정확 일치 (IN).
+  // 빈 문자열은 schema 단계에서 trim 되었으나 한 번 더 가드.
+  if (filters.teachers.length > 0) {
+    q = q.in("teacher_name", filters.teachers) as Q;
+  }
+
+  // 요일 다중 필터 — schedule_days 가 자유형("화목","월수금","월화수목금" 등
+  // 한 글자씩 이어붙임). 선택된 요일 중 하나라도 매칭되면 통과 (OR substring).
+  // days 는 z.enum 화이트리스트라 한 글자만 들어오므로 .or 메타문자 인젝션 X.
+  if (filters.days.length > 0) {
+    const orParts = filters.days
+      .map((d) => `schedule_days.ilike.%${d}%`)
+      .join(",");
+    q = q.or(orParts) as Q;
+  }
+
   if (filters.search && filters.search !== "") {
     const safe = sanitizeSearchTerm(filters.search);
     if (safe.length > 0) {
@@ -175,6 +202,143 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
   }
 
   return q;
+}
+
+/**
+ * Supabase 쿼리에 ClassSort 정렬을 분기 적용한다.
+ *
+ * NULLS 정책: ASC/DESC 모두 NULL 은 항상 뒤(NULLS LAST). Supabase JS 의
+ * `nullsFirst: false` 옵션이 SQL `NULLS LAST` 로 매핑되며, registered_at /
+ * capacity / amount_per_session / total_sessions 처럼 NULL 가능 컬럼에서
+ * 빈 값을 위로 끌어올리지 않기 위함.
+ *
+ * tiebreaker 정책:
+ *   - default                 : branch ASC > subject ASC NULLS LAST > name ASC (현행 3단)
+ *   - registered_*            : 단일 키 (학생 리스트와 동일하게 보조 키 미부여 — 시간 충돌 가능성 낮음)
+ *   - name_*                  : 단일 키
+ *   - capacity/amount/total_* : 1차 키 동률 시 name ASC 보조
+ *   - enrolled_count_*        : DB 측은 default 와 동일하게 페이지 fetch 후
+ *                               JS 단에서 재정렬 (집계 컬럼 부재로 인한 한계).
+ *
+ * 제네릭 제약은 우리가 호출하는 .order 시그니처만 노출하는 minimal 인터페이스
+ * 로 좁혀, any 없이 호출부 빌더 타입을 보존한다.
+ */
+function applyClassesSort<Q extends ClassesOrderBuilder>(
+  query: Q,
+  sort: ClassSort,
+): Q {
+  switch (sort) {
+    case "default":
+      // 현행 동작 — branch ASC > subject ASC NULLS LAST > name ASC.
+      return query
+        .order("branch", { ascending: true })
+        .order("subject", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true }) as Q;
+
+    case "registered_desc":
+      // 최근 등록순.
+      return query.order("registered_at", {
+        ascending: false,
+        nullsFirst: false,
+      }) as Q;
+
+    case "registered_asc":
+      // 오래된 등록순.
+      return query.order("registered_at", {
+        ascending: true,
+        nullsFirst: false,
+      }) as Q;
+
+    case "name_asc":
+      // 반명 가나다순.
+      return query.order("name", { ascending: true }) as Q;
+
+    case "name_desc":
+      // 반명 가나다 역순.
+      return query.order("name", { ascending: false }) as Q;
+
+    case "capacity_desc":
+      // 정원 많은 순 + 반명 ASC 보조.
+      return query
+        .order("capacity", { ascending: false, nullsFirst: false })
+        .order("name", { ascending: true }) as Q;
+
+    case "amount_per_session_desc":
+      // 회당단가 높은 순 + 반명 ASC 보조.
+      return query
+        .order("amount_per_session", {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order("name", { ascending: true }) as Q;
+
+    case "amount_per_session_asc":
+      // 회당단가 낮은 순 + 반명 ASC 보조.
+      return query
+        .order("amount_per_session", {
+          ascending: true,
+          nullsFirst: false,
+        })
+        .order("name", { ascending: true }) as Q;
+
+    case "total_sessions_desc":
+      // 총회차 많은 순 + 반명 ASC 보조.
+      return query
+        .order("total_sessions", {
+          ascending: false,
+          nullsFirst: false,
+        })
+        .order("name", { ascending: true }) as Q;
+
+    case "enrolled_count_desc":
+    case "enrolled_count_asc":
+      // DB 측 집계 컬럼 부재로 페이지 한정 정렬.
+      // 일단 default 와 동일한 안정 정렬로 페이지를 fetch 한 뒤,
+      // applyEnrolledCountSortInPage() 가 JS 단에서 재정렬한다.
+      return query
+        .order("branch", { ascending: true })
+        .order("subject", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true }) as Q;
+
+    default: {
+      // 미래 enum 추가 시 컴파일 타임 누락 방지 (학생 리스트 패턴 미러).
+      const _exhaustive: never = sort;
+      void _exhaustive;
+      return query
+        .order("branch", { ascending: true })
+        .order("subject", { ascending: true, nullsFirst: false })
+        .order("name", { ascending: true }) as Q;
+    }
+  }
+}
+
+/**
+ * 페이지 결과(수강생 수 머지 후) 에 enrolled_count 정렬을 적용한다.
+ *
+ * ※ DB 측 집계 컬럼이 없어 페이지 한정 정렬 — 페이지네이션 전체 일관성은
+ *    깨지지만 (다음 페이지의 작은 enrolled_count 가 현재 페이지보다 클 수 있음),
+ *    enrolled_count 정렬은 그게 자연스러운 한계.
+ *
+ * 안정성: tiebreaker 로 name ASC 적용 (DB 정렬과 톤 유지).
+ */
+function applyEnrolledCountSortInPage(
+  rows: ClassListItem[],
+  sort: ClassSort,
+): ClassListItem[] {
+  if (sort !== "enrolled_count_desc" && sort !== "enrolled_count_asc") {
+    return rows;
+  }
+
+  const asc = sort === "enrolled_count_asc";
+  const cmpName = (a: ClassListItem, b: ClassListItem): number =>
+    a.name.localeCompare(b.name);
+
+  return [...rows].sort((a, b) => {
+    const av = a.enrolled_student_count;
+    const bv = b.enrolled_student_count;
+    if (av === bv) return cmpName(a, b);
+    return asc ? av - bv : bv - av;
+  });
 }
 
 /**
@@ -237,10 +401,22 @@ async function fetchEnrolledStudentCounts(
  * applyClassFilters 의 제네릭 제약용 minimal 쿼리 빌더 인터페이스.
  *
  * Supabase JS 의 PostgrestFilterBuilder 는 select 모드(head/count)에 따라
- * 결과 타입이 분기되지만, 우리가 쓰는 메서드는 .eq/.or 뿐이므로 그 두 개만
+ * 결과 타입이 분기되지만, 우리가 쓰는 메서드는 .eq/.in/.or 뿐이므로 그 셋만
  * 노출해 호출부 타입을 보존한다 (any 회피).
  */
 interface ClassQueryBuilder {
   eq(column: string, value: string | boolean): ClassQueryBuilder;
+  in(column: string, values: readonly string[]): ClassQueryBuilder;
   or(filters: string): ClassQueryBuilder;
+}
+
+/**
+ * applyClassesSort 의 제네릭 제약용 minimal 정렬 빌더 인터페이스.
+ * 학생 리스트의 ProfilesOrderBuilder 와 동일 톤.
+ */
+interface ClassesOrderBuilder {
+  order(
+    column: string,
+    options?: { ascending?: boolean; nullsFirst?: boolean },
+  ): ClassesOrderBuilder;
 }

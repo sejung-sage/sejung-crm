@@ -9,10 +9,11 @@ import {
   useState,
   useTransition,
 } from "react";
-import { Search, X, Eye, ChevronDown, Check } from "lucide-react";
+import { Search, X, Eye, Check } from "lucide-react";
 import type { Grade, SchoolLevel } from "@/types/database";
 import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 import { STUDENT_SORT_VALUES, type StudentSort } from "@/lib/schemas/student";
+import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
 
 /**
  * 학년·학교급 필터 옵션 (0012 정규화 enum 9종 대응).
@@ -588,138 +589,6 @@ function SegmentedControl<T extends string>({
           </button>
         );
       })}
-    </div>
-  );
-}
-
-/**
- * 멀티 선택 드롭다운.
- * 강사 필터용. 옵션 수가 ~10명 수준이라 검색 없이 단순 목록.
- *
- * - 외부 클릭/Esc 닫힘
- * - 체크박스 형태로 다중 선택 표시
- * - 선택은 즉시 URL 반영 (드롭다운은 열린 상태 유지)
- */
-function MultiSelectDropdown({
-  label,
-  options,
-  selected,
-  onToggle,
-  emptyHint,
-}: {
-  label: string;
-  options: string[];
-  selected: string[];
-  onToggle: (value: string) => void;
-  emptyHint?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!wrapperRef.current) return;
-      if (!wrapperRef.current.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-
-  return (
-    <div ref={wrapperRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-haspopup="listbox"
-        aria-expanded={open}
-        className="
-          inline-flex items-center gap-1.5 h-8 px-3 rounded-full
-          text-[14px] font-medium
-          bg-white text-[color:var(--text)]
-          border border-dashed border-[color:var(--border-strong)]
-          hover:bg-[color:var(--bg-hover)]
-          transition-colors
-        "
-      >
-        <span>+ {label}</span>
-        <ChevronDown
-          className={`size-3.5 transition-transform ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.75}
-          aria-hidden
-        />
-      </button>
-
-      {open && (
-        <div
-          role="listbox"
-          aria-multiselectable="true"
-          className="
-            absolute left-0 top-full mt-2 z-30
-            min-w-56 max-w-72
-            max-h-72 overflow-y-auto
-            rounded-lg
-            bg-white border border-[color:var(--border)]
-            shadow-md
-            p-1
-          "
-        >
-          {options.length === 0 ? (
-            <p className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
-              {emptyHint ?? "옵션이 없습니다"}
-            </p>
-          ) : (
-            options.map((opt) => {
-              const active = selectedSet.has(opt);
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onClick={() => onToggle(opt)}
-                  className={`
-                    w-full flex items-center gap-2
-                    px-2 py-2 rounded-md
-                    text-left text-[14px]
-                    text-[color:var(--text)]
-                    hover:bg-[color:var(--bg-hover)]
-                    transition-colors
-                  `}
-                >
-                  <span
-                    className={`
-                      inline-flex items-center justify-center
-                      size-4 rounded
-                      border
-                      ${
-                        active
-                          ? "bg-[color:var(--action)] border-[color:var(--action)] text-[color:var(--action-text)]"
-                          : "bg-white border-[color:var(--border-strong)]"
-                      }
-                    `}
-                    aria-hidden
-                  >
-                    {active && (
-                      <Check className="size-3" strokeWidth={2.5} />
-                    )}
-                  </span>
-                  <span className="truncate">{opt}</span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
     </div>
   );
 }
