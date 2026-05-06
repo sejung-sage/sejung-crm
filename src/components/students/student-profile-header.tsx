@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { MessageCircle } from "lucide-react";
 import type { StudentProfileRow } from "@/types/database";
 import { StudentStatusBadge } from "@/components/students/status-badge";
@@ -47,23 +48,21 @@ export function StudentProfileHeader({ profile }: Props) {
         </div>
 
         <div className="shrink-0">
-          <button
-            type="button"
-            disabled
-            title="F3 문자 발송 모듈 완성 시 활성화"
-            aria-label="이 학생에게 문자 보내기 (준비 중)"
+          <Link
+            href={`/groups/new?student=${profile.id}`}
+            aria-label="이 학생에게 문자 보내기"
             className="
               inline-flex items-center gap-1.5
               h-10 px-4 rounded-lg
               bg-[color:var(--action)] text-[color:var(--action-text)]
               text-[14px] font-medium
-              disabled:opacity-40 disabled:cursor-not-allowed
+              hover:bg-[color:var(--action-hover)]
               transition-colors
             "
           >
             <MessageCircle className="size-4" strokeWidth={1.75} aria-hidden />
             이 학생에게 문자 보내기
-          </button>
+          </Link>
         </div>
       </div>
     </section>
