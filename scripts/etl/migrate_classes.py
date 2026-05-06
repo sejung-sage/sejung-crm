@@ -11,7 +11,8 @@
   반명             → name (REQUIRED · 빈값 skip)
   강사명           → teacher_name
   과목명           → subject_raw (원본 보존)
-                  → subject (정확 일치만: 국어/영어/수학/과탐/사탐/컨설팅/기타)
+                  → subject (7종 정확 일치 + 운영 분포 기반 별칭 매핑.
+                              매칭 실패 시 NULL — normalize_subject 참조)
   청구회차         → total_sessions (NUMERIC, NULL 허용)
   회차당금액       → amount_per_session (INT, NULL 허용)
   반수강료         → total_amount (INT, NULL 허용)
@@ -131,16 +132,48 @@ def _mask_error(msg: str) -> str:
 
 # ─── subject 정규화 ──────────────────────────────────────
 # DB CHECK 제약: subject IN ('국어','영어','수학','과탐','사탐','컨설팅','기타') OR NULL.
-# 부분 매칭(예: "수학 1", "고등 수학") 하지 않음 — 보수적으로 정확 일치만.
+# 매칭 전략:
+#   1) 7종 정확 일치 → 그대로
+#   2) 별칭(alias) dict 매칭 → 정규값
+#   3) 그 외 → None
+# 부분 매칭("수학 1" / "고등 수학") 은 일부러 안 함 — 명시 매핑만.
 _ALLOWED_SUBJECTS = {"국어", "영어", "수학", "과탐", "사탐", "컨설팅", "기타"}
+
+# 운영 V_class_list 분포(2026-05-06 진단) 에서 발견된 raw 값 → 정규화 매핑.
+#   - "수능*"     : 수능 과목 prefix → 본 과목
+#   - "통사"      : 통합사회 → 사탐 그룹
+#   - "통사+한국사": 통사 묶음 → 사탐 그룹
+#   - "통과"      : 통합과학 → 과탐 그룹
+#   - "화학"/"생명과학"/"물리" : 개별 과학 과목 → 과탐 그룹
+#   - "독학관"    : 자습실 운영 강좌 → 기타 버킷
+# 향후 새 raw 값이 운영에 등장하면 진단 후 본 dict 에 추가.
+_SUBJECT_ALIASES: dict[str, str] = {
+    "수능국어": "국어",
+    "수능영어": "영어",
+    "수능수학": "수학",
+    "통사": "사탐",
+    "통사+한국사": "사탐",
+    "통과": "과탐",
+    "화학": "과탐",
+    "생명과학": "과탐",
+    "물리": "과탐",
+    "독학관": "기타",
+}
 
 
 def normalize_subject(raw: Any) -> str | None:
-    """과목명 raw 가 정확히 7종 중 하나면 그 값, 아니면 None."""
+    """과목명 raw 정규화.
+
+    1) 7종 정확 일치 → 그 값 그대로
+    2) _SUBJECT_ALIASES 매칭 → 정규값
+    3) 그 외 → None (subject_raw 에는 원값 보존됨)
+    """
     s = clean_text(raw)
     if s is None:
         return None
-    return s if s in _ALLOWED_SUBJECTS else None
+    if s in _ALLOWED_SUBJECTS:
+        return s
+    return _SUBJECT_ALIASES.get(s)
 
 
 # ─── classroom 합치기 ────────────────────────────────────
