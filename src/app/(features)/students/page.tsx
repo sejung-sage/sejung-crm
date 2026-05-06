@@ -13,8 +13,12 @@ import { Pagination } from "@/components/students/pagination";
  * Server Component. URL searchParams 기반 필터.
  * Next 16 에서 searchParams 는 Promise — 반드시 await.
  *
- * 강사·학교 필터 옵션은 별도로 prefetch 하여 클라이언트 컴포넌트에 prop 으로
- * 내려준다. 분원 변경 시 강사·학교 풀이 달라지므로 branch 인자에 의존.
+ * 학교 필터 옵션은 별도로 prefetch 하여 클라이언트 컴포넌트에 prop 으로
+ * 내려준다. 분원 변경 시 학교 풀이 달라지므로 branch 인자에 의존.
+ * (강사 필터는 노이즈 대비 효용이 낮아 학생 명단에서 제거 — 그룹 빌더에서만 사용.)
+ *
+ * 지역 필터(region) 는 학교 → 지역 매핑(school_regions) 으로 5종 칩 노출.
+ * 매핑 관리는 /regions admin 페이지에서.
  *
  * TODO: 학생 6만 규모에서 distinct 풀 스캔이 느려지면 PG 함수
  *       `list_distinct_teachers_and_schools(branch text)` 로 이전.
@@ -27,7 +31,7 @@ export default async function StudentsPage({
   const raw = await searchParams;
   const input = parseStudentsSearchParams(raw);
 
-  // 학생 리스트 + 필터 옵션 prefetch 를 병렬 실행.
+  // 학생 리스트 + 학교 옵션 prefetch 를 병렬 실행.
   const [result, filterOptions] = await Promise.all([
     listStudents(input),
     listStudentFilterOptions(input.branch),
@@ -66,7 +70,6 @@ export default async function StudentsPage({
         <StudentsFilters
           totalCount={result.total}
           source={result.source}
-          teacherOptions={filterOptions.teachers}
           schoolOptions={filterOptions.schools}
         />
 

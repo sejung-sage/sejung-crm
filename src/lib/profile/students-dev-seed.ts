@@ -14,6 +14,7 @@ import type {
   CurrentUser,
   EnrollmentRow,
   GroupRow,
+  SchoolRegionRow,
   StudentMessageRow,
   StudentProfileRow,
   TemplateRow,
@@ -40,6 +41,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: 96.5,
     last_attended_at: "2026-04-21",
     last_paid_at: "2026-03-02",
+    region: "강남구",
   },
   {
     id: "dev-DC0002",
@@ -61,6 +63,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: 92.0,
     last_attended_at: "2026-04-21",
     last_paid_at: "2026-03-02",
+    region: "강남구",
   },
   {
     id: "dev-DC0003",
@@ -82,6 +85,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: 100.0,
     last_attended_at: "2026-04-22",
     last_paid_at: "2026-02-28",
+    region: "강남구",
   },
   {
     id: "dev-DC0004",
@@ -103,6 +107,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "강남구",
   },
   {
     id: "dev-DC0005",
@@ -124,6 +129,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: "2024-11-30",
     last_paid_at: "2024-09-01",
+    region: "강남구",
   },
   {
     id: "dev-SD0001",
@@ -145,6 +151,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "인천 송도",
   },
   {
     id: "dev-SD0002",
@@ -166,6 +173,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "기타",
   },
   {
     id: "dev-SD0003",
@@ -187,6 +195,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "인천 송도",
   },
   {
     id: "dev-SD0004",
@@ -208,6 +217,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "기타",
   },
   {
     id: "dev-SD0005",
@@ -229,6 +239,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "인천 송도",
   },
   // ─── 0012 마이그레이션 정규화 enum 검증용 시드 ─────────────
   // includeHidden 토글, schoolLevel 필터, '미정'/'졸업'/'중X' 칩 동작 확인.
@@ -253,6 +264,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "기타",
   },
   {
     // 졸업 (장기 재수 통합) — 기본 숨김 대상
@@ -275,6 +287,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "강남구",
   },
   {
     // 미정 (NULL/알 수 없는 grade_raw) — 기본 숨김 대상
@@ -297,6 +310,7 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     attendance_rate: null,
     last_attended_at: null,
     last_paid_at: null,
+    region: "기타",
   },
 ];
 
@@ -1620,4 +1634,49 @@ export function listDevAccounts(args: {
     return true;
   });
 }
+
+// ─── 학교 → 지역 매핑 시드 ──────────────────────────────────
+//
+// 0025_school_regions.sql 의 INSERT 값과 동일 매핑. dev-seed 모드에서
+// admin "지역 매핑" UI 가 동작하도록 인메모리 fallback 제공.
+//
+// 운영 DB 가 붙으면 이 배열은 무시되고 school_regions 테이블이 단일 출처가 된다.
+// DEV_STUDENT_PROFILES 의 학교들은 일부만 매핑되어 "미매핑(='기타')" 케이스도
+// 자연스럽게 노출됨:
+//   - 휘문고/단대부고/중동고 → 강남구 (매핑 O)
+//   - 송도고                 → 인천 송도 (매핑 O)
+//   - 인천포스코고/송도국제고/대왕중 → 매핑 X → student_profiles.region = '기타'
+
+export const DEV_SCHOOL_REGIONS: SchoolRegionRow[] = [
+  // 강남구
+  { school: "휘문고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "현대고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "숙명여고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "단대부고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "경기고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "중동고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "경기여고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "진선여고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "중대부고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "영동고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "중산고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "압구정고", region: "강남구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  // 서초구
+  { school: "세화고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "세화여고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "상문고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "서문여고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "서울고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "반포고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "동덕여고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "서초고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "양재고", region: "서초구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  // 송파구
+  { school: "보인고", region: "송파구", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  // 인천 송도
+  { school: "포스코고", region: "인천 송도", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "송도고", region: "인천 송도", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "해송고", region: "인천 송도", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+  { school: "신송고", region: "인천 송도", created_at: "2026-01-01T00:00:00+09:00", updated_at: "2026-01-01T00:00:00+09:00" },
+];
 

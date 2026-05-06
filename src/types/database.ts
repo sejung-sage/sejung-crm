@@ -396,6 +396,31 @@ export interface StudentProfileRow {
   attendance_rate: number | null;
   last_attended_at: string | null;
   last_paid_at: string | null;
+  /**
+   * 지역명 (예: "강남구", "서초구", "송파구", "인천 송도", "기타").
+   * school_regions 매핑 LEFT JOIN 결과. 미매칭/학교 NULL 시 '기타'.
+   * 뷰에서 COALESCE 되므로 NOT NULL 보장. 0026 추가.
+   */
+  region: string;
+}
+
+/**
+ * 학교 → 지역 매핑 (0025 추가).
+ *
+ * 학생 명단/발송 그룹의 지역 필터(강남구/서초구 등)에 사용.
+ * student_profiles 뷰에서 LEFT JOIN 후 COALESCE(region, '기타').
+ *
+ * RLS:
+ *   SELECT — 모든 활성 사용자 (전사 공용)
+ *   INSERT/UPDATE/DELETE — master/admin 만
+ */
+export interface SchoolRegionRow {
+  /** 학교명 PK (예: "휘문고"). students.school 과 정확 일치. */
+  school: string;
+  /** 지역명 (자유 텍스트, 빈/공백만 차단). admin UI 에서 신규 추가 가능. */
+  region: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ─── 학생 상세(F1-02) 조인 타입 ─────────────────────────────
@@ -562,6 +587,14 @@ export interface Database {
         Row: UserProfileRow;
         Insert: Omit<UserProfileRow, "created_at" | "updated_at">;
         Update: Partial<UserProfileRow>;
+      };
+      school_regions: {
+        Row: SchoolRegionRow;
+        Insert: Omit<SchoolRegionRow, "created_at" | "updated_at"> & {
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: Partial<Omit<SchoolRegionRow, "school">>;
       };
     };
     Views: {

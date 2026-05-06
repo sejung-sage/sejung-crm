@@ -84,6 +84,13 @@ async function listFromSupabase(
     query = query.in("school", input.schools);
   }
 
+  // 지역 필터 — student_profiles.region (school_regions 매핑) 정확 일치.
+  // 미매칭/학교 NULL 학생은 뷰에서 '기타' 로 fallback 되므로 사용자가 '기타'
+  // 칩을 켜면 그 학생들이 함께 잡힌다. 0026 추가.
+  if (input.regions.length > 0) {
+    query = query.in("region", input.regions);
+  }
+
   // 기본 숨김: includeHidden=false 이고 사용자가 학년 칩으로 명시적으로
   // 졸업·미정 을 선택하지 않은 경우에만 자동 숨김 적용.
   // 사용자가 grades 에 '졸업'/'미정' 을 포함시켰으면 그 의도를 존중.
@@ -299,6 +306,13 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
   if (input.schools.length > 0) {
     const wanted = new Set<string>(input.schools);
     rows = rows.filter((r) => r.school !== null && wanted.has(r.school));
+  }
+
+  // 지역 필터 — student_profiles.region 정확 일치 (Supabase 경로와 동일).
+  // dev seed 의 region 은 NOT NULL (뷰가 COALESCE → '기타') 이므로 단순 includes.
+  if (input.regions.length > 0) {
+    const wanted = new Set<string>(input.regions);
+    rows = rows.filter((r) => wanted.has(r.region));
   }
 
   // 기본 숨김 (Supabase 경로와 동일 규칙).

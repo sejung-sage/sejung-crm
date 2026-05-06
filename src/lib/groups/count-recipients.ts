@@ -175,7 +175,7 @@ async function countFromSupabase(
     filters,
     branch,
     safeUnsubPhones,
-    "id, name, school, grade, track, status, branch, parent_phone, phone, registered_at, enrollment_count, total_paid, subjects, teachers, attendance_rate, last_attended_at, last_paid_at",
+    "id, name, school, grade, track, status, branch, parent_phone, phone, registered_at, enrollment_count, total_paid, subjects, teachers, attendance_rate, last_attended_at, last_paid_at, region",
   );
   const { data: sampleData, error: sampleError } = await sampleQuery
     .order("registered_at", { ascending: false, nullsFirst: false })

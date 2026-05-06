@@ -13,7 +13,6 @@ import { Search, X, Eye, Check } from "lucide-react";
 import type { Grade, SchoolLevel } from "@/types/database";
 import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 import { STUDENT_SORT_VALUES, type StudentSort } from "@/lib/schemas/student";
-import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
 
 /**
  * 학년·학교급 필터 옵션 (0012 정규화 enum 9종 대응).
@@ -41,13 +40,18 @@ const GRADE_OPTIONS_ALL: ReadonlyArray<Grade> = [
 
 const TRACK_OPTIONS = ["문과", "이과"] as const;
 const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드", "탈퇴"] as const;
-const SUBJECT_OPTIONS = [
-  "국어",
-  "영어",
-  "수학",
-  "과탐",
-  "사탐",
-  "컨설팅",
+/**
+ * 지역 칩 (학생 명단 필터 전용).
+ *
+ * 운영자는 /regions admin 페이지에서 학교 → 지역 매핑을 자유 추가/수정.
+ * 다만 학생 명단 필터에서는 자주 쓰는 5종을 칩으로 고정 노출 — 빠른 토글이 목적.
+ * 추가 지역(예: "분당")이 매핑되어 있어도 매핑은 정상 동작하지만 칩에는 노출하지 않는다.
+ */
+const REGION_OPTIONS = [
+  "강남구",
+  "서초구",
+  "송파구",
+  "인천 송도",
   "기타",
 ] as const;
 
@@ -81,21 +85,18 @@ const SORT_WHITELIST: ReadonlySet<string> = new Set(STUDENT_SORT_VALUES);
  *  - ?include_hidden=1 : 졸업·미정 포함 토글.
  *
  * 확장 필터:
- *  - ?subject=수학&subject=국어   : 수강 과목 (다중 칩)
- *  - ?teacher=A&teacher=B         : 강사명 (드롭다운에서 다중 선택 → 칩 표시)
+ *  - ?region=강남구&region=서초구 : 지역 (다중 칩, 5종 고정)
  *  - ?school=대치고&school=휘문고 : 학교명 (combobox 검색 → 칩 표시)
  *  - ?sort=attendance_asc         : 정렬 단일 키 (기본 registered_desc)
  */
 export function StudentsFilters({
   totalCount,
   source,
-  teacherOptions,
   schoolOptions,
 }: {
   totalCount: number;
   source: "supabase" | "dev-seed";
-  /** 부모(Server Component) 가 prefetch 해서 넘겨주는 강사·학교 후보. */
-  teacherOptions: string[];
+  /** 부모(Server Component) 가 prefetch 해서 넘겨주는 학교 후보. */
   schoolOptions: string[];
 }) {
   const router = useRouter();
@@ -112,8 +113,7 @@ export function StudentsFilters({
   const statusesFromUrl = searchParams.getAll("status");
   const statusKeyPresent = searchParams.has("status");
   const statuses = statusKeyPresent ? statusesFromUrl : ["재원생"];
-  const subjects = searchParams.getAll("subject");
-  const teachers = searchParams.getAll("teacher");
+  const regions = searchParams.getAll("region");
   const schools = searchParams.getAll("school");
   // school_level 은 운영 단순화를 위해 단일 선택 (배열 첫 값만 사용).
   const levelRaw = searchParams.getAll("level");
@@ -151,9 +151,9 @@ export function StudentsFilters({
     });
   };
 
-  /** 다중 토글 — grade/track/status/subject 공통. */
+  /** 다중 토글 — grade/track/status/region 공통. */
   const toggleValue = (
-    key: "grade" | "track" | "status" | "subject",
+    key: "grade" | "track" | "status" | "region",
     value: string,
   ) => {
     updateParams((p) => {
@@ -169,10 +169,10 @@ export function StudentsFilters({
   };
 
   /**
-   * 다중 키(teacher/school) 의 단일 값 추가/제거.
-   * 칩 X 버튼·드롭다운 체크박스에서 공유.
+   * 다중 키(school) 의 단일 값 추가/제거.
+   * 칩 X 버튼·콤보박스 옵션에서 공유.
    */
-  const toggleMulti = (key: "teacher" | "school", value: string) => {
+  const toggleMulti = (key: "school", value: string) => {
     updateParams((p) => {
       const all = p.getAll(key);
       p.delete(key);
@@ -189,8 +189,7 @@ export function StudentsFilters({
     updateParams((p) => {
       if (value === "전체") p.delete("branch");
       else p.set("branch", value);
-      // 분원이 바뀌면 강사·학교 옵션 풀이 달라지므로 선택 초기화.
-      p.delete("teacher");
+      // 분원이 바뀌면 학교 옵션 풀이 달라지므로 선택 초기화.
       p.delete("school");
     });
   };
@@ -223,8 +222,7 @@ export function StudentsFilters({
     grades.length > 0 ||
     tracks.length > 0 ||
     statuses.length > 0 ||
-    subjects.length > 0 ||
-    teachers.length > 0 ||
+    regions.length > 0 ||
     schools.length > 0 ||
     includeHidden;
 
@@ -236,8 +234,7 @@ export function StudentsFilters({
       p.delete("grade");
       p.delete("track");
       p.delete("status");
-      p.delete("subject");
-      p.delete("teacher");
+      p.delete("region");
       p.delete("school");
       p.delete("include_hidden");
       // 정렬은 의도적으로 유지 — 사용자가 명시적으로 바꾼 보기 옵션.
@@ -360,19 +357,8 @@ export function StudentsFilters({
         </button>
       </div>
 
-      {/* 과목 + 계열 + 재원 상태 칩 */}
+      {/* 계열 + 재원 상태 + 지역 칩 */}
       <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
-        <FilterGroup label="과목">
-          {SUBJECT_OPTIONS.map((s) => (
-            <Chip
-              key={s}
-              label={s}
-              active={subjects.includes(s)}
-              onClick={() => toggleValue("subject", s)}
-            />
-          ))}
-        </FilterGroup>
-
         <FilterGroup label="계열">
           {TRACK_OPTIONS.map((t) => (
             <Chip
@@ -394,31 +380,21 @@ export function StudentsFilters({
             />
           ))}
         </FilterGroup>
-      </div>
 
-      {/* 강사 + 학교 (드롭다운/콤보박스 + 선택 칩) */}
-      <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
-        <FilterGroup label="강사">
-          <MultiSelectDropdown
-            label="강사 선택"
-            options={teacherOptions}
-            selected={teachers}
-            onToggle={(v) => toggleMulti("teacher", v)}
-            emptyHint={
-              teacherOptions.length === 0
-                ? "선택 가능한 강사가 없습니다"
-                : undefined
-            }
-          />
-          {teachers.map((t) => (
-            <SelectedChip
-              key={t}
-              label={t}
-              onRemove={() => toggleMulti("teacher", t)}
+        <FilterGroup label="지역">
+          {REGION_OPTIONS.map((r) => (
+            <Chip
+              key={r}
+              label={r}
+              active={regions.includes(r)}
+              onClick={() => toggleValue("region", r)}
             />
           ))}
         </FilterGroup>
+      </div>
 
+      {/* 학교 (콤보박스 + 선택 칩) */}
+      <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
         <FilterGroup label="학교">
           <ComboboxMulti
             placeholder="학교 검색"

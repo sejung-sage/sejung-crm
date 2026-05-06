@@ -6,12 +6,14 @@ import {
   BookOpen,
   MessageSquare,
   Upload,
+  MapPin,
   UserCircle2,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { RoleBadge } from "@/components/auth/role-badge";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { SidebarNavLink } from "./sidebar-nav-link";
+import type { UserRole } from "@/types/database";
 
 /**
  * 좌측 사이드바 (폭 240px 고정)
@@ -33,6 +35,11 @@ type NavItem = {
   children?: Array<{ href: string; label: string }>;
   /** 이 항목 위에 작은 섹션 헤더를 표시할지 여부 */
   sectionLabel?: string;
+  /**
+   * 이 항목을 볼 수 있는 role 화이트리스트.
+   * 미지정이면 모든 활성 사용자에게 노출.
+   */
+  roles?: ReadonlyArray<UserRole>;
 };
 
 const NAV_ITEMS: NavItem[] = [
@@ -67,6 +74,13 @@ const NAV_ITEMS: NavItem[] = [
     label: "엑셀 가져오기",
     icon: Upload,
     sectionLabel: "데이터 관리",
+    roles: ["master", "admin"],
+  },
+  {
+    href: "/regions",
+    label: "지역 매핑",
+    icon: MapPin,
+    roles: ["master", "admin"],
   },
 ];
 
@@ -75,6 +89,13 @@ export async function Sidebar() {
   const isDevSeed =
     currentUser?.role === "master" &&
     currentUser?.user_id === "dev-master-0001";
+
+  // role 가드: 항목별 roles 가 있으면 현재 role 이 포함된 것만 노출.
+  const visibleNavItems = NAV_ITEMS.filter((item) => {
+    if (!item.roles) return true;
+    if (!currentUser) return false;
+    return item.roles.includes(currentUser.role);
+  });
 
   return (
     <aside
@@ -122,7 +143,7 @@ export async function Sidebar() {
       {/* 네비 */}
       <nav className="flex-1 overflow-y-auto px-2 pb-6">
         <ul className="flex flex-col gap-0.5">
-          {NAV_ITEMS.map((item) => (
+          {visibleNavItems.map((item) => (
             <li key={item.label}>
               {item.sectionLabel && (
                 <div

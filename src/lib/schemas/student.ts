@@ -54,6 +54,11 @@ export const ListStudentsInputSchema = z.object({
   teachers: z.array(z.string().trim().max(50)).optional().default([]),
   /** 학교 필터 (다중 선택). students.school 정확 일치. */
   schools: z.array(z.string().trim().max(50)).optional().default([]),
+  /**
+   * 지역 필터 (다중 선택). student_profiles.region (school_regions 매핑) 정확 일치.
+   * 운영자가 admin UI 에서 자유 추가하는 텍스트라 enum 제약 없이 자유 텍스트.
+   */
+  regions: z.array(z.string().trim().max(30)).optional().default([]),
   /** 졸업·미정 같은 기본 숨김 학년을 포함할지 여부. URL ?include_hidden=1 */
   includeHidden: z.coerce.boolean().optional().default(false),
   page: z.coerce.number().int().min(1).default(1),
@@ -77,6 +82,7 @@ export type ListStudentsInput = z.infer<typeof ListStudentsInputSchema>;
  *   ?subject=수학&subject=국어       → subjects (다중 선택)
  *   ?teacher=김선생&teacher=박선생   → teachers (다중 선택)
  *   ?school=대치고&school=휘문고     → schools (다중 선택)
+ *   ?region=강남구&region=서초구     → regions (다중 선택, 자유 텍스트)
  *   ?sort=attendance_asc            → sort
  *   ?include_hidden=1               → includeHidden
  *   ?page=1&size=50                 → page / pageSize
@@ -128,6 +134,7 @@ export function parseStudentsSearchParams(
     subjects: toArray(raw.subject).filter((s) => subjectWhitelist.has(s)),
     teachers: cleanFreeText(toArray(raw.teacher)),
     schools: cleanFreeText(toArray(raw.school)),
+    regions: cleanFreeText(toArray(raw.region)),
     sort,
     includeHidden: raw.include_hidden ?? false,
     page: raw.page ?? 1,
