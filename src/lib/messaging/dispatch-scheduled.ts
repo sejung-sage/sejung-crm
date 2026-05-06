@@ -1,8 +1,10 @@
 /**
  * 예약 발송 디스패처 — Vercel Cron 에서 호출.
  *
+ * 운영 트리거: 매일 KST 11:00 (Vercel Hobby 1일 1회 제약). vercel.json 참고.
+ *
  * 흐름:
- *   1) status='예약됨' AND scheduled_at <= NOW() 인 캠페인 조회 (오래된 순, batch=20)
+ *   1) status='예약됨' AND scheduled_at <= NOW() 인 캠페인 조회 (오래된 순)
  *   2) 각 캠페인을 atomic 락 (UPDATE ... WHERE status='예약됨' RETURNING id)
  *      → 동시 cron 인스턴스 / 매뉴얼 발송과의 중복 방지
  *   3) 락 성공한 캠페인의 메시지 일괄 INSERT + 어댑터 호출 (batch=100)
@@ -17,9 +19,10 @@
  *     실패 시 status='실패' + failed_reason 으로 마크 (재시도 X — 명백한 정책 위반).
  *   - 1만건 cap 동일.
  *
- * 한 번에 처리하는 캠페인 수를 20 으로 제한 (Vercel maxDuration 고려).
- * 캠페인당 1만건 × 100ms ≈ 16분 × 20 = 처리 못 함 — 실제로는 한 캠페인에
- * 시간 다 쓰고 다음 cron tick 에 다음 캠페인이 처리되는 패턴.
+ * 한 호출에서 처리하는 캠페인 수 = DISPATCH_BATCH_SIZE.
+ * 1일 1회 트리거라 누적 캠페인이 많아질 수 있어 30 으로 설정.
+ * 캠페인당 평균 5초 가정 시 30개 = 150초 (Vercel default 300s 안에 마감).
+ * 처리 못 한 캠페인은 status='예약됨' 유지 → 다음 날 cron 에서 처리.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -32,7 +35,7 @@ import type { CampaignRow, MessageStatus, TemplateType } from "@/types/database"
 
 const SEND_BATCH_SIZE = 100;
 const MAX_RECIPIENTS_PER_CAMPAIGN = 10_000;
-const DISPATCH_BATCH_SIZE = 20; // 한 cron 호출에서 처리할 최대 캠페인 수
+const DISPATCH_BATCH_SIZE = 30; // 한 cron 호출에서 처리할 최대 캠페인 수 (1일 1회 트리거 대응)
 
 export interface DispatchResult {
   ts: string;

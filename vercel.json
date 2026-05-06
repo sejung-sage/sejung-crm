@@ -3,8 +3,9 @@
   "regions": ["hnd1"],
   "crons": [
     {
+      "//": "매일 KST 11:00 (UTC 02:00) 1회 트리거. Vercel Hobby 플랜 제약(1일 1회) 대응.",
       "path": "/api/cron/dispatch-scheduled-campaigns",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 2 * * *"
     }
   ]
 }
