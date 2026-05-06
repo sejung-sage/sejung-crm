@@ -1,8 +1,15 @@
+import Link from "next/link";
+import { MessageCircle } from "lucide-react";
 import type { ClassRow } from "@/types/database";
 import { BranchBadge } from "@/components/groups/branch-badge";
 
 interface Props {
   cls: ClassRow;
+  /**
+   * 이 강좌의 수강생 수. "이 강좌 학생들에게 문자 보내기" 버튼의
+   * 활성/비활성 + 라벨 보조 표기에 사용. 0 이면 버튼 비활성.
+   */
+  studentCount: number;
 }
 
 /**
@@ -16,7 +23,7 @@ interface Props {
  *  - 요일·시간 한 줄 (둘 다 있으면 한 줄에 붙여서)
  *  - 정원 / 총회차×회당단가=정가 (있는 것만 채워서)
  */
-export function ClassDetailHeader({ cls }: Props) {
+export function ClassDetailHeader({ cls, studentCount }: Props) {
   // 과목 · 강사 inline 메타.
   const subjectTeacherParts: string[] = [];
   if (cls.subject) {
@@ -102,8 +109,69 @@ export function ClassDetailHeader({ cls }: Props) {
             )}
           </dl>
         </div>
+
+        <div className="shrink-0">
+          <SendToClassButton classId={cls.id} studentCount={studentCount} />
+        </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * "이 강좌 학생들에게 문자 보내기" 진입 버튼.
+ *
+ * 학생 상세의 "이 학생에게 문자 보내기" 버튼과 동일 시각 패턴 (action 색).
+ * /groups/new?class=<id> 로 이동하면 NewGroupPage 가 강좌 수강생 전체를
+ * includeStudentIds 에 prefill (조건 절은 비움 — 직접 선택 모드).
+ *
+ * 수강생 0명이면 버튼은 비활성. 자체 등록 강좌(aca_class_id NULL)도 학생 0
+ * 이라 자연스럽게 비활성으로 떨어짐.
+ */
+function SendToClassButton({
+  classId,
+  studentCount,
+}: {
+  classId: string;
+  studentCount: number;
+}) {
+  if (studentCount === 0) {
+    return (
+      <span
+        aria-label="수강생이 없어 문자 발송 불가"
+        title="수강생이 없습니다"
+        className="
+          inline-flex items-center gap-1.5
+          h-10 px-4 rounded-lg
+          bg-[color:var(--bg-muted)] text-[color:var(--text-muted)]
+          text-[14px] font-medium cursor-not-allowed
+          border border-[color:var(--border)]
+        "
+      >
+        <MessageCircle className="size-4" strokeWidth={1.75} aria-hidden />
+        이 강좌 학생들에게 문자 보내기
+      </span>
+    );
+  }
+  return (
+    <Link
+      href={`/groups/new?class=${classId}`}
+      aria-label={`이 강좌 수강생 ${studentCount}명에게 문자 보내기`}
+      className="
+        inline-flex items-center gap-1.5
+        h-10 px-4 rounded-lg
+        bg-[color:var(--action)] text-[color:var(--action-text)]
+        text-[14px] font-medium
+        hover:bg-[color:var(--action-hover)]
+        transition-colors
+      "
+    >
+      <MessageCircle className="size-4" strokeWidth={1.75} aria-hidden />
+      이 강좌 학생들에게 문자 보내기
+      <span className="ml-1 text-[12px] opacity-80 tabular-nums">
+        ({studentCount})
+      </span>
+    </Link>
   );
 }
 

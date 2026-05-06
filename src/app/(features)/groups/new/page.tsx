@@ -1,6 +1,7 @@
 import { GroupBuilder } from "@/components/groups/group-builder";
 import { countRecipients } from "@/lib/groups/count-recipients";
 import { getSchoolOptions } from "@/lib/groups/school-options";
+import { getClassDetail } from "@/lib/classes/get-class-detail";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   findDevProfileById,
@@ -15,33 +16,50 @@ import type { Grade } from "@/types/database";
  * Server Component 래퍼. 초기 프리뷰·학교 후보를 서버에서 한 번 로딩 후
  * GroupBuilder 에 넘긴다. 실제 편집 상호작용은 클라이언트에서 처리.
  *
- * `?student=<id>` 쿼리가 오면 그 학생을 includeStudentIds 에 prefill.
- * 학생 상세의 "이 학생에게 문자 보내기" 진입점에서 사용.
+ * 진입점 prefill 두 종류:
+ *   ?student=<id>   학생 상세 → 그 학생 한 명만 includeStudentIds 에 prefill
+ *   ?class=<id>     강좌 상세 → 그 강좌 수강생 전부 includeStudentIds 에 prefill
+ *
+ * 둘 다 정규화된 `Prefill` 형태로 변환 후 동일 흐름 사용.
+ * 학생 prefill 과 강좌 prefill 동시 지정 시 학생을 우선 (학생 단건이 더 specific).
  */
 const DEFAULT_BRANCH = "대치"; // dev 기본값. Phase 1 에서 로그인 사용자 분원으로 대체.
 
-interface PrefillStudent {
+interface PrefillRecipient {
   id: string;
   name: string;
   parent_phone: string | null;
   school: string | null;
   grade: Grade | null;
-  branch: string;
 }
 
-async function fetchPrefillStudent(
+interface Prefill {
+  /** 그룹 빌더 초기 분원. 학생/강좌의 분원 그대로. */
+  branch: string;
+  /** 그룹 이름 placeholder — "1:1" / "{강좌명} 일회성" 등. */
+  groupName: string;
+  /** includeStudentIds + includeStudents 동시 채우기 위한 학생 명단. */
+  recipients: PrefillRecipient[];
+}
+
+async function fetchPrefillFromStudent(
   studentId: string,
-): Promise<PrefillStudent | null> {
+): Promise<Prefill | null> {
   if (isDevSeedMode()) {
     const p = findDevProfileById(studentId);
     if (!p) return null;
     return {
-      id: p.id,
-      name: p.name,
-      parent_phone: p.parent_phone,
-      school: p.school,
-      grade: p.grade,
       branch: p.branch,
+      groupName: `${p.name} 1:1`,
+      recipients: [
+        {
+          id: p.id,
+          name: p.name,
+          parent_phone: p.parent_phone,
+          school: p.school,
+          grade: p.grade,
+        },
+      ],
     };
   }
   const supabase = await createSupabaseServerClient();
@@ -51,8 +69,44 @@ async function fetchPrefillStudent(
     .eq("id", studentId)
     .maybeSingle();
   if (error || !data) return null;
-  const row = data as PrefillStudent;
-  return row;
+  const row = data as PrefillRecipient & { branch: string };
+  return {
+    branch: row.branch,
+    groupName: `${row.name} 1:1`,
+    recipients: [
+      {
+        id: row.id,
+        name: row.name,
+        parent_phone: row.parent_phone,
+        school: row.school,
+        grade: row.grade,
+      },
+    ],
+  };
+}
+
+/**
+ * 강좌 ID 로 진입한 케이스. 강좌 상세 로더를 그대로 재사용해서
+ * 수강생 전체를 includeStudents 에 prefill.
+ *
+ * 주의: getClassDetail 은 dev-seed 모드에서 null 반환하므로
+ * dev-seed 환경에서는 강좌 prefill 자체가 동작하지 않음 (의도적 — 강좌 시드 부재).
+ */
+async function fetchPrefillFromClass(classId: string): Promise<Prefill | null> {
+  const detail = await getClassDetail(classId);
+  if (!detail) return null;
+  if (detail.students.length === 0) return null;
+  return {
+    branch: detail.class.branch,
+    groupName: `${detail.class.name} 일회성`,
+    recipients: detail.students.map((s) => ({
+      id: s.id,
+      name: s.name,
+      parent_phone: s.parent_phone,
+      school: s.school,
+      grade: s.grade,
+    })),
+  };
 }
 
 export default async function NewGroupPage({
@@ -63,16 +117,23 @@ export default async function NewGroupPage({
   const raw = await searchParams;
   const studentId =
     typeof raw.student === "string" ? raw.student.trim() : "";
+  const classId = typeof raw.class === "string" ? raw.class.trim() : "";
 
-  // 학생 prefill 시도 (있으면 분원·includeStudentIds 자동 채움)
-  const prefill = studentId ? await fetchPrefillStudent(studentId) : null;
+  // 학생 prefill 우선 — 학생 단건이 강좌보다 더 specific.
+  // 동시 지정은 비정상 흐름이지만 학생 우선으로 안전 처리.
+  let prefill: Prefill | null = null;
+  if (studentId) {
+    prefill = await fetchPrefillFromStudent(studentId);
+  } else if (classId) {
+    prefill = await fetchPrefillFromClass(classId);
+  }
 
   const branch = prefill?.branch ?? DEFAULT_BRANCH;
   const initialFilters: GroupFilters = {
     grades: [],
     schools: [],
     subjects: [],
-    includeStudentIds: prefill ? [prefill.id] : [],
+    includeStudentIds: prefill ? prefill.recipients.map((r) => r.id) : [],
   };
 
   const [initialPreview, schoolOptions] = await Promise.all([
@@ -84,21 +145,11 @@ export default async function NewGroupPage({
     <GroupBuilder
       mode="create"
       initial={{
-        name: prefill ? `${prefill.name} 1:1` : "",
+        name: prefill?.groupName ?? "",
         branch,
         filters: {
           ...initialFilters,
-          includeStudents: prefill
-            ? [
-                {
-                  id: prefill.id,
-                  name: prefill.name,
-                  parent_phone: prefill.parent_phone,
-                  school: prefill.school,
-                  grade: prefill.grade,
-                },
-              ]
-            : [],
+          includeStudents: prefill?.recipients ?? [],
         },
       }}
       schoolOptions={schoolOptions}

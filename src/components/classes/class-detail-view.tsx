@@ -38,7 +38,7 @@ export function ClassDetailView({ detail }: Props) {
         </Link>
       </nav>
 
-      <ClassDetailHeader cls={detail.class} />
+      <ClassDetailHeader cls={detail.class} studentCount={detail.students.length} />
 
       <ClassKpiCards detail={detail} />
 
