@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Plus } from "lucide-react";
 import { listStudents } from "@/lib/profile/list-students";
 import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
@@ -45,8 +46,8 @@ export default async function StudentsPage({
             </p>
           </div>
 
-          <button
-            type="button"
+          <Link
+            href="/students/new"
             className="
               inline-flex items-center gap-1.5
               h-10 px-4 rounded-lg
@@ -58,7 +59,7 @@ export default async function StudentsPage({
           >
             <Plus className="size-4" strokeWidth={2} aria-hidden />
             학생 추가하기
-          </button>
+          </Link>
         </header>
 
         {/* 검색 + 필터 */}

@@ -144,5 +144,26 @@ export const StudentUpsertSchema = z.object({
 
 export type StudentUpsert = z.infer<typeof StudentUpsertSchema>;
 
+/**
+ * 학생 직접 등록 입력 스키마 (F1 자체 CRUD).
+ *
+ * Aca2000 이관 학생과 달리 우리 CRM 에서 직접 만드는 학생.
+ * aca2000_id 는 Server Action 에서 `MANUAL-<timestamp>` 자동 생성 (UNIQUE).
+ *
+ * MVP 단계 사용 시나리오:
+ *  - 사용자가 자기 폰을 학부모 연락처로 박아서 발송 테스트용 학생 생성
+ *  - 신규 리드 (아카 등록 전) 임시 입력
+ */
+export const CreateStudentInputSchema = z.object({
+  name: z.string().trim().min(1, "이름은 필수입니다").max(50),
+  parent_phone: PhoneSchema,
+  branch: BranchSchema,
+  grade: GradeSchema.optional(),
+  school: z.string().trim().max(50).optional().or(z.literal("")),
+  status: StudentStatusSchema.default("재원생"),
+});
+
+export type CreateStudentInput = z.infer<typeof CreateStudentInputSchema>;
+
 // GroupFiltersSchema/GroupFilters 는 @/lib/schemas/group 로 이전되었습니다.
 // 그룹 관련 스키마는 group.ts 를 사용하세요.

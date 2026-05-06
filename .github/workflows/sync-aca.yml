@@ -1,10 +1,13 @@
 name: Aca2000 → Supabase 동기화
 
-# 매일 02:00 UTC = 11:00 KST 자동 실행 + workflow_dispatch 로 수동 실행 가능.
-# ETL 스크립트들은 모두 UPSERT 라 재실행 안전 (idempotent).
+# Aca2000 MSSQL 이 외부 IP 화이트리스트로 GitHub runner 차단 중이라
+# schedule 트리거는 비활성화. 자동화 인프라(라즈베리파이/Tailscale/학원 PC)
+# 확보 후 schedule 라인을 다시 활성화한다.
+# 그동안은 사용자 노트북에서 학원 와이파이 연결 시 수동으로 실행하거나
+# workflow_dispatch 로 수동 트리거만 사용.
 on:
-  schedule:
-    - cron: "0 2 * * *"
+  # schedule:
+  #   - cron: "0 2 * * *"
   workflow_dispatch:
 
 # 동시 실행 방지 — 자동 트리거와 수동 트리거가 겹쳐 prod 에 동시 INSERT 하지 않도록.
