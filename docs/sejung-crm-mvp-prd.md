@@ -271,7 +271,7 @@ COMMENT ON COLUMN students.registered_at IS '학원 최초 등록일';
 | student_id | 학생 ID | UUID | FK → students |
 | course_name | 강좌명 | TEXT | 고2 수학 내신반 |
 | teacher_name | 강사명 | TEXT | 백봉영T |
-| subject | 과목 | TEXT | 수학, 국어, 영어, 탐구 |
+| subject | 과목 | TEXT | 국어, 영어, 수학, 과탐, 사탐, 컨설팅, 기타 |
 | amount | 결제 금액 | INT | 원 단위 |
 | paid_at | 결제일 | DATE | |
 | start_date | 개강일 | DATE | |

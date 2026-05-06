@@ -422,9 +422,9 @@ export const DEV_ENROLLMENTS: EnrollmentRow[] = [
   {
     id: "dev-ENR-0008",
     student_id: "dev-SD0001",
-    course_name: "고2 탐구 선행반",
+    course_name: "고2 과탐 선행반",
     teacher_name: "정민서T",
-    subject: "탐구",
+    subject: "과탐",
     amount: 380000,
     paid_at: "2026-04-05",
     start_date: "2026-04-10",
@@ -900,9 +900,9 @@ export const DEV_GROUPS: GroupRow[] = [
   },
   {
     id: "dev-group-3",
-    name: "송도 고3 탐구",
+    name: "송도 고3 과탐",
     branch: "송도",
-    filters: { grades: ["고3"], schools: [], subjects: ["탐구"], includeStudentIds: [] },
+    filters: { grades: ["고3"], schools: [], subjects: ["과탐"], includeStudentIds: [] },
     // 시드 내 해당자 0 이나 현실 수강생 가정 3.
     recipient_count: 3,
     last_sent_at: null,

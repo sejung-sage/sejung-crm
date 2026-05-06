@@ -39,7 +39,14 @@ export type StudentStatus =
   | "수강이력자"
   | "신규리드"
   | "탈퇴";
-export type Subject = "수학" | "국어" | "영어" | "탐구";
+export type Subject =
+  | "국어"
+  | "영어"
+  | "수학"
+  | "과탐"
+  | "사탐"
+  | "컨설팅"
+  | "기타";
 /**
  * 출결 상태. 0018 에서 '보강' 추가 (5종).
  * 보강 = 결석분을 동영상강의로 대체 수강한 케이스.
@@ -157,7 +164,7 @@ export interface ClassRow {
   teacher_name: string | null;
   /** 아카 원본 과목명 (정규화 안 된 원값). */
   subject_raw: string | null;
-  /** 정규화된 과목 (수학/국어/영어/탐구). 매칭 실패 시 null. */
+  /** 정규화된 과목 (국어/영어/수학/과탐/사탐/컨설팅/기타). 매칭 실패 시 null. */
   subject: Subject | null;
   /** 청구회차 (총 회차). decimal 원본. */
   total_sessions: number | null;

@@ -11,7 +11,7 @@
   반명             → name (REQUIRED · 빈값 skip)
   강사명           → teacher_name
   과목명           → subject_raw (원본 보존)
-                  → subject (정확 일치만: 수학/국어/영어/탐구)
+                  → subject (정확 일치만: 국어/영어/수학/과탐/사탐/컨설팅/기타)
   청구회차         → total_sessions (NUMERIC, NULL 허용)
   회차당금액       → amount_per_session (INT, NULL 허용)
   반수강료         → total_amount (INT, NULL 허용)
@@ -130,13 +130,13 @@ def _mask_error(msg: str) -> str:
 
 
 # ─── subject 정규화 ──────────────────────────────────────
-# DB CHECK 제약: subject IN ('수학','국어','영어','탐구') OR NULL.
+# DB CHECK 제약: subject IN ('국어','영어','수학','과탐','사탐','컨설팅','기타') OR NULL.
 # 부분 매칭(예: "수학 1", "고등 수학") 하지 않음 — 보수적으로 정확 일치만.
-_ALLOWED_SUBJECTS = {"수학", "국어", "영어", "탐구"}
+_ALLOWED_SUBJECTS = {"국어", "영어", "수학", "과탐", "사탐", "컨설팅", "기타"}
 
 
 def normalize_subject(raw: Any) -> str | None:
-    """과목명 raw 가 정확히 4종 중 하나면 그 값, 아니면 None."""
+    """과목명 raw 가 정확히 7종 중 하나면 그 값, 아니면 None."""
     s = clean_text(raw)
     if s is None:
         return None

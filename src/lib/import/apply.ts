@@ -104,7 +104,15 @@ type EnrollmentInsertPayload = {
   student_id: string;
   course_name: string;
   teacher_name: string | null;
-  subject: "수학" | "국어" | "영어" | "탐구" | null;
+  subject:
+    | "국어"
+    | "영어"
+    | "수학"
+    | "과탐"
+    | "사탐"
+    | "컨설팅"
+    | "기타"
+    | null;
   amount: number;
   paid_at: string | null;
   start_date: string | null;

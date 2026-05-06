@@ -41,7 +41,15 @@ const GRADE_OPTIONS_ALL: ReadonlyArray<Grade> = [
 
 const TRACK_OPTIONS = ["문과", "이과"] as const;
 const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드", "탈퇴"] as const;
-const SUBJECT_OPTIONS = ["수학", "국어", "영어", "탐구"] as const;
+const SUBJECT_OPTIONS = [
+  "국어",
+  "영어",
+  "수학",
+  "과탐",
+  "사탐",
+  "컨설팅",
+  "기타",
+] as const;
 
 /**
  * 정렬 enum → 한글 라벨 매핑.

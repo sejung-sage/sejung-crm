@@ -55,7 +55,15 @@ export const StudentStatusSchema = z.enum([
   "탈퇴",
 ]);
 
-export const SubjectSchema = z.enum(["수학", "국어", "영어", "탐구"]);
+export const SubjectSchema = z.enum([
+  "국어",
+  "영어",
+  "수학",
+  "과탐",
+  "사탐",
+  "컨설팅",
+  "기타",
+]);
 
 export const AttendanceStatusSchema = z.enum([
   "출석",

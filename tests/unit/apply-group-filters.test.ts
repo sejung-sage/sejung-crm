@@ -140,10 +140,10 @@ describe("applyGroupFiltersDev · subjects 필터(DEV_ENROLLMENTS 기반)", () =
     expect(ids).not.toContain("dev-DC0001"); // 수학만
   });
 
-  it("subjects=['탐구'] · 강도윤(SD0001)만 해당", () => {
+  it("subjects=['과탐'] · 강도윤(SD0001)만 해당", () => {
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
-      { ...emptyFilters, subjects: ["탐구"] },
+      { ...emptyFilters, subjects: ["과탐"] },
       "",
     );
     expect(r.length).toBe(1);

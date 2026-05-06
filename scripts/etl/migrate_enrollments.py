@@ -209,7 +209,7 @@ def transform(
         "student_id": student_id,
         "course_name": course_name,
         "teacher_name": None,  # 추후 V_Ticket 매칭
-        "subject": None,  # 우리 CHECK 제약 ('수학','국어','영어','탐구') 외 값은 못 받음
+        "subject": None,  # 우리 CHECK 제약 ('국어','영어','수학','과탐','사탐','컨설팅','기타') 외 값은 못 받음
         "amount": to_int(row.get("반수강료"), 0),
         "paid_at": None,
         "start_date": to_iso_date(row.get("시작일")),

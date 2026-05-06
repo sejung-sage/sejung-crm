@@ -37,7 +37,16 @@ import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
  * status segment 를 둔다. backend 의 active 필터 코드는 그대로 유지 (무해).
  */
 
-const SUBJECT_OPTIONS = ["전체", "수학", "국어", "영어", "탐구"] as const;
+const SUBJECT_OPTIONS = [
+  "전체",
+  "국어",
+  "영어",
+  "수학",
+  "과탐",
+  "사탐",
+  "컨설팅",
+  "기타",
+] as const;
 
 /**
  * 정렬 enum → 한글 라벨 매핑.
@@ -99,11 +108,17 @@ export function ClassesToolbar({ teacherOptions }: Props) {
   const q = searchParams.get("q") ?? "";
   const branch = searchParams.get("branch") ?? "전체";
   const subjectParam = searchParams.get("subject");
+  const SUBJECT_WHITELIST: ReadonlySet<string> = new Set([
+    "국어",
+    "영어",
+    "수학",
+    "과탐",
+    "사탐",
+    "컨설팅",
+    "기타",
+  ]);
   const subject =
-    subjectParam === "수학" ||
-    subjectParam === "국어" ||
-    subjectParam === "영어" ||
-    subjectParam === "탐구"
+    subjectParam && SUBJECT_WHITELIST.has(subjectParam)
       ? subjectParam
       : "전체";
 

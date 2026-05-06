@@ -93,10 +93,13 @@ export function parseStudentsSearchParams(
   const gradeWhitelist: ReadonlySet<string> = new Set(GRADE_VALUES);
   const levelWhitelist: ReadonlySet<string> = new Set(SCHOOL_LEVEL_VALUES);
   const subjectWhitelist: ReadonlySet<string> = new Set([
-    "수학",
     "국어",
     "영어",
-    "탐구",
+    "수학",
+    "과탐",
+    "사탐",
+    "컨설팅",
+    "기타",
   ]);
   const sortWhitelist: ReadonlySet<string> = new Set(STUDENT_SORT_VALUES);
 

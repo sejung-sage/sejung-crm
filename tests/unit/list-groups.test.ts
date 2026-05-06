@@ -8,7 +8,7 @@ import { GroupListQuerySchema } from "@/lib/schemas/group";
  * 시드 그룹 4개:
  *   - dev-group-1 "대치 고2 전체" (branch=대치)
  *   - dev-group-2 "대치 수학 수강생" (branch=대치)
- *   - dev-group-3 "송도 고3 탐구" (branch=송도)
+ *   - dev-group-3 "송도 고3 과탐" (branch=송도)
  *   - dev-group-4 "대치 휘문고 국어" (branch=대치)
  */
 
@@ -26,7 +26,7 @@ describe("listGroups · dev seed", () => {
       expect(r.items.length).toBe(4);
     });
 
-    it("last_sent_at DESC NULLS LAST 정렬 · 송도 탐구/대치 휘문고 국어는 뒤쪽", async () => {
+    it("last_sent_at DESC NULLS LAST 정렬 · 송도 과탐/대치 휘문고 국어는 뒤쪽", async () => {
       const q = GroupListQuerySchema.parse({});
       const r = await listGroups(q);
       const last2 = r.items.slice(-2).map((g) => g.id);
@@ -66,8 +66,8 @@ describe("listGroups · dev seed", () => {
       expect(r.items[0].id).toBe("dev-group-2");
     });
 
-    it("q + branch 복합 · 송도 탐구", async () => {
-      const q = GroupListQuerySchema.parse({ branch: "송도", q: "탐구" });
+    it("q + branch 복합 · 송도 과탐", async () => {
+      const q = GroupListQuerySchema.parse({ branch: "송도", q: "과탐" });
       const r = await listGroups(q);
       expect(r.total).toBe(1);
       expect(r.items[0].id).toBe("dev-group-3");

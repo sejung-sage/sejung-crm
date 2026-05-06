@@ -43,8 +43,8 @@ describe("GroupFiltersSchema", () => {
       expect(() => GroupFiltersSchema.parse({ grades: ["고4"] })).toThrow();
     });
 
-    it("subjects 에 '기타'는 공통 Subject enum 에 없음 → 실패", () => {
-      expect(() => GroupFiltersSchema.parse({ subjects: ["기타"] })).toThrow();
+    it("subjects 에 enum 외 값('역사')이 섞이면 실패", () => {
+      expect(() => GroupFiltersSchema.parse({ subjects: ["역사"] })).toThrow();
     });
 
     it("schools 문자열 중 빈 문자열 포함되면 실패", () => {

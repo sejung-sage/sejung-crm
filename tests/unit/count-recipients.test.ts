@@ -57,9 +57,9 @@ describe("countRecipients · dev seed", () => {
       expect(r.sample.length).toBe(2);
     });
 
-    it("subjects=['탐구'] · 송도 · 강도윤 1명", async () => {
+    it("subjects=['과탐'] · 송도 · 강도윤 1명", async () => {
       const r = await countRecipients(
-        { ...emptyFilters, subjects: ["탐구"] },
+        { ...emptyFilters, subjects: ["과탐"] },
         "송도",
       );
       expect(r.total).toBe(1);

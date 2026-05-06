@@ -191,7 +191,7 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
   }
 
   if (filters.subject) {
-    // DB CHECK 가 4종 enum 이라 안전 (수학/국어/영어/탐구).
+    // DB CHECK 가 7종 enum 이라 안전 (국어/영어/수학/과탐/사탐/컨설팅/기타).
     q = q.eq("subject", filters.subject) as Q;
   }
 

@@ -61,7 +61,15 @@ const GRADE_OPTIONS_ALL: Grade[] = [
   ...GRADE_OPTIONS_MID,
   ...GRADE_OPTIONS_HIGH,
 ];
-const SUBJECT_OPTIONS: Subject[] = ["수학", "국어", "영어", "탐구"];
+const SUBJECT_OPTIONS: Subject[] = [
+  "국어",
+  "영어",
+  "수학",
+  "과탐",
+  "사탐",
+  "컨설팅",
+  "기타",
+];
 const LEVEL_SEGMENTS: ReadonlyArray<{
   value: "전체" | "중" | "고";
   label: string;

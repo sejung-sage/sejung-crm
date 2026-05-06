@@ -172,7 +172,7 @@ describe("previewRecipients · dev-seed · 수신자 0명", () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
   });
 
-  it("dev-group-3(송도 고3 탐구 — 시드에 0건) → recipientCount=0 · cost.totalCost=0", async () => {
+  it("dev-group-3(송도 고3 과탐 — 시드에 0건) → recipientCount=0 · cost.totalCost=0", async () => {
     const r = await previewRecipients({
       groupId: "dev-group-3",
       body: "본문",

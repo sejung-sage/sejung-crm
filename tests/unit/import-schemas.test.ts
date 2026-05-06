@@ -291,10 +291,19 @@ describe("ImportEnrollmentRowSchema", () => {
     if (r.success) expect(r.data.subject).toBe("수학");
   });
 
-  it('subject "기타" → 실패', () => {
+  it('subject "기타" 통과 (0023 마이그레이션 이후 7종에 포함)', () => {
     const r = ImportEnrollmentRowSchema.safeParse({
       ...baseRow,
       subject: "기타",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) expect(r.data.subject).toBe("기타");
+  });
+
+  it('subject "역사" → 실패 (enum 외 값)', () => {
+    const r = ImportEnrollmentRowSchema.safeParse({
+      ...baseRow,
+      subject: "역사",
     });
     expect(r.success).toBe(false);
     if (!r.success) {

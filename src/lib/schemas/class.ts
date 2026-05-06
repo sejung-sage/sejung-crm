@@ -146,13 +146,16 @@ export function parseClassSearchParams(
     arr.map((s) => s.trim()).filter((s) => s.length > 0);
 
   const subjectRaw = typeof raw.subject === "string" ? raw.subject : "";
-  const subject =
-    subjectRaw === "수학" ||
-    subjectRaw === "국어" ||
-    subjectRaw === "영어" ||
-    subjectRaw === "탐구"
-      ? subjectRaw
-      : undefined;
+  const SUBJECT_WHITELIST: ReadonlySet<string> = new Set([
+    "국어",
+    "영어",
+    "수학",
+    "과탐",
+    "사탐",
+    "컨설팅",
+    "기타",
+  ]);
+  const subject = SUBJECT_WHITELIST.has(subjectRaw) ? subjectRaw : undefined;
 
   const branchRaw = typeof raw.branch === "string" ? raw.branch : "";
 
