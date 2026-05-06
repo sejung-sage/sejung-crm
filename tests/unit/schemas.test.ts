@@ -60,6 +60,14 @@ describe("parseStudentsSearchParams · URL → 입력", () => {
     expect(r.pageSize).toBe(50);
     expect(r.grades).toEqual([]);
     expect(r.search).toBe("");
+    // 첫 진입 default — 재원생만 노출 (초기 조회 가속)
+    expect(r.statuses).toEqual(["재원생"]);
+  });
+
+  it("status 키 명시적 빈 배열 → 모든 status 노출 (default 미적용)", () => {
+    // URL 에 ?status=알수없음 처럼 화이트리스트 외 값만 있어도 키는 존재함
+    const r = parseStudentsSearchParams({ status: ["알수없음"] });
+    expect(r.statuses).toEqual([]);
   });
 
   it("단일 grade 문자열 → 배열로 (정규화 enum)", () => {

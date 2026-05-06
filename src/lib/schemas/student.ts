@@ -116,9 +116,15 @@ export function parseStudentsSearchParams(
     grades: toArray(raw.grade).filter((g) => gradeWhitelist.has(g)),
     schoolLevels: toArray(raw.level).filter((l) => levelWhitelist.has(l)),
     tracks: toArray(raw.track).filter((t) => t === "문과" || t === "이과"),
-    statuses: toArray(raw.status).filter((s) =>
-      ["재원생", "수강이력자", "신규리드", "탈퇴"].includes(s),
-    ),
+    // 첫 진입(URL 에 ?status= 키 자체가 없음) 일 때는 "재원생" 만 default 로
+    // 적용해 초기 조회 비용을 낮춘다. 사용자가 다른 status 칩을 명시적으로
+    // 켜면 그 값들로 대체. 모든 status 칩을 끄면 다시 default(재원생)로 복귀.
+    statuses:
+      raw.status === undefined
+        ? ["재원생"]
+        : toArray(raw.status).filter((s) =>
+            ["재원생", "수강이력자", "신규리드", "탈퇴"].includes(s),
+          ),
     subjects: toArray(raw.subject).filter((s) => subjectWhitelist.has(s)),
     teachers: cleanFreeText(toArray(raw.teacher)),
     schools: cleanFreeText(toArray(raw.school)),

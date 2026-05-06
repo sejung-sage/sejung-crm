@@ -107,7 +107,11 @@ export function StudentsFilters({
   const branch = searchParams.get("branch") ?? "전체";
   const grades = searchParams.getAll("grade");
   const tracks = searchParams.getAll("track");
-  const statuses = searchParams.getAll("status");
+  // URL 에 ?status= 키 자체가 없으면 백엔드는 "재원생" default 적용 (조회 가속).
+  // 칩 active 표시도 동일하게 맞춰서 UI 와 실 쿼리 일관성을 유지한다.
+  const statusesFromUrl = searchParams.getAll("status");
+  const statusKeyPresent = searchParams.has("status");
+  const statuses = statusKeyPresent ? statusesFromUrl : ["재원생"];
   const subjects = searchParams.getAll("subject");
   const teachers = searchParams.getAll("teacher");
   const schools = searchParams.getAll("school");
