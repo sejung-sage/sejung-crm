@@ -274,6 +274,17 @@ export interface CampaignRow {
   branch: string;
   /** 테스트 발송 캠페인 여부. 0007 마이그레이션에서 추가. */
   is_test: boolean;
+  /**
+   * 발송 본문 스냅샷. 예약 발송 시 cron 디스패처가 다시 읽음.
+   * 즉시 발송도 보존(retry/감사 추적). 0027 마이그레이션 추가.
+   */
+  body: string | null;
+  /** LMS/알림톡 제목 (SMS 는 NULL). 0027 추가. */
+  subject: string | null;
+  /** 발송 유형 (SMS/LMS/ALIMTALK). 0027 추가. */
+  type: TemplateType | null;
+  /** 광고성 여부. 예약 cron 시 야간 가드 재적용. 0027 추가. */
+  is_ad: boolean;
   created_at: string;
   updated_at: string;
 }

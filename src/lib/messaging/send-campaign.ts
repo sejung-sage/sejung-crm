@@ -180,6 +180,8 @@ async function runImmediateSend(args: {
   }
 
   // b) campaigns INSERT (status=발송중)
+  // 본문/제목/유형/광고여부는 0027 마이그 후 영속화 — 즉시 발송도 동일하게 채워서
+  // retry/감사 추적 + 예약발송과의 컬럼 일관성 확보.
   const campaignInsert: Record<string, unknown> = {
     title: input.title,
     template_id: input.templateId,
@@ -192,6 +194,10 @@ async function runImmediateSend(args: {
     created_by: userId,
     branch,
     is_test: input.isTest,
+    body: input.body,
+    subject: input.subject,
+    type: input.type,
+    is_ad: input.isAd,
   };
 
   const insertedCampaign = await insertCampaign(supabase, campaignInsert);
@@ -309,6 +315,7 @@ async function insertScheduledCampaign(args: {
     return { status: "failed", reason: "예약 시각이 비어 있습니다" };
   }
 
+  // 0027 마이그 후 발송 payload 를 같이 영속화 — cron 디스패처가 이걸 읽어 발송.
   const insertPayload: Record<string, unknown> = {
     title: input.title,
     template_id: input.templateId,
@@ -320,7 +327,11 @@ async function insertScheduledCampaign(args: {
     total_cost: 0,
     created_by: userId,
     branch,
-    is_test: false,
+    is_test: input.isTest,
+    body: input.body,
+    subject: input.subject,
+    type: input.type,
+    is_ad: input.isAd,
   };
 
   const inserted = await insertCampaign(supabase, insertPayload);
