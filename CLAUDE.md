@@ -62,7 +62,7 @@ architect → [backend-dev, frontend-dev (병렬)] → qa-engineer
 
 ## SMS 벤더 상태
 
-- **솔라피(SOLAPI)** · 1순위 · 실구현 대상 (SMS 8원/LMS 14원/MMS 22원/알림톡 13원)
+- **솔라피(SOLAPI)** · 1순위 · 실구현 대상
 - **문자나라** · Phase 1+ · 어댑터 스텁만 유지 (가격 경쟁력 부족)
 - **SK C&C to-go**, **Sendwise** · Phase 1 · 어댑터 스텁만
 
