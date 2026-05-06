@@ -10,9 +10,18 @@ import type { CountRecipientsResult } from "@/lib/groups/count-recipients";
 import {
   countRecipientsAction,
   createGroupAction,
+  searchStudentsAction,
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
 import { BRANCHES } from "@/config/branches";
+
+interface DirectStudent {
+  id: string;
+  name: string;
+  parent_phone: string | null;
+  school: string | null;
+  grade: Grade | null;
+}
 
 interface SamplePreview {
   total: number;
@@ -26,7 +35,10 @@ interface Props {
   initial: {
     name: string;
     branch: string;
-    filters: GroupFilters;
+    filters: GroupFilters & {
+      /** 직접 추가한 학생들의 메타 (수정 모드에서 칩 표시용 prefetch) */
+      includeStudents?: DirectStudent[];
+    };
   };
   /** 학교 토글 칩 후보. dev-seed · Supabase 공통으로 상위 후보를 넘겨줌. */
   schoolOptions: string[];
@@ -92,6 +104,9 @@ export function GroupBuilder({
   const [grades, setGrades] = useState<Grade[]>(initial.filters.grades);
   const [schools, setSchools] = useState<string[]>(initial.filters.schools);
   const [subjects, setSubjects] = useState<string[]>(initial.filters.subjects);
+  const [includeStudents, setIncludeStudents] = useState<DirectStudent[]>(
+    initial.filters.includeStudents ?? [],
+  );
   const [showAllSchools, setShowAllSchools] = useState<boolean>(false);
 
   // 학교급 세그먼티드 토글. 초기값은 기존에 선택된 학년에서 추론.
@@ -131,8 +146,9 @@ export function GroupBuilder({
       subjects: subjects.filter((s): s is Subject =>
         SUBJECT_OPTIONS.includes(s as Subject),
       ),
+      includeStudentIds: includeStudents.map((s) => s.id),
     }),
-    [grades, schools, subjects],
+    [grades, schools, subjects, includeStudents],
   );
 
   // filters/branch 변경 시 디바운스 카운트 호출
@@ -447,6 +463,28 @@ export function GroupBuilder({
                 ))}
               </div>
             </Field>
+
+            <Field
+              label="학생 직접 선택"
+              hint={
+                includeStudents.length > 0
+                  ? "선택된 학생만 수신자가 됩니다 (위 조건 무시)"
+                  : "이름·학부모번호로 검색해 학생을 콕 찍어 추가할 수 있습니다"
+              }
+            >
+              <DirectStudentPicker
+                branch={branch}
+                selected={includeStudents}
+                onAdd={(s) =>
+                  setIncludeStudents((prev) =>
+                    prev.find((x) => x.id === s.id) ? prev : [...prev, s],
+                  )
+                }
+                onRemove={(id) =>
+                  setIncludeStudents((prev) => prev.filter((x) => x.id !== id))
+                }
+              />
+            </Field>
           </section>
 
           {/* 에러/안내 */}
@@ -628,5 +666,160 @@ function Chip({
     >
       {label}
     </button>
+  );
+}
+
+/**
+ * 학생 직접 선택 컴포넌트.
+ * 검색어 (>=2자) → searchStudentsAction → 결과 리스트.
+ * 선택된 학생은 칩으로 표시, X 버튼으로 제거.
+ */
+function DirectStudentPicker({
+  branch,
+  selected,
+  onAdd,
+  onRemove,
+}: {
+  branch: string;
+  selected: DirectStudent[];
+  onAdd: (s: DirectStudent) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [hits, setHits] = useState<DirectStudent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reqIdRef = useRef(0);
+
+  useEffect(() => {
+    if (debRef.current) clearTimeout(debRef.current);
+    if (!branch || query.trim().length < 2) {
+      setHits([]);
+      setLoading(false);
+      setError(null);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const myReq = ++reqIdRef.current;
+    debRef.current = setTimeout(async () => {
+      const r = await searchStudentsAction(query, branch);
+      if (myReq !== reqIdRef.current) return;
+      if (r.status === "success") {
+        setHits(
+          r.data.map((d) => ({
+            id: d.id,
+            name: d.name,
+            parent_phone: d.parent_phone,
+            school: d.school,
+            grade: d.grade,
+          })),
+        );
+      } else {
+        setError(r.reason);
+        setHits([]);
+      }
+      setLoading(false);
+    }, 250);
+    return () => {
+      if (debRef.current) clearTimeout(debRef.current);
+    };
+  }, [query, branch]);
+
+  const selectedIds = useMemo(() => new Set(selected.map((s) => s.id)), [selected]);
+
+  return (
+    <div className="space-y-2">
+      <input
+        type="text"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder={
+          branch
+            ? "이름 또는 학부모 연락처 일부 (2자 이상)"
+            : "분원을 먼저 선택해주세요"
+        }
+        disabled={!branch}
+        className="block w-full min-h-[40px] rounded-md border border-[color:var(--border)] bg-white px-3 text-[14px] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[color:var(--action)] disabled:bg-[color:var(--bg-muted)]"
+      />
+
+      {error && (
+        <div className="text-[12px] text-rose-600" role="alert">
+          {error}
+        </div>
+      )}
+
+      {query.trim().length >= 2 && (
+        <div className="rounded-md border border-[color:var(--border)] bg-white max-h-60 overflow-y-auto">
+          {loading && (
+            <div className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
+              검색 중...
+            </div>
+          )}
+          {!loading && hits.length === 0 && !error && (
+            <div className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
+              일치하는 학생이 없습니다
+            </div>
+          )}
+          {!loading &&
+            hits.map((h) => {
+              const already = selectedIds.has(h.id);
+              return (
+                <button
+                  type="button"
+                  key={h.id}
+                  disabled={already}
+                  onClick={() => {
+                    onAdd(h);
+                    setQuery("");
+                    setHits([]);
+                  }}
+                  className="block w-full text-left px-3 py-2 text-[14px] hover:bg-[color:var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-[color:var(--text)]">
+                      {h.name}
+                    </span>
+                    <span className="text-[12px] text-[color:var(--text-muted)]">
+                      {h.school ?? "—"} · {h.grade ?? "—"} ·{" "}
+                      {h.parent_phone ?? "연락처 없음"}
+                    </span>
+                    {already && (
+                      <span className="ml-auto text-[12px] text-[color:var(--text-muted)]">
+                        이미 추가됨
+                      </span>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+        </div>
+      )}
+
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {selected.map((s) => (
+            <span
+              key={s.id}
+              className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full bg-[color:var(--bg-muted)] text-[13px] text-[color:var(--text)] border border-[color:var(--border)]"
+            >
+              {s.name}
+              <span className="text-[11px] text-[color:var(--text-muted)]">
+                ({s.parent_phone ?? "—"})
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemove(s.id)}
+                aria-label={`${s.name} 제거`}
+                className="ml-1 size-5 inline-flex items-center justify-center rounded-full hover:bg-[color:var(--bg-hover)] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
+              >
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

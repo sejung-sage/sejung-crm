@@ -16,7 +16,7 @@ describe("GroupFiltersSchema", () => {
   describe("정상 입력", () => {
     it("빈 객체 · 모든 필드 기본값(빈 배열) 적용", () => {
       const r = GroupFiltersSchema.parse({});
-      expect(r).toEqual({ grades: [], schools: [], subjects: [] });
+      expect(r).toEqual({ grades: [], schools: [], subjects: [], includeStudentIds: [] });
     });
 
     it("grades 고2·고3 복수 선택 성공", () => {
@@ -72,7 +72,7 @@ describe("CreateGroupInputSchema", () => {
         branch: "대치",
         filters: {},
       });
-      expect(r.filters).toEqual({ grades: [], schools: [], subjects: [] });
+      expect(r.filters).toEqual({ grades: [], schools: [], subjects: [], includeStudentIds: [] });
     });
   });
 

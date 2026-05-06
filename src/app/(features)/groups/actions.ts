@@ -396,3 +396,32 @@ export async function countRecipientsAction(
     return { status: "failed", reason: msg };
   }
 }
+
+// ─── searchStudentsAction ─────────────────────────────────
+// 그룹 빌더의 "직접 학생 추가" 검색용. 이름 또는 학부모 연락처 부분일치.
+// 분원 필수 (다른 분원 학생 노출 방지). 조회 전용이므로 권한 가드 없음.
+
+import { searchStudentsForGroup, type StudentSearchHit } from "@/lib/profile/search-students-for-group";
+
+export type SearchStudentsActionResult =
+  | { status: "success"; data: StudentSearchHit[] }
+  | { status: "failed"; reason: string };
+
+export async function searchStudentsAction(
+  query: unknown,
+  branch: unknown,
+): Promise<SearchStudentsActionResult> {
+  if (typeof query !== "string") {
+    return { status: "failed", reason: "검색어가 올바르지 않습니다" };
+  }
+  if (typeof branch !== "string" || branch.trim().length === 0) {
+    return { status: "failed", reason: "분원은 필수입니다" };
+  }
+  try {
+    const hits = await searchStudentsForGroup(query, branch.trim());
+    return { status: "success", data: hits };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "학생 검색 실패";
+    return { status: "failed", reason: msg };
+  }
+}

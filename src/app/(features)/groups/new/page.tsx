@@ -16,6 +16,7 @@ export default async function NewGroupPage() {
     grades: [],
     schools: [],
     subjects: [],
+    includeStudentIds: [],
   };
   const [initialPreview, schoolOptions] = await Promise.all([
     countRecipients(initialFilters, DEFAULT_BRANCH),

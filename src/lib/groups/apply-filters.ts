@@ -38,6 +38,12 @@ export function applyGroupFiltersDev(
 
   const branchTrim = branch.trim();
 
+  // 직접 선택한 학생 ID set (있으면 조건 무시)
+  const includeSet =
+    filters.includeStudentIds.length > 0
+      ? new Set(filters.includeStudentIds)
+      : null;
+
   return profiles.filter((p) => {
     // 1) 분원
     if (branchTrim && p.branch !== branchTrim) return false;
@@ -48,19 +54,22 @@ export function applyGroupFiltersDev(
     // 3) 수신거부 제외 (학부모 연락처 기준)
     if (p.parent_phone && unsub.has(p.parent_phone)) return false;
 
-    // 4) grades
+    // 4) 직접 선택 모드 — includeStudentIds 만 매칭, 조건 절 무시.
+    if (includeSet) {
+      return includeSet.has(p.id);
+    }
+
+    // 5) 조건 절 (직접 선택이 비어있을 때만)
     if (filters.grades.length > 0) {
       if (p.grade === null) return false;
       if (!filters.grades.includes(p.grade)) return false;
     }
 
-    // 4) schools
     if (filters.schools.length > 0) {
       if (!p.school) return false;
       if (!filters.schools.includes(p.school)) return false;
     }
 
-    // 4) subjects — 학생의 수강 과목 중 하나라도 필터에 포함되면 OK
     if (filters.subjects.length > 0) {
       const studentSubjects = subjectIndex.get(p.id);
       if (!studentSubjects || studentSubjects.size === 0) return false;

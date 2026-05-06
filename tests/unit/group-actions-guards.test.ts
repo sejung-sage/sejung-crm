@@ -30,7 +30,7 @@ describe("Server Actions · dev-seed 조기 반환", () => {
       const r = await createGroupAction({
         name: "테스트 그룹",
         branch: "대치",
-        filters: { grades: ["고2"], schools: [], subjects: [] },
+        filters: { grades: ["고2"], schools: [], subjects: [], includeStudentIds: [] },
       });
       expect(r.status).toBe("dev_seed_mode");
     });
@@ -75,7 +75,7 @@ describe("countRecipientsAction · dev-seed 에서도 정상 동작", () => {
 
   it("정상 필터·분원 → success + data.total/sample 반환", async () => {
     const r = await countRecipientsAction(
-      { grades: ["고2"], schools: [], subjects: [] },
+      { grades: ["고2"], schools: [], subjects: [], includeStudentIds: [] },
       "대치",
     );
     expect(r.status).toBe("success");
@@ -87,7 +87,7 @@ describe("countRecipientsAction · dev-seed 에서도 정상 동작", () => {
 
   it("branch 가 빈 문자열이면 failed('분원은 필수')", async () => {
     const r = await countRecipientsAction(
-      { grades: [], schools: [], subjects: [] },
+      { grades: [], schools: [], subjects: [], includeStudentIds: [] },
       "",
     );
     expect(r.status).toBe("failed");

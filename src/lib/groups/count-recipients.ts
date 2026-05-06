@@ -8,6 +8,11 @@
  *   - unsubscribes 에 학부모 번호 있는 학생 제외
  *   - "최근 3회 수신자 제외" 는 Phase 1 로 미룸 (여기서 다루지 않음)
  *
+ * 수신자 산정 규칙:
+ *   - filters.includeStudentIds 가 비어있지 않으면 → 그 학생들만 (조건 무시)
+ *   - 비어있으면 → grades/schools/subjects 조건 매치
+ *   분원·탈퇴·수신거부 가드는 두 경우 모두 적용.
+ *
  * 쿼리 구조 (PostgREST `max_rows = 1000` 우회):
  *   1) unsubscribes.phone 목록을 먼저 페치 (수신거부 건수는 많지 않음).
  *   2) student_profiles 를 **두 번** 호출:
@@ -91,15 +96,25 @@ function buildStudentProfilesQuery(
   if (branch) {
     query = query.eq("branch", branch);
   }
-  if (filters.grades.length > 0) {
-    query = query.in("grade", filters.grades);
-  }
-  if (filters.schools.length > 0) {
-    query = query.in("school", filters.schools);
-  }
-  if (filters.subjects.length > 0) {
-    // student_profiles.subjects 는 array_agg 결과. overlaps 로 교집합 존재 확인.
-    query = query.overlaps("subjects", filters.subjects);
+
+  // 직접 선택한 학생 ID 가 있으면 **조건 절은 무시** 하고 그 학생들만.
+  //
+  // 사용자 멘탈 모델: "본인 1명/소수만 명시적으로 보내기" 시나리오.
+  // 조건과 union 하면 의도 외 학생이 섞여 사고 위험 → 단순화.
+  // 분원·탈퇴·수신거부 가드는 그대로 적용.
+  if (filters.includeStudentIds.length > 0) {
+    query = query.in("id", filters.includeStudentIds);
+  } else {
+    if (filters.grades.length > 0) {
+      query = query.in("grade", filters.grades);
+    }
+    if (filters.schools.length > 0) {
+      query = query.in("school", filters.schools);
+    }
+    if (filters.subjects.length > 0) {
+      // student_profiles.subjects 는 array_agg 결과. overlaps 로 교집합 존재 확인.
+      query = query.overlaps("subjects", filters.subjects);
+    }
   }
 
   // 수신거부 phone 제외를 SQL 단에서 처리.

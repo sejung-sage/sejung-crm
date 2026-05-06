@@ -26,6 +26,12 @@ export const GroupFiltersSchema = z.object({
   schools: z.array(z.string().trim().min(1).max(40)).default([]),
   /** 과목: 공통 SubjectSchema 재사용. 빈 배열이면 전 과목 */
   subjects: z.array(SubjectSchema).default([]),
+  /**
+   * 명시적으로 추가한 학생 ID 목록. 조건(grades/schools/subjects) 결과와
+   * union 되어 최종 수신자에 포함된다. 본인 폰 테스트 또는 특정 학생 1~몇명
+   * 콕 찍어 보낼 때 사용. 자동 제외(탈퇴·수신거부)는 동일하게 적용.
+   */
+  includeStudentIds: z.array(z.string().uuid()).default([]),
 });
 export type GroupFilters = z.infer<typeof GroupFiltersSchema>;
 

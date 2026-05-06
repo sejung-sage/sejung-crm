@@ -9,7 +9,7 @@ import type { GroupFilters } from "@/lib/schemas/group";
  * Supabase 경로는 실 DB 없이 단위 검증 어려움 → 통합 테스트 범위.
  */
 
-const emptyFilters: GroupFilters = { grades: [], schools: [], subjects: [] };
+const emptyFilters: GroupFilters = { grades: [], schools: [], subjects: [], includeStudentIds: [] };
 
 describe("countRecipients · dev seed", () => {
   beforeEach(() => {
