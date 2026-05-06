@@ -47,3 +47,4 @@ scripts/etl/.env
 scripts/etl/explore_output/
 __pycache__/
 *.pyc
+.env*.local
