@@ -24,10 +24,10 @@
   미사용반구분     → active ('Y' 이면 FALSE, 그 외 TRUE)
   학원_코드        → branch (분원명)
 
-실행:
-  source scripts/etl/.venv/bin/activate
-  ONLY_BRANCH=80205 DRY_RUN=1 python scripts/etl/migrate_classes.py
-  DRY_RUN=0 python scripts/etl/migrate_classes.py
+실행 (프로젝트 루트에서):
+  source .venv/bin/activate
+  DRY_RUN=1 ONLY_BRANCH=78031 python scripts/etl/migrate_classes.py  # 단일 분원 dry-run
+  DRY_RUN=0 python scripts/etl/migrate_classes.py                    # 4분원 실 적용
 """
 
 from __future__ import annotations
