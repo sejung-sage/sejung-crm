@@ -9,6 +9,26 @@ import { Pagination } from "@/components/students/pagination";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 
 /**
+ * 'YYYY-MM-DD' → "5월 7일 (목)" 한글 라벨.
+ * UTC midnight 으로 파싱 후 KST 로컬라이즈 — Asia/Seoul 가 +09:00 이라 동일 날짜.
+ */
+function formatKoDateLabel(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    month: "long",
+    day: "numeric",
+    weekday: "short",
+  }).format(d);
+}
+
+/** 'YYYY-MM' → "5월". 분기/연도 정보는 헤더에서 생략 (행정 운영은 당해년 위주). */
+function formatKoMonthLabel(monthStr: string): string {
+  const [, m] = monthStr.split("-");
+  return `${Number.parseInt(m, 10)}월`;
+}
+
+/**
  * F0 · 강좌 리스트 페이지 (/classes)
  *
  * Server Component. URL searchParams 기반 필터.
@@ -64,13 +84,17 @@ export default async function ClassesPage({
         </div>
       )}
 
-      {/* 결과 수 */}
+      {/* 결과 수 + 활성 일자 안내 */}
       <p className="text-[13px] text-[color:var(--text-muted)]">
-        총{" "}
+        {filters.date
+          ? `${formatKoDateLabel(filters.date)} 진행 강좌 `
+          : filters.month
+            ? `${formatKoMonthLabel(filters.month)} 진행 강좌 `
+            : "총 "}
         <strong className="text-[color:var(--text)]">
           {result.total.toLocaleString()}
         </strong>
-        개 강좌
+        개
       </p>
 
       {/* 테이블 */}

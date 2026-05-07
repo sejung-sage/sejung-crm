@@ -66,6 +66,38 @@ function sanitizeSearchTerm(s: string): string {
 }
 
 /**
+ * 'YYYY-MM-DD' 날짜 문자열의 한글 요일을 반환한다.
+ *
+ * UTC midnight 으로 파싱한 뒤 KST(Asia/Seoul) 타임존의 weekday(short)를 뽑는다.
+ * 시각 정보가 없는 날짜라 timezone shift 로 하루가 어긋나지 않으며, weekday(short)
+ * 의 ko-KR 출력은 한 글자(월/화/수/목/금/토/일)로 schedule_days substring 매칭과
+ * 1:1 호환된다.
+ */
+function weekdayKoFromDateString(dateStr: string): string {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    weekday: "short",
+  }).format(d);
+}
+
+/**
+ * 'YYYY-MM' 월 문자열의 1일·말일을 'YYYY-MM-DD' 로 반환한다.
+ *
+ * UTC 기준으로 계산해 timezone 이슈를 피한다 — 월의 1일/말일 자체는 KST/UTC 가
+ * 같으므로 문제 없음. 말일은 다음 달 0일(Date) 트릭으로 계산.
+ */
+function monthBoundsUtc(monthStr: string): { firstDay: string; lastDay: string } {
+  const [y, m] = monthStr.split("-").map((s) => Number.parseInt(s, 10));
+  const firstDay = `${monthStr}-01`;
+  const last = new Date(Date.UTC(y, m, 0)); // 다음 달 0일 = 이번 달 말일
+  const dd = String(last.getUTCDate()).padStart(2, "0");
+  const mm = String(m).padStart(2, "0");
+  const lastDay = `${y}-${mm}-${dd}`;
+  return { firstDay, lastDay };
+}
+
+/**
  * "오늘"의 KST 날짜 문자열을 'YYYY-MM-DD' 형태로 반환한다.
  *
  * Node 서버는 보통 UTC 로 동작 → `new Date().toISOString().slice(0,10)` 만
@@ -236,6 +268,40 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
       ...GRADUATED_PREFIXES.map((p) => `name.ilike."${p}%"`),
     ];
     q = q.or(orParts.join(",")) as Q;
+  }
+
+  // 일자/월 기준 운영 강좌 필터 — "그 날짜/월에 수업이 잡혀 있는 강좌".
+  // schema 단계에서 mutually exclusive 보장 (date 우선) 이므로 여기선 elseif.
+  //
+  // 공통: start_date 가 NULL 인 강좌(백필 누락 ≈ 15%) 는 운영 기간 미상이라
+  // 보수적으로 제외한다 — 일/월 필터를 켰다는 건 "이 시점에 진행되고 있는"
+  // 강좌만 보겠다는 의도이고, 기간을 모르는 강좌를 거기 섞으면 노이즈.
+  // schedule_days 가 NULL 인 행도 같은 이유로 제외 (요일 정보 없으면 매칭 불가).
+  //
+  // 일 모드 (date='YYYY-MM-DD'):
+  //   - start_date <= date
+  //   - end_date IS NULL OR end_date >= date
+  //   - schedule_days 가 그 날짜의 KST 요일을 포함 (substring)
+  //
+  // 월 모드 (month='YYYY-MM'):
+  //   - start_date <= 그 달 말일  (운영 기간이 그 월 시작 전에 시작)
+  //   - end_date IS NULL OR end_date >= 그 달 1일  (운영 기간이 그 월 종료 후까지 지속)
+  //   - schedule_days IS NOT NULL — 한 달이면 어떤 요일이든 4~5번 나타나므로
+  //     별도 요일 매칭은 생략 (false negative 방지: "토요일만 있는 반" 도 5월 안에 5번 등장).
+  if (filters.date) {
+    const weekday = weekdayKoFromDateString(filters.date);
+    q = q.not("start_date", "is", null) as Q;
+    q = q.lte("start_date", filters.date) as Q;
+    q = q.or(`end_date.is.null,end_date.gte.${filters.date}`) as Q;
+    q = q.not("schedule_days", "is", null) as Q;
+    // weekday 는 "월/화/수/목/금/토/일" 한 글자 — .ilike 메타문자 인젝션 X.
+    q = q.ilike("schedule_days", `%${weekday}%`) as Q;
+  } else if (filters.month) {
+    const { firstDay, lastDay } = monthBoundsUtc(filters.month);
+    q = q.not("start_date", "is", null) as Q;
+    q = q.lte("start_date", lastDay) as Q;
+    q = q.or(`end_date.is.null,end_date.gte.${firstDay}`) as Q;
+    q = q.not("schedule_days", "is", null) as Q;
   }
 
   // 강사명 다중 필터 — classes.teacher_name 정확 일치 (IN).
@@ -499,7 +565,13 @@ interface ClassQueryBuilder {
   in(column: string, values: readonly string[]): ClassQueryBuilder;
   or(filters: string): ClassQueryBuilder;
   lt(column: string, value: string): ClassQueryBuilder;
-  not(column: string, operator: string, value: string): ClassQueryBuilder;
+  lte(column: string, value: string): ClassQueryBuilder;
+  ilike(column: string, pattern: string): ClassQueryBuilder;
+  not(
+    column: string,
+    operator: string,
+    value: string | null,
+  ): ClassQueryBuilder;
 }
 
 /**

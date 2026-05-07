@@ -108,6 +108,37 @@ export const ClassFiltersSchema = z.object({
     .enum(["all", "progressing", "graduated"])
     .optional()
     .default("all"),
+  /**
+   * 일자 기준 운영 강좌 필터 — "그 날짜에 수업이 잡혀 있는 강좌".
+   *
+   * 형식: 'YYYY-MM-DD' (예: '2026-05-07'). schema 단계에서 정규식 검증.
+   * 매칭 룰 (앱 레이어):
+   *  - start_date IS NOT NULL AND start_date <= date
+   *  - end_date IS NULL OR end_date >= date
+   *  - schedule_days IS NOT NULL AND schedule_days ILIKE '%{KST 요일}%'
+   *
+   * `month` 와 mutually exclusive — 둘 다 들어오면 `date` 우선 (parse 단계에서 month 제거).
+   * start_date 백필이 안 된 강좌(약 15%)는 운영 기간 미상이라 보수적으로 제외.
+   */
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/u, "날짜 형식이 올바르지 않습니다 (YYYY-MM-DD).")
+    .optional(),
+  /**
+   * 월 기준 운영 강좌 필터 — "그 월에 수업이 진행되는 강좌".
+   *
+   * 형식: 'YYYY-MM' (예: '2026-05'). schema 단계에서 정규식 검증.
+   * 매칭 룰 (앱 레이어):
+   *  - start_date IS NOT NULL AND start_date <= 해당 월 말일
+   *  - end_date IS NULL OR end_date >= 해당 월 1일
+   *  - schedule_days IS NOT NULL (요일은 한 달이면 4~5번 등장하므로 별도 매칭 X)
+   *
+   * `date` 와 mutually exclusive — date 가 우선.
+   */
+  month: z
+    .string()
+    .regex(/^\d{4}-\d{2}$/u, "월 형식이 올바르지 않습니다 (YYYY-MM).")
+    .optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   /** 정렬 옵션. 기본은 현행 동작(default · branch>subject>name). */
@@ -181,6 +212,19 @@ export function parseClassSearchParams(
   // days 는 z.enum 화이트리스트로 안전. 미리 한 번 거르고 Zod 에 위임.
   const dayWhitelist: ReadonlySet<string> = new Set(CLASS_DAY_VALUES);
 
+  // date / month 형식 가드 — Zod 정규식이 한 번 더 검증하므로 여기서는
+  // string 타입만 좁힌다. 둘 다 들어오면 date 우선 (month 무시).
+  const dateRaw =
+    typeof raw.date === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(raw.date)
+      ? raw.date
+      : undefined;
+  const monthRaw =
+    typeof raw.month === "string" && /^\d{4}-\d{2}$/u.test(raw.month)
+      ? raw.month
+      : undefined;
+  const date = dateRaw;
+  const month = dateRaw ? undefined : monthRaw;
+
   return ClassFiltersSchema.parse({
     search: typeof raw.q === "string" ? raw.q : "",
     branch: branchRaw === "" ? undefined : branchRaw,
@@ -189,6 +233,8 @@ export function parseClassSearchParams(
     days: toArray(raw.day).filter((d) => dayWhitelist.has(d)),
     active,
     status,
+    date,
+    month,
     page: raw.page ?? 1,
     pageSize: raw.size ?? 20,
     sort,
