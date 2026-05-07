@@ -3,6 +3,7 @@ import { Plus } from "lucide-react";
 import { listStudents } from "@/lib/profile/list-students";
 import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { parseStudentsSearchParams } from "@/lib/schemas/student";
+import { applyBranchContextToParams } from "@/lib/auth/branch-context";
 import { StudentsTable } from "@/components/students/students-table";
 import { StudentsFilters } from "@/components/students/students-filters";
 import { Pagination } from "@/components/students/pagination";
@@ -28,7 +29,7 @@ export default async function StudentsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const raw = await searchParams;
+  const raw = await applyBranchContextToParams(await searchParams);
   const input = parseStudentsSearchParams(raw);
 
   // 학생 리스트 + 학교 옵션 prefetch 를 병렬 실행.

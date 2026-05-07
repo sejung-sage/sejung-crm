@@ -91,3 +91,32 @@ export async function resolveBranchFilter(
   const fromCookie = await getSelectedBranch();
   return fromCookie ?? undefined;
 }
+
+/**
+ * Server Component 의 searchParams 객체에 branch context 적용.
+ *
+ * 호출부 패턴:
+ *   const params = await applyBranchContextToParams(await searchParams);
+ *   // 이후 parseStudentsSearchParams(params) 등 그대로 호출
+ *
+ * 동작:
+ *   - params.branch 가 이미 명시되어 있으면 그대로 (URL 우선).
+ *   - 없으면 cookie 의 selected_branch 를 주입.
+ *   - cookie 도 없으면 그대로 (= 전체).
+ *
+ * 일반 사용자는 cookie 가 자기 branch 와 일치 → 자동으로 자기 분원만 보임.
+ * master 가 "전체" 선택 → cookie 미set → 모든 분원 보임.
+ * master 가 특정 분원 선택 → cookie 그 분원 → default 그 분원만 보임.
+ */
+export async function applyBranchContextToParams<
+  T extends Record<string, string | string[] | undefined>,
+>(params: T): Promise<T> {
+  const existing = params.branch;
+  const hasExplicit =
+    typeof existing === "string" && existing.trim().length > 0;
+  if (hasExplicit) return params;
+
+  const fromCookie = await getSelectedBranch();
+  if (!fromCookie) return params;
+  return { ...params, branch: fromCookie };
+}

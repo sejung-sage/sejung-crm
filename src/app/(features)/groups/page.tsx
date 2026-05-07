@@ -1,5 +1,6 @@
 import { listGroups } from "@/lib/groups/list-groups";
 import { GroupListQuerySchema } from "@/lib/schemas/group";
+import { applyBranchContextToParams } from "@/lib/auth/branch-context";
 import { GroupsToolbar } from "@/components/groups/groups-toolbar";
 import { GroupsTable } from "@/components/groups/groups-table";
 import { Pagination } from "@/components/students/pagination";
@@ -20,7 +21,7 @@ export default async function GroupsPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const raw = await searchParams;
+  const raw = await applyBranchContextToParams(await searchParams);
 
   // searchParams 는 string | string[] | undefined 이므로 단일 값만 추출
   const pick = (v: string | string[] | undefined): string | undefined => {

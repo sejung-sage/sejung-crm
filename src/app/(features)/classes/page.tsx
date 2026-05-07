@@ -1,6 +1,7 @@
 import { listClasses } from "@/lib/classes/list-classes";
 import { listClassFilterOptions } from "@/lib/classes/list-class-filter-options";
 import { parseClassSearchParams } from "@/lib/schemas/class";
+import { applyBranchContextToParams } from "@/lib/auth/branch-context";
 import { ClassesToolbar } from "@/components/classes/classes-toolbar";
 import { ClassesTable } from "@/components/classes/classes-table";
 import { Pagination } from "@/components/students/pagination";
@@ -22,7 +23,7 @@ export default async function ClassesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const raw = await searchParams;
+  const raw = await applyBranchContextToParams(await searchParams);
   const filters = parseClassSearchParams(raw);
 
   // 강좌 리스트 + 강사 필터 옵션 prefetch 를 병렬 실행.

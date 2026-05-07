@@ -8,11 +8,15 @@ import {
   Upload,
   MapPin,
   UserCircle2,
+  Building2,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { getSelectedBranch } from "@/lib/auth/branch-context";
+import { BRANCHES } from "@/config/branches";
 import { RoleBadge } from "@/components/auth/role-badge";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { SidebarNavLink } from "./sidebar-nav-link";
+import { SidebarBranchSwitcher } from "./sidebar-branch-switcher";
 import type { UserRole } from "@/types/database";
 
 /**
@@ -86,6 +90,7 @@ const NAV_ITEMS: NavItem[] = [
 
 export async function Sidebar() {
   const currentUser = await getCurrentUser();
+  const selectedBranch = await getSelectedBranch();
   const isDevSeed =
     currentUser?.role === "master" &&
     currentUser?.user_id === "dev-master-0001";
@@ -112,6 +117,32 @@ export async function Sidebar() {
           SEJUNG Academy
         </Link>
       </div>
+
+      {/* 분원 컨텍스트 — master 만 switcher, 그 외는 자기 분원 정적 표시 */}
+      {currentUser && (
+        <div className="px-4 pb-3">
+          {currentUser.role === "master" ? (
+            <SidebarBranchSwitcher
+              current={selectedBranch}
+              branches={[...BRANCHES]}
+            />
+          ) : (
+            <div
+              className="
+                flex items-center gap-2 h-10 px-3 rounded-lg
+                bg-[color:var(--bg-muted)]
+                text-[14px] text-[color:var(--text-muted)]
+              "
+              aria-label="분원"
+            >
+              <Building2 className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
+              <span className="truncate">
+                분원: <span className="font-medium text-[color:var(--text)]">{currentUser.branch}</span>
+              </span>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 검색 */}
       <div className="px-4 pb-4">
