@@ -21,7 +21,10 @@ import {
   LoginInputSchema,
   type ChangePasswordInput,
 } from "@/lib/schemas/auth";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  createSupabaseServiceClient,
+} from "@/lib/supabase/server";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { setSelectedBranch } from "@/lib/auth/branch-context";
 import { BRANCHES } from "@/config/branches";
@@ -290,24 +293,32 @@ export async function changePasswordAction(
   }
 
   // 5) must_change_password=false 로 플래그 해제
-  const { error: flagErr } = await (
-    supabase.from("users_profile") as unknown as {
+  //    users_profile 의 self UPDATE 는 RLS 가 막혀있으므로(0003: master only)
+  //    service role 클라이언트로 우회. 변경 컬럼은 must_change_password 한정 —
+  //    role/branch/active 등 권한 컬럼은 절대 손대지 않는다.
+  const svc = createSupabaseServiceClient();
+  const { error: flagErr, data: flagRows } = await (
+    svc.from("users_profile") as unknown as {
       update: (v: Record<string, unknown>) => {
-        eq: (col: string, val: string) => Promise<{
-          error: { message: string } | null;
-        }>;
+        eq: (col: string, val: string) => {
+          select: (cols: string) => Promise<{
+            data: { user_id: string }[] | null;
+            error: { message: string } | null;
+          }>;
+        };
       };
     }
   )
     .update({ must_change_password: false })
-    .eq("user_id", user.id);
+    .eq("user_id", user.id)
+    .select("user_id");
 
-  if (flagErr) {
+  if (flagErr || !flagRows || flagRows.length === 0) {
     // 비밀번호는 바뀌었지만 플래그가 안 풀린 상태. 사용자 다시 로그인 시 또 막히므로
     // 실패로 보고하되, 로그아웃은 시키지 않음(다음 시도로 회복 가능).
     return {
       status: "failed",
-      reason: `프로필 갱신에 실패했습니다: ${flagErr.message}`,
+      reason: `프로필 갱신에 실패했습니다: ${flagErr?.message ?? "0 rows affected"}`,
     };
   }
 
