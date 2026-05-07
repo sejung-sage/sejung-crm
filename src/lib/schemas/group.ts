@@ -27,6 +27,21 @@ export const GroupFiltersSchema = z.object({
   /** 과목: 공통 SubjectSchema 재사용. 빈 배열이면 전 과목 */
   subjects: z.array(SubjectSchema).default([]),
   /**
+   * 지역 (다중 선택). student_profiles.region (school_regions 매핑) 정확 일치.
+   *
+   * 학생 명단 필터와 동일한 5종 칩(강남구/서초구/송파구/인천 송도/기타)을 그룹 빌더에
+   * 노출하지만 스키마 자체는 자유 입력 문자열로 둔다 — /regions admin 에서 신규 지역이
+   * 추가될 수 있고, 학생 필터에서 사용자가 다른 지역을 선택했던 그룹이 미래에 들어올
+   * 가능성을 열어둠.
+   *
+   * 빈 배열이면 전 지역 (필터 미적용). 0026 마이그 이후 region 은 NOT NULL/COALESCE 라
+   * 매칭은 항상 안전.
+   *
+   * 백워드 호환: `.default([])` 라 0026 이전에 저장된 옛 그룹 JSONB 에 regions 키가
+   * 없어도 getGroup 에서 parse 시점에 빈 배열로 채워진다.
+   */
+  regions: z.array(z.string().trim().min(1).max(30)).default([]),
+  /**
    * 명시적으로 추가한 학생 ID 목록. 조건(grades/schools/subjects) 결과와
    * union 되어 최종 수신자에 포함된다. 본인 폰 테스트 또는 특정 학생 1~몇명
    * 콕 찍어 보낼 때 사용. 자동 제외(탈퇴·수신거부)는 동일하게 적용.

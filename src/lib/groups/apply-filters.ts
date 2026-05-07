@@ -77,6 +77,12 @@ export function applyGroupFiltersDev(
       if (!hit) return false;
     }
 
+    // 지역 필터 — student_profiles.region 정확 일치 (Supabase 와 동일).
+    // dev-seed 의 region 은 NOT NULL 이라 단순 includes 로 충분.
+    if (filters.regions.length > 0) {
+      if (!filters.regions.includes(p.region)) return false;
+    }
+
     return true;
   });
 }

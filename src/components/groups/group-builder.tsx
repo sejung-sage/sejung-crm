@@ -70,6 +70,20 @@ const SUBJECT_OPTIONS: Subject[] = [
   "컨설팅",
   "기타",
 ];
+
+/**
+ * 지역 칩 — 학생 명단 필터(`students-filters.tsx`)와 동일한 5종 고정.
+ * /regions admin 에서 추가 매핑이 가능하지만 그룹 빌더에서는 운영 빈도 높은 5종만
+ * 노출 — 실수 발송 방지 + UI 단순화. 다른 지역으로 보낼 일이 생기면 학생 직접 선택
+ * 또는 향후 expand 영역으로 보강.
+ */
+const REGION_OPTIONS = [
+  "강남구",
+  "서초구",
+  "송파구",
+  "인천 송도",
+  "기타",
+] as const;
 const LEVEL_SEGMENTS: ReadonlyArray<{
   value: "전체" | "중" | "고";
   label: string;
@@ -112,6 +126,10 @@ export function GroupBuilder({
   const [grades, setGrades] = useState<Grade[]>(initial.filters.grades);
   const [schools, setSchools] = useState<string[]>(initial.filters.schools);
   const [subjects, setSubjects] = useState<string[]>(initial.filters.subjects);
+  // regions 는 5종 고정 칩 — 자유 입력 X. 옛 그룹 데이터엔 필드가 없을 수 있어 ?? [] 가드.
+  const [regions, setRegions] = useState<string[]>(
+    initial.filters.regions ?? [],
+  );
   const [includeStudents, setIncludeStudents] = useState<DirectStudent[]>(
     initial.filters.includeStudents ?? [],
   );
@@ -154,9 +172,10 @@ export function GroupBuilder({
       subjects: subjects.filter((s): s is Subject =>
         SUBJECT_OPTIONS.includes(s as Subject),
       ),
+      regions,
       includeStudentIds: includeStudents.map((s) => s.id),
     }),
-    [grades, schools, subjects, includeStudents],
+    [grades, schools, subjects, regions, includeStudents],
   );
 
   // filters/branch 변경 시 디바운스 카운트 호출
@@ -283,7 +302,7 @@ export function GroupBuilder({
           {mode === "create" ? "새 발송 그룹" : "발송 그룹 수정"}
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-          학년·학교·과목 조건으로 수신자를 지정합니다. 수신거부·탈퇴 학생은 자동 제외됩니다.
+          학년·학교·지역·과목 조건으로 수신자를 지정합니다. 수신거부·탈퇴 학생은 자동 제외됩니다.
         </p>
       </div>
 
@@ -449,6 +468,24 @@ export function GroupBuilder({
                     {showAllSchools ? "접기" : "더보기"}
                   </button>
                 )}
+              </div>
+            </Field>
+
+            <Field
+              label="지역"
+              hint={regions.length === 0 ? "선택 안 함 = 전 지역" : undefined}
+            >
+              <div className="flex flex-wrap gap-1.5">
+                {REGION_OPTIONS.map((r) => (
+                  <Chip
+                    key={r}
+                    label={r}
+                    active={regions.includes(r)}
+                    onClick={() =>
+                      toggleFromList(regions, r, (next) => setRegions(next))
+                    }
+                  />
+                ))}
               </div>
             </Field>
 

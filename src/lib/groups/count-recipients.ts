@@ -115,6 +115,11 @@ function buildStudentProfilesQuery(
       // student_profiles.subjects 는 array_agg 결과. overlaps 로 교집합 존재 확인.
       query = query.overlaps("subjects", filters.subjects);
     }
+    if (filters.regions.length > 0) {
+      // student_profiles.region 은 0026 마이그 이후 NOT NULL (COALESCE → '기타').
+      // 다중 지역 OR 매칭 = .in().
+      query = query.in("region", filters.regions);
+    }
   }
 
   // 수신거부 phone 제외를 SQL 단에서 처리.

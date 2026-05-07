@@ -97,6 +97,9 @@ export async function listGroupStudents(
       if (group.filters.subjects.length > 0) {
         q = q.overlaps("subjects", group.filters.subjects);
       }
+      if (group.filters.regions.length > 0) {
+        q = q.in("region", group.filters.regions);
+      }
     }
 
     // 수신거부 SQL 단 제외
