@@ -202,35 +202,40 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
 
   // 진행/종강 상태 필터 — 오늘(KST) 기준 derive (앱 레이어 통일 룰).
   //  - "progressing" : (end_date IS NULL OR end_date >= 오늘)
-  //                    AND name 이 '(종)' 또는 '종)' 으로 시작하지 않음
-  //  - "graduated"   : end_date < 오늘 OR name 이 '(종)' 또는 '종)' 으로 시작함
+  //                    AND name 이 종강 prefix 4종 중 하나로 시작하지 않음
+  //  - "graduated"   : end_date < 오늘 OR name 이 종강 prefix 4종 중 하나로 시작함
   //  - "all"         : 필터 미적용 (분기 진입 안 함)
   //
-  // 종강 prefix 가드:
-  //   아카2000 동기화 시 종강된 강좌는 이름 앞에 prefix 를 붙여 들어오는데
-  //   2026-05-06 진단 결과 두 변형이 모두 운영에 존재함을 확인:
-  //     - "(종)..."  1,993건 (정상 닫힌 괄호)
-  //     - "종)..."     197건 (앞 괄호 누락된 변형)
-  //   둘 다 같은 의미("종강") 이므로 가드에 함께 포함.
+  // 종강/폐강 prefix 가드:
+  //   아카2000 동기화 시 종강·폐강된 강좌는 이름 앞에 prefix 를 붙여 들어옴.
+  //   2026-05-07 진단 기준 운영 분포:
+  //     - "(종)..."  1,993건 (정상 닫힌 괄호 종강)
+  //     - "종)..."     197건 (앞 괄호 누락된 종강 변형)
+  //     - "(폐)..."     8건 (폐강)
+  //     - "폐)..."     10건 (앞 괄호 누락된 폐강 변형)
+  //   네 prefix 모두 "더 이상 진행되지 않는 강좌" 의미이므로 가드에 함께 포함.
   //   classes.end_date 백필이 누락된 행이 진행 중에 노출되는 사고를 막기 위해
-  //   이름 prefix 도 종강 판단에 함께 사용한다 (0022/0024 마이그 백필 후에도
-  //   향후 동기화로 NULL 인 종강 강좌가 다시 들어올 수 있어 영구 가드로 둔다).
+  //   이름 prefix 도 종강 판단에 함께 사용한다 (0022/0024/0028 마이그 백필 후에도
+  //   향후 동기화로 NULL 인 행이 다시 들어올 수 있어 영구 가드로 둔다).
   //
   // today 는 'YYYY-MM-DD' ISO 포맷 — 콤마/괄호 없어 .or() 인젝션 안전.
-  // graduated 분기의 name 패턴 "(종)%" / "종)%" 은 괄호가 PostgREST 의
-  // reserved char (,.():) 라 .or() 표현식에서 따옴표로 감싸 logical operator
-  // 로 오인되는 것을 막는다 (PostgREST 공식 가이드라인).
+  // graduated 분기의 name 패턴은 괄호가 PostgREST reserved char (,.():) 라
+  // .or() 표현식에서 따옴표로 감싸 logical operator 로 오인되는 것을 막는다
+  // (PostgREST 공식 가이드라인).
+  const GRADUATED_PREFIXES = ["(종)", "종)", "(폐)", "폐)"] as const;
   if (filters.status === "progressing") {
     const today = todayKstDateString();
-    q = q
-      .or(`end_date.is.null,end_date.gte.${today}`)
-      .not("name", "ilike", "(종)%")
-      .not("name", "ilike", "종)%") as Q;
+    q = q.or(`end_date.is.null,end_date.gte.${today}`) as Q;
+    for (const prefix of GRADUATED_PREFIXES) {
+      q = q.not("name", "ilike", `${prefix}%`) as Q;
+    }
   } else if (filters.status === "graduated") {
     const today = todayKstDateString();
-    q = q.or(
-      `end_date.lt.${today},name.ilike."(종)%",name.ilike."종)%"`,
-    ) as Q;
+    const orParts = [
+      `end_date.lt.${today}`,
+      ...GRADUATED_PREFIXES.map((p) => `name.ilike."${p}%"`),
+    ];
+    q = q.or(orParts.join(",")) as Q;
   }
 
   // 강사명 다중 필터 — classes.teacher_name 정확 일치 (IN).
