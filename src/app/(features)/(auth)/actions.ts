@@ -1,7 +1,8 @@
 "use server";
 
 /**
- * F4 · 인증 Server Actions (loginAction / logoutAction / changePasswordAction)
+ * F4 · 인증 Server Actions (loginAction / logoutAction / changePasswordAction
+ * / selectBranchAction)
  *
  * 정책:
  *   - 모든 입력은 Zod 스키마(@/lib/schemas/auth) 로 재검증.
@@ -22,10 +23,17 @@ import {
 } from "@/lib/schemas/auth";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
+import { setSelectedBranch } from "@/lib/auth/branch-context";
+import { BRANCHES } from "@/config/branches";
 
 // ─── 결과 타입 ──────────────────────────────────────────────
 
 export type LoginActionResult =
+  | { status: "success" }
+  | { status: "success_master_select"; reason?: never }
+  | { status: "failed"; reason: string };
+
+export type SelectBranchActionResult =
   | { status: "success" }
   | { status: "failed"; reason: string };
 
@@ -89,14 +97,16 @@ export async function loginAction(
     };
   }
 
-  // 비활성 계정 차단 (1차)
+  // 비활성 계정 차단 (1차) + role/branch 조회 (분원 컨텍스트 셋업용)
   const { data: profile } = await supabase
     .from("users_profile")
-    .select("active")
+    .select("active, role, branch")
     .eq("user_id", data.user.id)
     .maybeSingle();
 
-  const p = profile as { active?: boolean } | null;
+  const p = profile as
+    | { active?: boolean; role?: string; branch?: string }
+    | null;
   if (!p || p.active === false) {
     await supabase.auth.signOut();
     return {
@@ -105,6 +115,83 @@ export async function loginAction(
     };
   }
 
+  // 분원 컨텍스트 셋업.
+  //  - master  : cookie 안 박음. 후속 화면(/select-branch)에서 직접 선택.
+  //  - 그 외   : 자기 branch 자동 set. 일반 사용자는 분원 선택 화면 거치지 않음.
+  if (p.role === "master") {
+    revalidatePath("/");
+    return { status: "success_master_select" };
+  }
+
+  if (p.branch && p.branch.trim().length > 0) {
+    await setSelectedBranch(p.branch);
+  }
+  revalidatePath("/");
+  return { status: "success" };
+}
+
+// ─── selectBranchAction ────────────────────────────────────
+
+/**
+ * 분원 선택 (master 전용).
+ *
+ * 입력:
+ *   - branch: "전체" sentinel 또는 BRANCHES 의 한 값.
+ *
+ * 동작:
+ *   - master 권한 검사 (1차) — 비-master 가 직접 호출해도 차단.
+ *   - "전체" → cookie set("전체" sentinel) — getSelectedBranch 가 null 반환.
+ *   - 분원명 → cookie set.
+ *   - 화이트리스트 외 값은 reject (CSRF 가드).
+ *
+ * 사이드바의 분원 switcher 도 동일 액션 사용.
+ */
+export async function selectBranchAction(
+  formData: FormData,
+): Promise<SelectBranchActionResult> {
+  if (isDevSeedMode()) {
+    // dev-seed 모드는 master 가상 사용자라 통과시켜도 무해. cookie 만 set.
+    const branch = String(formData.get("branch") ?? "전체");
+    const allowed = ["전체", ...BRANCHES] as readonly string[];
+    if (!allowed.includes(branch)) {
+      return { status: "failed", reason: "허용되지 않은 분원입니다" };
+    }
+    await setSelectedBranch(branch === "전체" ? null : branch);
+    revalidatePath("/");
+    return { status: "success" };
+  }
+
+  // 권한 검증 — master 만
+  const supabase = await createSupabaseServerClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return { status: "failed", reason: "로그인 후 이용 가능합니다" };
+  }
+  const { data: profile } = await supabase
+    .from("users_profile")
+    .select("role, active")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const p = profile as { role?: string; active?: boolean } | null;
+  if (!p || !p.active) {
+    return { status: "failed", reason: "사용할 수 없는 계정입니다" };
+  }
+  if (p.role !== "master") {
+    return {
+      status: "failed",
+      reason: "마스터 권한이 필요합니다",
+    };
+  }
+
+  const branch = String(formData.get("branch") ?? "전체");
+  const allowed = ["전체", ...BRANCHES] as readonly string[];
+  if (!allowed.includes(branch)) {
+    return { status: "failed", reason: "허용되지 않은 분원입니다" };
+  }
+
+  await setSelectedBranch(branch === "전체" ? null : branch);
   revalidatePath("/");
   return { status: "success" };
 }

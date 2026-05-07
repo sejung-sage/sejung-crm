@@ -39,8 +39,18 @@ export function LoginForm({ next }: { next?: string }) {
   );
 
   useEffect(() => {
-    if (state?.status === "success") {
+    if (!state) return;
+    if (state.status === "success") {
       router.push(safeNextPath(next));
+      router.refresh();
+    } else if (state.status === "success_master_select") {
+      // master 는 분원 선택 페이지로 이동. next 경로는 query 로 보존.
+      const nextSafe = safeNextPath(next);
+      const url =
+        nextSafe === "/"
+          ? "/select-branch"
+          : `/select-branch?next=${encodeURIComponent(nextSafe)}`;
+      router.push(url);
       router.refresh();
     }
   }, [state, next, router]);
