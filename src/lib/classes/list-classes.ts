@@ -56,6 +56,22 @@ export interface ListClassesResult {
 const MAX_PAGE_SIZE = 200;
 
 /**
+ * 종강·폐강 prefix 4종.
+ *
+ * 아카2000 동기화 시 종강·폐강된 강좌는 이름 앞에 prefix 가 붙어 들어옴
+ * (운영 raw 분포 — 0024/0028 마이그 기준):
+ *   - "(종)..." 정상 닫힌 괄호 종강
+ *   - "종)..."   앞 괄호 누락된 종강 변형
+ *   - "(폐)..." 폐강
+ *   - "폐)..."   앞 괄호 누락된 폐강 변형
+ *
+ * end_date 가 NULL 또는 "2050-01-01" 미정 placeholder 로 박힌 종강 강좌가
+ * 진행 중 / 일자 / 월 필터를 통과해 결과에 새는 것을 막기 위한 영구 가드.
+ * 향후 동기화로 NULL 인 행이 다시 들어와도 안전.
+ */
+const GRADUATED_NAME_PREFIXES = ["(종)", "종)", "(폐)", "폐)"] as const;
+
+/**
  * PostgREST `.or(...)` 인자 인젝션 방어용 sanitizer.
  * - 콤마: OR 절 토큰 구분자 → 제거
  * - 괄호: 그룹/함수 인자 구분자 → 제거
@@ -254,18 +270,20 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
   // graduated 분기의 name 패턴은 괄호가 PostgREST reserved char (,.():) 라
   // .or() 표현식에서 따옴표로 감싸 logical operator 로 오인되는 것을 막는다
   // (PostgREST 공식 가이드라인).
-  const GRADUATED_PREFIXES = ["(종)", "종)", "(폐)", "폐)"] as const;
+  //
+  // (prefix 4종 운영 분포 — 2026-05-07 진단:
+  //   "(종)..." 1,993건 / "종)..." 197건 / "(폐)..." 8건 / "폐)..." 10건)
   if (filters.status === "progressing") {
     const today = todayKstDateString();
     q = q.or(`end_date.is.null,end_date.gte.${today}`) as Q;
-    for (const prefix of GRADUATED_PREFIXES) {
+    for (const prefix of GRADUATED_NAME_PREFIXES) {
       q = q.not("name", "ilike", `${prefix}%`) as Q;
     }
   } else if (filters.status === "graduated") {
     const today = todayKstDateString();
     const orParts = [
       `end_date.lt.${today}`,
-      ...GRADUATED_PREFIXES.map((p) => `name.ilike."${p}%"`),
+      ...GRADUATED_NAME_PREFIXES.map((p) => `name.ilike."${p}%"`),
     ];
     q = q.or(orParts.join(",")) as Q;
   }
@@ -278,16 +296,25 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
   // 강좌만 보겠다는 의도이고, 기간을 모르는 강좌를 거기 섞으면 노이즈.
   // schedule_days 가 NULL 인 행도 같은 이유로 제외 (요일 정보 없으면 매칭 불가).
   //
+  // 종강/폐강 prefix 가드:
+  //   end_date 가 NULL 이거나 "2050-01-01" 미정 placeholder 로 백필된 종강 강좌가
+  //   `end_date IS NULL OR end_date >= date` 절을 통과해 결과에 새는 이슈 방지.
+  //   이름이 "(종)/종)/(폐)/폐)" 4종 prefix 로 시작하면 운영 기간 정합과 무관하게
+  //   "그 시점에 운영 안 함" 으로 간주 — applyClassFilters status=progressing 의
+  //   가드와 동일 정책으로 일관.
+  //
   // 일 모드 (date='YYYY-MM-DD'):
   //   - start_date <= date
   //   - end_date IS NULL OR end_date >= date
   //   - schedule_days 가 그 날짜의 KST 요일을 포함 (substring)
+  //   - 이름에 종강/폐강 prefix 없음
   //
   // 월 모드 (month='YYYY-MM'):
   //   - start_date <= 그 달 말일  (운영 기간이 그 월 시작 전에 시작)
   //   - end_date IS NULL OR end_date >= 그 달 1일  (운영 기간이 그 월 종료 후까지 지속)
   //   - schedule_days IS NOT NULL — 한 달이면 어떤 요일이든 4~5번 나타나므로
   //     별도 요일 매칭은 생략 (false negative 방지: "토요일만 있는 반" 도 5월 안에 5번 등장).
+  //   - 이름에 종강/폐강 prefix 없음
   if (filters.date) {
     const weekday = weekdayKoFromDateString(filters.date);
     q = q.not("start_date", "is", null) as Q;
@@ -296,12 +323,18 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     q = q.not("schedule_days", "is", null) as Q;
     // weekday 는 "월/화/수/목/금/토/일" 한 글자 — .ilike 메타문자 인젝션 X.
     q = q.ilike("schedule_days", `%${weekday}%`) as Q;
+    for (const prefix of GRADUATED_NAME_PREFIXES) {
+      q = q.not("name", "ilike", `${prefix}%`) as Q;
+    }
   } else if (filters.month) {
     const { firstDay, lastDay } = monthBoundsUtc(filters.month);
     q = q.not("start_date", "is", null) as Q;
     q = q.lte("start_date", lastDay) as Q;
     q = q.or(`end_date.is.null,end_date.gte.${firstDay}`) as Q;
     q = q.not("schedule_days", "is", null) as Q;
+    for (const prefix of GRADUATED_NAME_PREFIXES) {
+      q = q.not("name", "ilike", `${prefix}%`) as Q;
+    }
   }
 
   // 강사명 다중 필터 — classes.teacher_name 정확 일치 (IN).
