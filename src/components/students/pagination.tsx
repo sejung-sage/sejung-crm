@@ -1,7 +1,12 @@
 "use client";
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+} from "lucide-react";
 
 interface Props {
   page: number;
@@ -39,6 +44,13 @@ export function Pagination({ page, pageSize, total }: Props) {
       <div className="flex items-center gap-1">
         <PageBtn
           disabled={page <= 1}
+          onClick={() => go(1)}
+          aria-label="첫 페이지"
+        >
+          <ChevronsLeft className="size-4" strokeWidth={1.75} aria-hidden />
+        </PageBtn>
+        <PageBtn
+          disabled={page <= 1}
           onClick={() => go(page - 1)}
           aria-label="이전 페이지"
         >
@@ -53,6 +65,13 @@ export function Pagination({ page, pageSize, total }: Props) {
           aria-label="다음 페이지"
         >
           <ChevronRight className="size-4" strokeWidth={1.75} aria-hidden />
+        </PageBtn>
+        <PageBtn
+          disabled={page >= totalPages}
+          onClick={() => go(totalPages)}
+          aria-label="마지막 페이지"
+        >
+          <ChevronsRight className="size-4" strokeWidth={1.75} aria-hidden />
         </PageBtn>
       </div>
     </div>
