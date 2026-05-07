@@ -93,11 +93,14 @@ export function StudentsFilters({
   totalCount,
   source,
   schoolOptions,
+  canPickBranch,
 }: {
   totalCount: number;
   source: "supabase" | "dev-seed";
   /** 부모(Server Component) 가 prefetch 해서 넘겨주는 학교 후보. */
   schoolOptions: string[];
+  /** master 만 분원 select 노출. 그 외는 사이드바 표시(분원: X)로 충분. */
+  canPickBranch: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -277,24 +280,26 @@ export function StudentsFilters({
           </label>
         </form>
 
-        <select
-          aria-label="분원 선택"
-          value={branch}
-          onChange={(e) => setBranch(e.target.value)}
-          className="
-            h-10 min-w-40 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
-            text-[15px] text-[color:var(--text)]
-            focus:outline-none focus:border-[color:var(--border-strong)]
-            cursor-pointer
-          "
-        >
-          {BRANCH_FILTER_OPTIONS.map((b) => (
-            <option key={b} value={b}>
-              {b === "전체" ? "전체 분원" : b}
-            </option>
-          ))}
-        </select>
+        {canPickBranch && (
+          <select
+            aria-label="분원 선택"
+            value={branch}
+            onChange={(e) => setBranch(e.target.value)}
+            className="
+              h-10 min-w-40 rounded-lg px-3
+              bg-white border border-[color:var(--border)]
+              text-[15px] text-[color:var(--text)]
+              focus:outline-none focus:border-[color:var(--border-strong)]
+              cursor-pointer
+            "
+          >
+            {BRANCH_FILTER_OPTIONS.map((b) => (
+              <option key={b} value={b}>
+                {b === "전체" ? "전체 분원" : b}
+              </option>
+            ))}
+          </select>
+        )}
 
         <SegmentedControl
           ariaLabel="학교급 선택"

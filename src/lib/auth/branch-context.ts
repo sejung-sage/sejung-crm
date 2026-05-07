@@ -24,6 +24,7 @@
  */
 
 import { cookies } from "next/headers";
+import { getCurrentUser } from "@/lib/auth/current-user";
 
 const COOKIE_NAME = "selected_branch";
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30일
@@ -99,18 +100,28 @@ export async function resolveBranchFilter(
  *   const params = await applyBranchContextToParams(await searchParams);
  *   // 이후 parseStudentsSearchParams(params) 등 그대로 호출
  *
- * 동작:
- *   - params.branch 가 이미 명시되어 있으면 그대로 (URL 우선).
- *   - 없으면 cookie 의 selected_branch 를 주입.
- *   - cookie 도 없으면 그대로 (= 전체).
+ * 분원 격리 정책:
+ *   - master         : URL 우선 → cookie → undefined(전체).
+ *   - 그 외(admin/manager/viewer): URL/cookie 무시, 본인 분원으로 강제.
+ *     → URL `?branch=대치` 조작해도 자기 branch 로 덮어쓴다.
+ *     → 사이드바에 분원이 정적 표시되는 것과 같은 의미. UI 의 분원 select 자체도
+ *       master 만 노출되어야 정합성이 맞다 (toolbar 들에서 별도 가드).
+ *   - 비로그인       : 미들웨어가 막으므로 도달하지 않음. 방어로 URL/cookie 흐름 유지.
  *
- * 일반 사용자는 cookie 가 자기 branch 와 일치 → 자동으로 자기 분원만 보임.
- * master 가 "전체" 선택 → cookie 미set → 모든 분원 보임.
- * master 가 특정 분원 선택 → cookie 그 분원 → default 그 분원만 보임.
+ * RLS 가 어차피 분원 외 데이터를 차단하지만, URL 변조 시 빈 결과만 비치고
+ * "전체 분원" 옵션이 활성으로 보이는 등 UX 가 깨지므로 서버에서도 강제한다.
  */
 export async function applyBranchContextToParams<
   T extends Record<string, string | string[] | undefined>,
 >(params: T): Promise<T> {
+  const user = await getCurrentUser();
+
+  // 일반 사용자: 본인 분원으로 강제 (URL/cookie 모두 무시).
+  if (user && user.role !== "master") {
+    return { ...params, branch: user.branch };
+  }
+
+  // master / 비로그인: URL 우선 → cookie → undefined.
   const existing = params.branch;
   const hasExplicit =
     typeof existing === "string" && existing.trim().length > 0;

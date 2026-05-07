@@ -1,6 +1,7 @@
 import { listGroups } from "@/lib/groups/list-groups";
 import { GroupListQuerySchema } from "@/lib/schemas/group";
 import { applyBranchContextToParams } from "@/lib/auth/branch-context";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { GroupsToolbar } from "@/components/groups/groups-toolbar";
 import { GroupsTable } from "@/components/groups/groups-table";
 import { Pagination } from "@/components/students/pagination";
@@ -35,8 +36,12 @@ export default async function GroupsPage({
     page: pick(raw.page) ?? 1,
   });
 
-  const result = await listGroups(parsed);
+  const [result, currentUser] = await Promise.all([
+    listGroups(parsed),
+    getCurrentUser(),
+  ]);
   const devMode = isDevSeedMode();
+  const canPickBranch = currentUser?.role === "master";
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -51,7 +56,7 @@ export default async function GroupsPage({
       </header>
 
       {/* 툴바 */}
-      <GroupsToolbar />
+      <GroupsToolbar canPickBranch={canPickBranch} />
 
       {devMode && (
         <div

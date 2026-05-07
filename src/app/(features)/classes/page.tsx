@@ -2,6 +2,7 @@ import { listClasses } from "@/lib/classes/list-classes";
 import { listClassFilterOptions } from "@/lib/classes/list-class-filter-options";
 import { parseClassSearchParams } from "@/lib/schemas/class";
 import { applyBranchContextToParams } from "@/lib/auth/branch-context";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { ClassesToolbar } from "@/components/classes/classes-toolbar";
 import { ClassesTable } from "@/components/classes/classes-table";
 import { Pagination } from "@/components/students/pagination";
@@ -28,11 +29,13 @@ export default async function ClassesPage({
 
   // 강좌 리스트 + 강사 필터 옵션 prefetch 를 병렬 실행.
   // 강좌 6,000 규모라 한 번의 distinct 스캔으로 충분 (학생 리스트 패턴 미러).
-  const [result, filterOptions] = await Promise.all([
+  const [result, filterOptions, currentUser] = await Promise.all([
     listClasses(filters),
     listClassFilterOptions(filters.branch),
+    getCurrentUser(),
   ]);
   const devMode = isDevSeedMode();
+  const canPickBranch = currentUser?.role === "master";
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -47,7 +50,10 @@ export default async function ClassesPage({
       </header>
 
       {/* 툴바 (검색 + 필터) */}
-      <ClassesToolbar teacherOptions={filterOptions.teachers} />
+      <ClassesToolbar
+        teacherOptions={filterOptions.teachers}
+        canPickBranch={canPickBranch}
+      />
 
       {devMode && (
         <div

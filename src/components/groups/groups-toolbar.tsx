@@ -15,7 +15,7 @@ import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
  *
  * 상태는 URL `?q=`, `?branch=` 로 동기화. 필터 변경 시 page=1 리셋.
  */
-export function GroupsToolbar() {
+export function GroupsToolbar({ canPickBranch }: { canPickBranch: boolean }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -86,24 +86,26 @@ export function GroupsToolbar() {
         </label>
       </form>
 
-      <select
-        aria-label="분원 선택"
-        value={branch}
-        onChange={(e) => onBranchChange(e.target.value)}
-        className="
-          h-10 min-w-40 rounded-lg px-3
-          bg-white border border-[color:var(--border)]
-          text-[15px] text-[color:var(--text)]
-          focus:outline-none focus:border-[color:var(--border-strong)]
-          cursor-pointer
-        "
-      >
-        {BRANCH_FILTER_OPTIONS.map((b) => (
-          <option key={b} value={b}>
-            {b === "전체" ? "전체 분원" : b}
-          </option>
-        ))}
-      </select>
+      {canPickBranch && (
+        <select
+          aria-label="분원 선택"
+          value={branch}
+          onChange={(e) => onBranchChange(e.target.value)}
+          className="
+            h-10 min-w-40 rounded-lg px-3
+            bg-white border border-[color:var(--border)]
+            text-[15px] text-[color:var(--text)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+            cursor-pointer
+          "
+        >
+          {BRANCH_FILTER_OPTIONS.map((b) => (
+            <option key={b} value={b}>
+              {b === "전체" ? "전체 분원" : b}
+            </option>
+          ))}
+        </select>
+      )}
 
       <Link
         href="/groups/new"

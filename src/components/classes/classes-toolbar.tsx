@@ -97,9 +97,11 @@ const DAY_WHITELIST: ReadonlySet<string> = new Set(CLASS_DAY_VALUES);
 interface Props {
   /** 부모(Server Component) 가 prefetch 해서 넘겨주는 강사 후보. */
   teacherOptions: string[];
+  /** master 만 분원 select 노출. 그 외는 사이드바 표시로 충분. */
+  canPickBranch: boolean;
 }
 
-export function ClassesToolbar({ teacherOptions }: Props) {
+export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -262,24 +264,26 @@ export function ClassesToolbar({ teacherOptions }: Props) {
           </label>
         </form>
 
-        <select
-          aria-label="분원 선택"
-          value={branch}
-          onChange={(e) => onBranchChange(e.target.value)}
-          className="
-            h-10 min-w-40 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
-            text-[15px] text-[color:var(--text)]
-            focus:outline-none focus:border-[color:var(--border-strong)]
-            cursor-pointer
-          "
-        >
-          {BRANCH_FILTER_OPTIONS.map((b) => (
-            <option key={b} value={b}>
-              {b === "전체" ? "전체 분원" : b}
-            </option>
-          ))}
-        </select>
+        {canPickBranch && (
+          <select
+            aria-label="분원 선택"
+            value={branch}
+            onChange={(e) => onBranchChange(e.target.value)}
+            className="
+              h-10 min-w-40 rounded-lg px-3
+              bg-white border border-[color:var(--border)]
+              text-[15px] text-[color:var(--text)]
+              focus:outline-none focus:border-[color:var(--border-strong)]
+              cursor-pointer
+            "
+          >
+            {BRANCH_FILTER_OPTIONS.map((b) => (
+              <option key={b} value={b}>
+                {b === "전체" ? "전체 분원" : b}
+              </option>
+            ))}
+          </select>
+        )}
 
         <select
           aria-label="과목 선택"

@@ -47,9 +47,9 @@ export function AccountsToolbar({
 
   const q = searchParams.get("q") ?? "";
   const role = searchParams.get("role") ?? "";
-  // admin 은 본인 분원 고정 표시
+  // master 외 모든 사용자(admin/manager/viewer) 는 본인 분원 고정 표시
   const branch =
-    currentUserRole === "admin"
+    currentUserRole !== "master"
       ? currentUserBranch
       : (searchParams.get("branch") ?? "전체");
   const active = searchParams.get("active") ?? "";
@@ -152,10 +152,10 @@ export function AccountsToolbar({
       <select
         aria-label="분원 선택"
         value={branch}
-        disabled={currentUserRole === "admin"}
+        disabled={currentUserRole !== "master"}
         title={
-          currentUserRole === "admin"
-            ? "관리자는 본인 분원만 조회할 수 있습니다"
+          currentUserRole !== "master"
+            ? "본인 분원만 조회할 수 있습니다"
             : undefined
         }
         onChange={(e) => onBranchChange(e.target.value)}
@@ -169,7 +169,7 @@ export function AccountsToolbar({
           cursor-pointer
         "
       >
-        {currentUserRole === "admin" ? (
+        {currentUserRole !== "master" ? (
           <option value={currentUserBranch}>{currentUserBranch}</option>
         ) : (
           BRANCH_OPTIONS_MASTER.map((b) => (

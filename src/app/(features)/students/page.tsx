@@ -4,6 +4,7 @@ import { listStudents } from "@/lib/profile/list-students";
 import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { parseStudentsSearchParams } from "@/lib/schemas/student";
 import { applyBranchContextToParams } from "@/lib/auth/branch-context";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { StudentsTable } from "@/components/students/students-table";
 import { StudentsFilters } from "@/components/students/students-filters";
 import { Pagination } from "@/components/students/pagination";
@@ -33,10 +34,12 @@ export default async function StudentsPage({
   const input = parseStudentsSearchParams(raw);
 
   // 학생 리스트 + 학교 옵션 prefetch 를 병렬 실행.
-  const [result, filterOptions] = await Promise.all([
+  const [result, filterOptions, currentUser] = await Promise.all([
     listStudents(input),
     listStudentFilterOptions(input.branch),
+    getCurrentUser(),
   ]);
+  const canPickBranch = currentUser?.role === "master";
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -72,6 +75,7 @@ export default async function StudentsPage({
           totalCount={result.total}
           source={result.source}
           schoolOptions={filterOptions.schools}
+          canPickBranch={canPickBranch}
         />
 
         {/* 테이블 */}
