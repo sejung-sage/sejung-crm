@@ -48,10 +48,11 @@ export function ClassDetailHeader({ cls, studentCount }: Props) {
   //  - 그 외                      → 그대로 'YYYY-MM-DD'
   const endDateLine = formatEndDate(cls.end_date);
 
-  // 진행/종강 derive — 오늘 KST 기준.
+  // 진행/종강 derive — 오늘 KST 기준 + 종강/폐강 prefix 가드.
+  //  - 이름 prefix "(종)/종)/(폐)/폐)" 중 하나로 시작 → 종강 (백필 누락 안전 가드)
   //  - end_date IS NULL OR end_date >= 오늘 → 진행 중 (미정 placeholder 도 포함)
   //  - end_date < 오늘                       → 종강
-  const status = deriveStatus(cls.end_date);
+  const status = deriveStatus(cls.name, cls.end_date);
 
   // 정원.
   const capacityLine = cls.capacity != null ? `정원 ${cls.capacity}명` : null;
@@ -235,6 +236,15 @@ type ClassStatus = "progressing" | "graduated";
 
 /**
  * UI 측 진행/종강 derive (오늘 KST 기준).
+ *
+ * 종강/폐강 prefix 우선 가드:
+ *   아카2000 동기화 시 종강·폐강된 강좌는 이름 앞에 "(종)" / "종)" / "(폐)" /
+ *   "폐)" 4종 prefix 가 붙어 들어온다 (운영 분포 — 0024/0028 마이그 기준).
+ *   end_date 가 백필 누락(또는 미래의 placeholder "2050-01-01") 인 행이라도
+ *   이 prefix 가 있으면 무조건 종강으로 간주 — 사용자 멘탈 모델 ("이름에
+ *   '종)' 이 있으면 종강이다") 와 일치.
+ *
+ * 그 외 룰:
  *  - end_date IS NULL OR end_date >= 오늘   → 진행 중
  *  - end_date >= "2050-01-01"               → 진행 중 (미정 placeholder)
  *  - end_date < 오늘                         → 종강
@@ -242,7 +252,12 @@ type ClassStatus = "progressing" | "graduated";
  * 백엔드 `applyClassFilters(status=...)` 와 동일 룰. ISO YYYY-MM-DD 의 사전식
  * 비교가 곧 날짜 비교라 별도 파싱 없이 문자열 비교로 충분.
  */
-function deriveStatus(end: string | null): ClassStatus {
+const GRADUATED_NAME_PREFIXES = ["(종)", "종)", "(폐)", "폐)"] as const;
+
+function deriveStatus(name: string, end: string | null): ClassStatus {
+  for (const prefix of GRADUATED_NAME_PREFIXES) {
+    if (name.startsWith(prefix)) return "graduated";
+  }
   if (end == null) return "progressing";
   if (end >= "2050-01-01") return "progressing";
   const todayKst = todayKstDateString();
