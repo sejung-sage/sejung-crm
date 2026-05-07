@@ -1,4 +1,5 @@
 import type { EnrollmentWithClass } from "@/types/database";
+import { parseCourseName } from "@/lib/profile/parse-course-name";
 
 interface Props {
   enrollments: EnrollmentWithClass[];
@@ -9,6 +10,15 @@ interface Props {
  *
  * enrollments.amount 는 회차당 금액. 강좌 마스터(class)가 매칭되면
  * 회차 수와 곱해 총액을 메인으로 노출, 회당 단가는 서브 라인에 표기.
+ *
+ * 선생님·과목 표시 우선순위:
+ *   1) enrollments.teacher_name / subject (ETL 가 항상 NULL — placeholder)
+ *   2) classes 마스터 (aca_class_id join)
+ *   3) course_name 자유형 파싱 (`parseCourseName`) — 강좌 매칭 실패 시 noise 감축
+ *   4) "—"
+ *
+ * (3) 은 ETL 데이터 정합성과 별개로 화면 즉시 개선용 fallback. 정확도는
+ * `parse-course-name.ts` 의 보수적 패턴에 의존 — 모호하면 null 반환 → "—".
  */
 export function StudentEnrollmentsPanel({ enrollments }: Props) {
   if (enrollments.length === 0) {
@@ -36,9 +46,15 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
         </thead>
         <tbody>
           {enrollments.map((e) => {
-            const teacher = e.teacher_name ?? e.class?.teacher_name ?? "—";
+            const parsed = parseCourseName(e.course_name);
+            const teacher =
+              e.teacher_name ?? e.class?.teacher_name ?? parsed.teacher ?? "—";
             const subject =
-              e.subject ?? e.class?.subject ?? e.class?.subject_raw ?? "—";
+              e.subject ??
+              e.class?.subject ??
+              e.class?.subject_raw ??
+              parsed.subject ??
+              "—";
             return (
               <tr
                 key={e.id}
