@@ -16,22 +16,16 @@ import { RoleBadge } from "@/components/auth/role-badge";
  *  - ChangePasswordForm 에서 현재 비밀번호 입력을 숨기고 안내 배너를 띄운다.
  *  - 변경 성공 시 폼이 자체적으로 2초 뒤 `/` 로 이동.
  */
-export default async function MePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const params = await searchParams;
-  const forcedFromQuery = params.forced === "1";
-
+export default async function MePage() {
   const user = await getCurrentUser();
   if (!user) {
     redirect("/login");
   }
 
-  // 미들웨어가 forced=1 을 못 붙인 경로(예: 사용자가 직접 /me 접근)에서도
-  // 사용자 본인이 must_change_password=true 면 강제 모드로 표시.
-  const mustChange = forcedFromQuery || user.must_change_password === true;
+  // DB 의 must_change_password 가 source of truth.
+  // URL `?forced=1` 은 미들웨어가 붙이는 hint 였지만 stale 가능성(이미 변경 완료한
+  // 사용자가 그 URL 을 새로고침하는 등) 이 있어, DB 값만 신뢰한다.
+  const mustChange = user.must_change_password === true;
 
   return (
     <div className="max-w-3xl space-y-6">
