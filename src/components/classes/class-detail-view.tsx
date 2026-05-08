@@ -56,6 +56,7 @@ export function ClassDetailView({ detail }: Props) {
         <ClassAttendanceGrid
           students={detail.students}
           attendances={detail.attendances}
+          branch={detail.class.branch}
         />
       </section>
     </div>

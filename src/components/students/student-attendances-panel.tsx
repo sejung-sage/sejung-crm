@@ -8,6 +8,11 @@ interface Props {
   // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
   // 격자 컬럼은 과거→최근 오름차순으로 펼쳐야 가독성이 좋다.
   attendances: AttendanceWithClass[];
+  /**
+   * 학생 분원. "방배" 면 chip 이 5종 raw 표시, 그 외이면 결석 외 모두 출석 chip
+   * (`attendance-policy` 단일 정책).
+   */
+  branch?: string | null;
 }
 
 /**
@@ -21,7 +26,7 @@ interface Props {
  * Server Component — group by/matrix 빌드는 렌더 1회.
  * 한 학생 attendances 가 1000행, 일자 distinct 100~200 정도여도 충분.
  */
-export function StudentAttendancesPanel({ attendances }: Props) {
+export function StudentAttendancesPanel({ attendances, branch }: Props) {
   if (attendances.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
@@ -149,7 +154,10 @@ export function StudentAttendancesPanel({ attendances }: Props) {
                         className="px-1 py-2 text-center align-middle"
                       >
                         {status ? (
-                          <AttendanceStatusChip status={status} />
+                          <AttendanceStatusChip
+                            status={status}
+                            branch={branch}
+                          />
                         ) : (
                           <span
                             className="text-[color:var(--text-dim)]"

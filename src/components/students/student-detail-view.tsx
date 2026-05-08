@@ -43,7 +43,10 @@ export function StudentDetailView({ detail }: Props) {
           <StudentEnrollmentsPanel enrollments={detail.enrollments} />
         }
         attendancesPanel={
-          <StudentAttendancesPanel attendances={detail.attendances} />
+          <StudentAttendancesPanel
+            attendances={detail.attendances}
+            branch={detail.profile.branch}
+          />
         }
         messagesPanel={<StudentMessagesPanel messages={detail.messages} />}
       />

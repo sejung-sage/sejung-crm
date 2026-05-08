@@ -13,6 +13,11 @@ type AttendanceMatrixRow = Pick<
 interface Props {
   students: ClassStudentRow[];
   attendances: AttendanceMatrixRow[];
+  /**
+   * 강좌 분원. "방배" 면 chip 5종 raw, 그 외이면 결석 외 모두 출석 chip.
+   * `attendance-policy` 단일 정책.
+   */
+  branch?: string | null;
 }
 
 /**
@@ -33,7 +38,11 @@ interface Props {
  * Server Component — 매트릭스 빌드는 렌더 1회. 학생 30명 × 일자 60 정도면
  * 충분히 가볍다. PostgREST cap 1000 행 도달 시는 loader 가 warn 함.
  */
-export function ClassAttendanceGrid({ students, attendances }: Props) {
+export function ClassAttendanceGrid({
+  students,
+  attendances,
+  branch,
+}: Props) {
   if (attendances.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
@@ -168,7 +177,10 @@ export function ClassAttendanceGrid({ students, attendances }: Props) {
                         className="px-1 py-2 text-center align-middle"
                       >
                         {status ? (
-                          <AttendanceStatusChip status={status} />
+                          <AttendanceStatusChip
+                            status={status}
+                            branch={branch}
+                          />
                         ) : (
                           <span
                             className="text-[color:var(--text-dim)]"
