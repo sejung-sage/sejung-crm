@@ -259,10 +259,11 @@ async function dispatchOne(
         sentOk += 1;
         const unitCost = calculateCost(type, 1).totalCost;
         totalCost += unitCost;
+        // messages.cost INT — 소수 단가는 round 후 저장.
         await updateMessage(supabase, row.id, {
           status: "발송됨",
           vendor_message_id: sr.value.vendorMessageId,
-          cost: unitCost,
+          cost: Math.round(unitCost),
           sent_at: nowIso,
         });
       } else {
@@ -406,7 +407,7 @@ async function updateCampaignStatus(
       };
     }
   )
-    .update({ status, total_cost: totalCost })
+    .update({ status, total_cost: Math.round(totalCost) })
     .eq("id", campaignId);
 }
 
@@ -422,8 +423,6 @@ async function markCampaignFailed(
 
 function readFromNumber(adapterName: string): string | null {
   switch (adapterName) {
-    case "solapi":
-      return process.env.SOLAPI_FROM_NUMBER ?? "01000000000";
     case "sendon":
       return process.env.SENDON_FROM_NUMBER ?? "01000000000";
     default:

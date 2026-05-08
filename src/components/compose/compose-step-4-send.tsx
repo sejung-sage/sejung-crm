@@ -146,7 +146,7 @@ export function ComposeStep4Send({
                 즉시 발송
               </span>
               <span className="text-[12px] text-[color:var(--text-muted)]">
-                지금 즉시 솔라피로 발송됩니다.
+                지금 즉시 sendon 으로 발송됩니다.
               </span>
             </span>
           </label>

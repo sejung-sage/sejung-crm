@@ -266,10 +266,12 @@ async function runImmediateSend(args: {
         sentOk += 1;
         const unitCost = calculateCost(input.type, 1).totalCost;
         totalCost += unitCost;
+        // messages.cost 는 INT 컬럼이라 소수 단가는 Math.round 후 저장
+        // (단가 7.4원 → 7원 표시). 합산 정확도는 totalCost 가 float 으로 누적해 보존.
         await updateMessage(supabase, row.id, {
           status: "발송됨",
           vendor_message_id: sr.value.vendorMessageId,
-          cost: unitCost,
+          cost: Math.round(unitCost),
           sent_at: nowIso,
         });
       } else {
@@ -285,8 +287,14 @@ async function runImmediateSend(args: {
   }
 
   // e) 캠페인 최종 상태 갱신 (부분 실패는 '완료' + failed_count 로 표현)
+  // campaigns.total_cost 는 INT 컬럼 — float 누적 결과를 round 해 저장.
   const finalStatus = failed === inserted.rows.length ? "실패" : "완료";
-  await safeUpdateCampaignStatus(supabase, campaignId, finalStatus, totalCost);
+  await safeUpdateCampaignStatus(
+    supabase,
+    campaignId,
+    finalStatus,
+    Math.round(totalCost),
+  );
 
   revalidatePath("/campaigns");
   revalidatePath(`/campaigns/${campaignId}`);
@@ -525,8 +533,6 @@ function readFromNumber(adapterName: string): string | null {
   // 어댑터 이름별 발신번호 환경변수 매핑.
   // 어댑터 자체가 mock 모드여도 fromNumber 는 형식상 필요.
   switch (adapterName) {
-    case "solapi":
-      return process.env.SOLAPI_FROM_NUMBER ?? "01000000000";
     case "sendon":
       return process.env.SENDON_FROM_NUMBER ?? "01000000000";
     default:

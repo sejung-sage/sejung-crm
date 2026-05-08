@@ -29,9 +29,9 @@ describe("previewRecipients · dev-seed · 정보성(낮 시간)", () => {
 
     // dev-group-1: 대치 + 고2 → DC0001·DC0002 (재원생 2명)
     expect(r.recipientCount).toBe(2);
-    // SMS 단가 8 × 2 = 16
-    expect(r.cost.totalCost).toBe(16);
-    expect(r.cost.unitCost).toBe(8);
+    // sendon SMS 단가 7.4 × 2 = 14.8
+    expect(r.cost.totalCost).toBeCloseTo(14.8, 5);
+    expect(r.cost.unitCost).toBe(7.4);
     expect(r.cost.type).toBe("SMS");
     // 정보성: 본문 그대로
     expect(r.finalBody).toBe("안녕하세요 세정학원입니다");
@@ -41,7 +41,7 @@ describe("previewRecipients · dev-seed · 정보성(낮 시간)", () => {
     expect(r.sampleRecipients.length).toBe(2);
   });
 
-  it("LMS 정보성 → 단가 14 적용", async () => {
+  it("LMS 정보성 → sendon 단가 24 적용", async () => {
     const r = await previewRecipients({
       groupId: "dev-group-1",
       body: "긴 본문 안내",
@@ -49,11 +49,11 @@ describe("previewRecipients · dev-seed · 정보성(낮 시간)", () => {
       type: "LMS",
       scheduledAt: new Date("2026-04-22T14:00:00+09:00"),
     });
-    expect(r.cost.unitCost).toBe(14);
-    expect(r.cost.totalCost).toBe(28);
+    expect(r.cost.unitCost).toBe(24);
+    expect(r.cost.totalCost).toBe(48);
   });
 
-  it("ALIMTALK 정보성 → 단가 13 적용", async () => {
+  it("ALIMTALK 정보성 → sendon 단가 6.4 적용", async () => {
     const r = await previewRecipients({
       groupId: "dev-group-1",
       body: "알림톡 안내",
@@ -61,8 +61,8 @@ describe("previewRecipients · dev-seed · 정보성(낮 시간)", () => {
       type: "ALIMTALK",
       scheduledAt: new Date("2026-04-22T14:00:00+09:00"),
     });
-    expect(r.cost.unitCost).toBe(13);
-    expect(r.cost.totalCost).toBe(26);
+    expect(r.cost.unitCost).toBe(6.4);
+    expect(r.cost.totalCost).toBeCloseTo(12.8, 5);
   });
 
   it("sampleRecipients 각 항목에 name·phone 존재", async () => {

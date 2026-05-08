@@ -208,8 +208,6 @@ function shortenForTitle(body: string): string {
 
 function readFromNumber(adapterName: string): string | null {
   switch (adapterName) {
-    case "solapi":
-      return process.env.SOLAPI_FROM_NUMBER ?? "01000000000";
     case "sendon":
       return process.env.SENDON_FROM_NUMBER ?? "01000000000";
     default:

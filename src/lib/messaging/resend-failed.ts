@@ -195,10 +195,11 @@ export async function resendFailedMessages(
         sentOk += 1;
         const unitCost = calculateCost(template.type, 1).totalCost;
         addedCost += unitCost;
+        // messages.cost INT — 소수 단가는 round 후 저장 (합산은 float 으로 보존).
         await updateMessage(supabase, msgId, {
           status: "발송됨",
           vendor_message_id: sr.value.vendorMessageId,
-          cost: unitCost,
+          cost: Math.round(unitCost),
           sent_at: nowIso,
           failed_reason: null,
         });
@@ -239,8 +240,6 @@ export async function resendFailedMessages(
 
 function readFromNumber(adapterName: string): string | null {
   switch (adapterName) {
-    case "solapi":
-      return process.env.SOLAPI_FROM_NUMBER ?? "01000000000";
     case "sendon":
       return process.env.SENDON_FROM_NUMBER ?? "01000000000";
     default:
@@ -330,6 +329,6 @@ async function incrementCampaignCost(
       };
     }
   )
-    .update({ total_cost: currentCost + added })
+    .update({ total_cost: Math.round(currentCost + added) })
     .eq("id", campaignId);
 }

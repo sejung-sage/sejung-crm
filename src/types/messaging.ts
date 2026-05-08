@@ -6,8 +6,7 @@
  *  - 안전 가드([광고] prefix / 080 footer / 야간 차단 / 수신거부 제외 등)는
  *    어댑터 "이전" 레이어에서 이미 본문에 적용된 상태로 전달되어야 함.
  *    어댑터는 단순 송출 책임만 진다.
- *  - 현재 'solapi' 1순위 실구현 + 'sendon' 신규 통합 (Part B 대기).
- *    백업 스텁(문자나라/SK to-go/Sendwise)은 운영에서 미사용으로 제거됨.
+ *  - 현재 'sendon' 단일 벤더. live 모드는 Part B (API 문서 수령 후) 대기.
  *  - AdapterMode='mock' 일 때 실제 HTTP 를 쏘지 않고 고정 응답만 리턴.
  */
 
@@ -38,7 +37,7 @@ export type SmsStatusQueryResult =
     };
 
 export interface SmsAdapter {
-  readonly name: "solapi" | "sendon";
+  readonly name: "sendon";
   send(req: SmsSendRequest): Promise<SmsSendResult>;
   queryStatus(vendorMessageId: string): Promise<SmsStatusQueryResult>;
 }

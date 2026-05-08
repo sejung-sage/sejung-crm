@@ -31,13 +31,14 @@ import type {
 } from "./types";
 
 /**
- * mock 모드 단가 (잠정 — sendon 실 단가 확정 시 갱신).
- * 실제 청구는 live 모드에서 벤더 응답 cost 또는 단가표를 사용.
+ * mock 모드 단가 — `cost-rates.ts` 의 SENDON_UNIT_COST 와 동기 유지.
+ * 세정학원 전용 sendon 단가 (부가세 별도, 단위: 원). 소수 가능.
+ * DB(messages.cost INT) 저장 시점에 송출 파이프라인이 Math.round 책임.
  */
 const SENDON_MOCK_UNIT_COST: Record<SmsType, number> = {
-  SMS: 8,
-  LMS: 14,
-  ALIMTALK: 13,
+  SMS: 7.4,
+  LMS: 24,
+  ALIMTALK: 6.4,
 };
 
 export interface SendonAdapterOptions {

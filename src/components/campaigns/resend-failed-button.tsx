@@ -139,7 +139,7 @@ export function ResendFailedButton({ campaignId, failedCount }: Props) {
               <span className="tabular-nums font-medium text-[color:var(--text)]">
                 {failedCount.toLocaleString("ko-KR")}건
               </span>
-              을 다시 발송합니다. 솔라피 비용이 추가로 청구됩니다.
+              을 다시 발송합니다. 발송 비용이 추가로 청구됩니다.
             </p>
             <div className="flex items-center justify-end gap-2 pt-2">
               <button

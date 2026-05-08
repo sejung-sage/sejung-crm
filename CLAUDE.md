@@ -10,7 +10,7 @@
 - Tailwind + shadcn/ui · Pretendard + Serif(로고)
 - Supabase (PostgreSQL 15) · RLS · pg_cron · Edge Functions
 - TanStack Query + Zustand
-- SMS: 솔라피(SOLAPI) 1순위 (어댑터 패턴)
+- SMS: sendon 단일 벤더 (어댑터 패턴 유지)
 - Vitest + Playwright
 
 ## 절대 규약
@@ -21,7 +21,7 @@
 4. **Server Component 우선**. 클라이언트 컴포넌트는 상호작용 필요한 경우에만.
 5. **디자인은 흰색+검정 미니멀**. 보라색·강한 색상 금지. 디자인 토큰은 PRD 섹션 2.2 또는 `src/app/globals.css`의 CSS 변수 준수.
 6. **40~60대 사용자 배려**: 기본 폰트 15px, 버튼·입력창 최소 높이 40px, WCAG AA 대비.
-7. **SMS 어댑터 패턴 유지**: 환경변수 `SMS_PROVIDER`로 벤더 전환 가능해야 함. MVP는 `solapi`만 실구현.
+7. **SMS 어댑터 패턴 유지**: 환경변수로 벤더 전환 가능한 구조 유지. 현재는 `sendon` 단일 운영.
 8. **발송 안전 가드는 서버에서 최종 검증**: [광고] 자동 삽입, 080 수신거부 삽입, 21시~08시 광고 차단, 수신거부 DB 제외, 비활성 학생 제외.
 9. **학부모 연락처는 로그에서 마스킹** (`010-****-1234`). API 키는 Supabase Vault.
 10. **커밋 메시지는 Conventional Commits**.
@@ -62,8 +62,10 @@ architect → [backend-dev, frontend-dev (병렬)] → qa-engineer
 
 ## SMS 벤더 상태
 
-- **솔라피(SOLAPI)** · 현행 1순위 · live 모드 실구현 (운영 폴백)
-- **sendon** · 신규 통합 진행 중 · mock 동작, live 는 API 문서 수령 후 Part B 에서 구현
-- 운영 미사용으로 판정되어 제거됨: 문자나라 / SK C&C to-go / Sendwise (2026-05-08)
+- **sendon** · 단일 운영 벤더. mock 동작, live 는 API 문서 수령 후 Part B 에서 구현
+- 세정학원 전용 단가 (부가세 별도, 소수 포함):
+  - SMS 7.4원 / LMS 24원 / 알림톡 6.4원 / MMS 59.2원 (MMS 는 컬럼 정의만)
+- 단가는 `src/lib/messaging/cost-rates.ts` 의 `SENDON_UNIT_COST` 단일 소스
+- 미사용으로 일괄 제거(2026-05-08): 솔라피(SOLAPI) / 문자나라 / SK C&C to-go / Sendwise
 
 주의: 발송 테스트는 본인 번호 1건 또는 테스트 모드로만. 실수로 대량 발송 금지.
