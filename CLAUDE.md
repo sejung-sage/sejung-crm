@@ -62,7 +62,11 @@ architect → [backend-dev, frontend-dev (병렬)] → qa-engineer
 
 ## SMS 벤더 상태
 
-- **sendon** · 단일 운영 벤더. mock 동작, live 는 API 문서 수령 후 Part B 에서 구현
+- **sendon** · 단일 운영 벤더. 공식 SDK `@alipeople/sendon-sdk-typescript` 사용
+- live 모드: SMS / LMS 실 발송 구현 완료. 알림톡(ALIMTALK) 은 별도 sendon.kakao API
+  + 사전 등록 템플릿 ID 가 필요해 Phase 1 으로 미룸
+- 인증: `id` (콘솔 로그인 ID) + `apikey` 이중. env 는 `SENDON_USER_ID` / `SENDON_API_KEY` /
+  `SENDON_FROM_NUMBER` 3종 모두 필수
 - 세정학원 전용 단가 (부가세 별도, 소수 포함):
   - SMS 7.4원 / LMS 24원 / 알림톡 6.4원 / MMS 59.2원 (MMS 는 컬럼 정의만)
 - 단가는 `src/lib/messaging/cost-rates.ts` 의 `SENDON_UNIT_COST` 단일 소스

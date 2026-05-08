@@ -4,6 +4,7 @@
  * 환경변수:
  *   - SMS_PROVIDER     : 'sendon'   (현재 단일 벤더, 알 수 없는 값도 sendon 폴백)
  *   - SMS_ADAPTER_MODE : 'mock' | 'live'   (기본 'mock')
+ *   - SENDON_USER_ID        : sendon 콘솔 로그인 ID (live 모드 필수, SDK 인증 id)
  *   - SENDON_API_KEY        : sendon API Key (콘솔 → 마이페이지 → 개발자 센터)
  *   - SENDON_FROM_NUMBER    : sendon 사전 등록 발신번호
  *   - SENDON_API_BASE       : (선택) sendon 엔드포인트 override
@@ -43,6 +44,7 @@ export function createSmsAdapter(): SmsAdapter {
     case "sendon":
       return createSendonAdapter({
         mode,
+        userId: process.env.SENDON_USER_ID,
         apiKey: process.env.SENDON_API_KEY,
         fromNumber: process.env.SENDON_FROM_NUMBER,
         apiBase: process.env.SENDON_API_BASE,
