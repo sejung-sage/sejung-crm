@@ -2,35 +2,32 @@
  * SMS 어댑터 팩토리.
  *
  * 환경변수 기반 분기:
- *   - SMS_PROVIDER     : 'solapi' | 'munjanara' | 'sk-togo' | 'sendwise'   (기본 'solapi')
- *   - SMS_ADAPTER_MODE : 'mock' | 'live'                                    (기본 'mock')
+ *   - SMS_PROVIDER     : 'solapi' | 'sendon'   (기본 'solapi')
+ *   - SMS_ADAPTER_MODE : 'mock' | 'live'        (기본 'mock')
  *   - SOLAPI_API_KEY        : 솔라피 API Key (live 모드에서 필수)
  *   - SOLAPI_API_SECRET     : 솔라피 API Secret (live 모드에서 필수)
  *   - SOLAPI_FROM_NUMBER    : 솔라피 사전 등록 발신번호 (live 모드에서 필수)
  *   - SOLAPI_KAKAO_PFID     : 알림톡 PFID (알림톡 발송 시 필수)
- *   - MUNJANARA_API_KEY     : 문자나라 API Key (Phase 1+, 백업)
- *   - MUNJANARA_FROM_NUMBER : 문자나라 발신번호 (Phase 1+, 백업)
+ *   - SENDON_API_KEY        : sendon API Key (콘솔 → 마이페이지 → 개발자 센터)
+ *   - SENDON_FROM_NUMBER    : sendon 사전 등록 발신번호
+ *   - SENDON_API_BASE       : (선택) sendon 엔드포인트 override
  *
  * 신규 벤더 추가 시 이 파일에서만 분기 한 줄 추가하면 됨.
  * 벤더별 구현 파일은 어댑터 내부에서 env 를 직접 건드리지 않고 이 팩토리가 주입.
+ *
+ * 운영에서 미사용된 백업 어댑터(문자나라/SK to-go/Sendwise)는 코드 정리 차원에서
+ * 제거됨 (2026-05-08). 필요 시 git history 에서 복원.
  */
 
-import { createMunjanaraAdapter } from "./munjanara";
-import { createSendwiseAdapter } from "./sendwise";
-import { createSkTogoAdapter } from "./sk-togo";
+import { createSendonAdapter } from "./sendon";
 import { createSolapiAdapter } from "./solapi";
 import type { AdapterMode, SmsAdapter } from "./types";
 
-type ProviderName = "solapi" | "munjanara" | "sk-togo" | "sendwise";
+type ProviderName = "solapi" | "sendon";
 
 function readProvider(): ProviderName {
   const raw = process.env.SMS_PROVIDER?.trim().toLowerCase() ?? "solapi";
-  if (
-    raw === "solapi" ||
-    raw === "munjanara" ||
-    raw === "sk-togo" ||
-    raw === "sendwise"
-  ) {
+  if (raw === "solapi" || raw === "sendon") {
     return raw;
   }
   // 알 수 없는 벤더 이름은 1순위 솔라피로 폴백 (안전 실패)
@@ -60,23 +57,12 @@ export function createSmsAdapter(): SmsAdapter {
         fromNumber: process.env.SOLAPI_FROM_NUMBER,
         kakaoPfid: process.env.SOLAPI_KAKAO_PFID,
       });
-    case "munjanara":
-      return createMunjanaraAdapter({
+    case "sendon":
+      return createSendonAdapter({
         mode,
-        apiKey: process.env.MUNJANARA_API_KEY,
-        fromNumber: process.env.MUNJANARA_FROM_NUMBER,
-      });
-    case "sk-togo":
-      return createSkTogoAdapter({
-        mode,
-        apiKey: process.env.SK_TOGO_API_KEY,
-        fromNumber: process.env.SK_TOGO_FROM_NUMBER,
-      });
-    case "sendwise":
-      return createSendwiseAdapter({
-        mode,
-        apiKey: process.env.SENDWISE_API_KEY,
-        fromNumber: process.env.SENDWISE_FROM_NUMBER,
+        apiKey: process.env.SENDON_API_KEY,
+        fromNumber: process.env.SENDON_FROM_NUMBER,
+        apiBase: process.env.SENDON_API_BASE,
       });
   }
 }

@@ -62,8 +62,8 @@ architect → [backend-dev, frontend-dev (병렬)] → qa-engineer
 
 ## SMS 벤더 상태
 
-- **솔라피(SOLAPI)** · 1순위 · 실구현 대상
-- **문자나라** · Phase 1+ · 어댑터 스텁만 유지 (가격 경쟁력 부족)
-- **SK C&C to-go**, **Sendwise** · Phase 1 · 어댑터 스텁만
+- **솔라피(SOLAPI)** · 현행 1순위 · live 모드 실구현 (운영 폴백)
+- **sendon** · 신규 통합 진행 중 · mock 동작, live 는 API 문서 수령 후 Part B 에서 구현
+- 운영 미사용으로 판정되어 제거됨: 문자나라 / SK C&C to-go / Sendwise (2026-05-08)
 
 주의: 발송 테스트는 본인 번호 1건 또는 테스트 모드로만. 실수로 대량 발송 금지.

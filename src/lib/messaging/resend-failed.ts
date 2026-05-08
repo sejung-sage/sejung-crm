@@ -241,12 +241,8 @@ function readFromNumber(adapterName: string): string | null {
   switch (adapterName) {
     case "solapi":
       return process.env.SOLAPI_FROM_NUMBER ?? "01000000000";
-    case "munjanara":
-      return process.env.MUNJANARA_FROM_NUMBER ?? "01000000000";
-    case "sk-togo":
-      return process.env.SK_TOGO_FROM_NUMBER ?? "01000000000";
-    case "sendwise":
-      return process.env.SENDWISE_FROM_NUMBER ?? "01000000000";
+    case "sendon":
+      return process.env.SENDON_FROM_NUMBER ?? "01000000000";
     default:
       return null;
   }
