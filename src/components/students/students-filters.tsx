@@ -38,7 +38,6 @@ const GRADE_OPTIONS_ALL: ReadonlyArray<Grade> = [
   ...GRADE_OPTIONS_HIGH,
 ];
 
-const TRACK_OPTIONS = ["문과", "이과"] as const;
 const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드", "탈퇴"] as const;
 /**
  * 지역 칩 (학생 명단 필터 전용).
@@ -77,7 +76,7 @@ const SORT_WHITELIST: ReadonlySet<string> = new Set(STUDENT_SORT_VALUES);
  * 상태는 URL query 로만 관리. 필터 변경 시 페이지는 1로 리셋.
  *
  * 검색창은 form submit 으로 동작 (debounce 없이) · 노안 사용자 배려.
- * 학년/계열/상태/과목 칩과 토글은 즉시 반영.
+ * 학년/상태/지역 칩과 토글은 즉시 반영.
  *
  * 0012 마이그레이션 대응:
  *  - ?level=중|고  : 단일 학교급 (세그먼티드).
@@ -110,7 +109,6 @@ export function StudentsFilters({
   const q = searchParams.get("q") ?? "";
   const branch = searchParams.get("branch") ?? "전체";
   const grades = searchParams.getAll("grade");
-  const tracks = searchParams.getAll("track");
   // URL 에 ?status= 키 자체가 없으면 백엔드는 "재원생" default 적용 (조회 가속).
   // 칩 active 표시도 동일하게 맞춰서 UI 와 실 쿼리 일관성을 유지한다.
   const statusesFromUrl = searchParams.getAll("status");
@@ -154,9 +152,9 @@ export function StudentsFilters({
     });
   };
 
-  /** 다중 토글 — grade/track/status/region 공통. */
+  /** 다중 토글 — grade/status/region 공통. */
   const toggleValue = (
-    key: "grade" | "track" | "status" | "region",
+    key: "grade" | "status" | "region",
     value: string,
   ) => {
     updateParams((p) => {
@@ -223,7 +221,6 @@ export function StudentsFilters({
     branch !== "전체" ||
     level !== "전체" ||
     grades.length > 0 ||
-    tracks.length > 0 ||
     statuses.length > 0 ||
     regions.length > 0 ||
     schools.length > 0 ||
@@ -362,19 +359,8 @@ export function StudentsFilters({
         </button>
       </div>
 
-      {/* 계열 + 재원 상태 + 지역 칩 */}
+      {/* 재원 상태 + 지역 칩 */}
       <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
-        <FilterGroup label="계열">
-          {TRACK_OPTIONS.map((t) => (
-            <Chip
-              key={t}
-              label={t}
-              active={tracks.includes(t)}
-              onClick={() => toggleValue("track", t)}
-            />
-          ))}
-        </FilterGroup>
-
         <FilterGroup label="재원 상태">
           {STATUS_OPTIONS.map((s) => (
             <Chip
