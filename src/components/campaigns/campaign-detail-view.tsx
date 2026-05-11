@@ -23,10 +23,12 @@ interface Props {
 
 export function CampaignDetailView({ campaign, messages }: Props) {
   const failedCount = campaign.failed_count;
-  const deliveredCount = campaign.delivered_count;
-  const reach =
+  // sendon webhook/polling 미구현이라 "도달" 통계는 보유 X.
+  // 대신 sendon 접수 성공 = 총 수신자 - 실패 건 으로 정의 (벤더 큐에 들어간 건수).
+  const successCount = Math.max(0, campaign.total_recipients - failedCount);
+  const successRate =
     campaign.total_recipients > 0
-      ? Math.round((deliveredCount / campaign.total_recipients) * 100)
+      ? Math.round((successCount / campaign.total_recipients) * 100)
       : 0;
 
   return (
@@ -63,10 +65,12 @@ export function CampaignDetailView({ campaign, messages }: Props) {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 pt-4">
               <Metric label="총 수신자" value={campaign.total_recipients} />
               <Metric
-                label="도달"
-                value={deliveredCount}
+                label="성공"
+                value={successCount}
                 suffix={
-                  campaign.total_recipients > 0 ? ` (${reach}%)` : undefined
+                  campaign.total_recipients > 0
+                    ? ` (${successRate}%)`
+                    : undefined
                 }
                 tone="success"
               />

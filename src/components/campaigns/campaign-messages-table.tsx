@@ -9,11 +9,12 @@ interface Props {
   rows: CampaignMessageRow[];
 }
 
+// "도달" status 는 sendon webhook/polling 미구현으로 영원히 0건 → 칩 노출 제외.
+// MessageStatus enum 자체는 유지 (DB 컬럼 + 향후 도달 추적 추가 시 그대로 사용 가능).
 const STATUS_CHIPS: Array<{ value: "ALL" | MessageStatus; label: string }> = [
   { value: "ALL", label: "전체" },
   { value: "대기", label: "대기" },
   { value: "발송됨", label: "발송됨" },
-  { value: "도달", label: "도달" },
   { value: "실패", label: "실패" },
 ];
 
@@ -111,7 +112,6 @@ export function CampaignMessagesTable({ rows }: Props) {
                 <Th className="w-44">수신번호</Th>
                 <Th className="w-24">상태</Th>
                 <Th className="w-40">발송시각</Th>
-                <Th className="w-40">도달시각</Th>
                 <Th>실패 사유</Th>
               </tr>
             </thead>
@@ -136,9 +136,6 @@ export function CampaignMessagesTable({ rows }: Props) {
                   </Td>
                   <Td className="tabular-nums text-[color:var(--text-muted)]">
                     {formatDateTime(m.sent_at)}
-                  </Td>
-                  <Td className="tabular-nums text-[color:var(--text-muted)]">
-                    {formatDateTime(m.delivered_at)}
                   </Td>
                   <Td className="text-[13px] text-[color:var(--text-muted)]">
                     {m.failed_reason ?? (
