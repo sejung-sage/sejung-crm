@@ -1,5 +1,4 @@
 import type {
-  AttendanceClassLookup,
   AttendanceStatus,
   AttendanceWithClass,
 } from "@/types/database";
@@ -150,13 +149,11 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
                   ))}
                   {matrix.dates.map((d) => {
                     const status = g.byDate.get(d.iso);
-                    // "결석 외 = 출석" 정책 적용: 비-방배 분원 + 빈 cell + 그 강좌가
-                    // 그 일자에 운영 중이고 schedule_days 에 요일 포함 → "출" 추정 chip.
+                    // "결석 외 = 출석" 정책: 비-방배 분원의 빈 cell 은 무조건 출석
+                    // chip. 요일·운영 기간 가드 없음 (위 모듈 주석 참조).
                     // 방배는 5종 raw 정확 추적 정책이라 빈 cell 그대로 유지.
                     const presumed =
-                      !status &&
-                      !isStrictAttendanceBranch(branch) &&
-                      isClassScheduledOn(g.classMeta, d.iso);
+                      !status && !isStrictAttendanceBranch(branch);
                     return (
                       <td
                         key={d.iso}
@@ -198,45 +195,25 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
   );
 }
 
-// ─── 헬퍼: 빈 cell 을 "결석 외 = 출석" 정책으로 채우기 위한 활성 기간/요일 검사 ─
-
-/**
- * 'YYYY-MM-DD' 의 KST 한글 요일 (월/화/수/목/금/토/일).
- * UTC midnight 으로 파싱 후 ko-KR weekday short.
- */
-function weekdayKoFromIsoDate(dateIso: string): string {
-  const d = new Date(`${dateIso}T00:00:00Z`);
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone: "Asia/Seoul",
-    weekday: "short",
-  }).format(d);
-}
-
-/**
- * 강좌가 그 일자에 수업 가능한 요일인지.
- *
- * schedule_days 매칭만 보고 운영 기간(start_date/end_date) 은 의도적으로 무시.
- * 이유:
- *   - `classes.start_date` 는 ETL 가 `enrollments.start_date 의 강좌별 MIN`
- *     으로 백필한 값이라 실제 강좌 첫 수업일과 다를 수 있음 (학생마다 다름).
- *   - "결석이 아닌 모든 수강은 출석" 이라는 KPI 정책과 일관 — KPI 도 운영
- *     기간 체크 없이 수강 등록만 보고 분모 잡음.
- *   - 강좌 column 에 등장한 일자는 어차피 그 학생의 다른 강좌에서 출결 row 가
- *     있던 일자라 "그 시점에 학원에 다닌 적 있음" 이라는 약한 보장은 됨.
- *
- * 정확성보다 일관성을 택한 판정. schedule_days 가 NULL 이면 false (요일 정보
- * 없으면 매칭 불가) → 빈 cell 유지.
- */
-function isClassScheduledOn(
-  cls: AttendanceClassLookup | null,
-  dateIso: string,
-): boolean {
-  if (!cls) return false;
-  if (!cls.schedule_days) return false;
-  // 요일 substring 매칭 — schedule_days 가 "월수금" / "화목" 등 한 글자 이어붙임.
-  const weekday = weekdayKoFromIsoDate(dateIso);
-  return cls.schedule_days.includes(weekday);
-}
+// ─── 추정 출석 정책 ─────────────────────────────────────────
+//
+// 비-방배 분원에서 격자 빈 cell 은 "결석이 아닌 모든 수강은 출석" 정책에 따라
+// 무조건 출석 chip 으로 채운다 — 요일·운영 기간 검사 없음.
+//
+// 이유:
+//   - 사용자 멘탈 모델이 단순: "결석 외 = 출석". 요일/기간 체크가 보강될수록
+//     사용자가 기대한 빈 cell 들이 비는 케이스가 늘어 혼란 (회귀: 오정우 학생
+//     김강현T 월금 강좌의 일요일 column).
+//   - KPI 출석률 (0030) 도 운영 기간 무시하고 enrollment_count 분모 — 일관성.
+//   - 격자 column 일자는 어차피 그 학생이 그 시점에 학원에 다닌 적이 있다는
+//     약한 신호 (다른 강좌에서 출결 row 가 있던 일자).
+//
+// 부작용 (받아들임):
+//   - 월금 강좌의 일요일 column 에도 출 chip 표시 (강좌 schedule 과 무관해
+//     보일 수 있음). 사용자 결정.
+//   - 격자 좌측 카운트의 "총" 이 실제 강좌 수업 횟수가 아니라 격자 column 수
+//     기반이 됨 — 학생 KPI 의 분모(enrollment_count) 와도 다름. 정보가치는
+//     "이 column 시야 안에서 결 vs 출" 비교용으로 한정.
 
 // ─── 매트릭스 빌드 ────────────────────────────────────────
 
@@ -253,11 +230,6 @@ interface GroupRow {
   note: string | null;
   counts: Record<AttendanceStatus | "총", number>;
   byDate: Map<string, AttendanceStatus>;
-  /**
-   * 강좌 메타 — 빈 cell 을 "결석 외 = 출석" 정책에 따라 출석 chip 으로 채울 때
-   * 활성 기간/요일 검사에 사용. null 이면 강좌 매칭 실패 → 빈 cell 유지.
-   */
-  classMeta: AttendanceClassLookup | null;
 }
 
 interface Matrix {
@@ -314,7 +286,6 @@ function buildMatrix(
         ...buildGroupHeader(a),
         counts: { 총: 0, 출석: 0, 지각: 0, 결석: 0, 조퇴: 0, 보강: 0 },
         byDate: new Map<string, AttendanceStatus>(),
-        classMeta: a.class,
       };
       groupMap.set(key, g);
     }
@@ -327,16 +298,14 @@ function buildMatrix(
     g.counts["총"] += 1;
   }
 
-  // 3) "결석 외 = 출석" 정책 — 비-방배 분원에서 빈 cell 중 강좌가 그 일자에
-  //    운영 중이고 schedule_days 에 요일 포함이면 "추정 출석" 으로 카운트.
-  //    counts 의 출석/총 에 합산해 좌측 sticky 카운트 표시도 일관되게.
+  // 3) "결석 외 = 출석" 정책 — 비-방배 분원의 빈 cell 은 모두 추정 출석.
+  //    명시 row 없는 column 일자 수만큼 출석/총 에 합산.
   if (!isStrictAttendanceBranch(branch)) {
     for (const g of groupMap.values()) {
-      for (const d of dates) {
-        if (g.byDate.has(d.iso)) continue; // 명시 row 있음 → skip
-        if (!isClassScheduledOn(g.classMeta, d.iso)) continue;
-        g.counts["출석"] += 1;
-        g.counts["총"] += 1;
+      const presumed = dates.length - g.byDate.size;
+      if (presumed > 0) {
+        g.counts["출석"] += presumed;
+        g.counts["총"] += presumed;
       }
     }
   }
