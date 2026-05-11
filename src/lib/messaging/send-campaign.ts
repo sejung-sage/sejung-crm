@@ -22,10 +22,8 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { createSmsAdapter } from "./adapters";
-import type { SmsSendResult } from "./adapters/types";
+import { after } from "next/server";
 import { previewRecipients, type PreviewResult } from "./preview-recipients";
-import { calculateCost } from "./calculate-cost";
 import { applyAllGuards, type Recipient } from "./guards";
 import { getGroup } from "@/lib/groups/get-group";
 import { listGroupStudents } from "@/lib/groups/list-group-students";
@@ -53,6 +51,7 @@ export type SendCampaignResult =
   | {
       status: "success";
       campaignId: string;
+      /** 발송 큐에 적재된 메시지 수. 실제 발송은 백그라운드 워커가 진행한다. */
       sent: number;
       failed: number;
       cost: number;
@@ -62,9 +61,10 @@ export type SendCampaignResult =
   | { status: "failed"; reason: string }
   | { status: "dev_seed_mode"; reason: string };
 
-const SEND_BATCH_SIZE = 100;
+/** messages 일괄 INSERT 청크. Supabase request size 한도 회피. */
+const MESSAGES_INSERT_CHUNK = 1_000;
 /** 한 번에 발송 허용 최대 인원. CLAUDE.md 발송 안전 가드. */
-const MAX_RECIPIENTS_PER_CAMPAIGN = 10_000;
+const MAX_RECIPIENTS_PER_CAMPAIGN = 100_000;
 
 type SupabaseSrv = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
@@ -158,6 +158,18 @@ export async function sendCampaign(
 
 // ─── 즉시 발송 ──────────────────────────────────────────────
 
+/**
+ * 즉시 발송 흐름.
+ *
+ * Server Action 안에서 어댑터 호출까지 수행하면 60K 같은 대량 발송은 Vercel 함수
+ * 타임아웃(300s) 을 초과한다. 따라서 본 함수는 큐 적재까지만 동기 처리하고,
+ * 실제 발송은 `/api/messaging/drain` 워커가 자가호출 직렬로 청크씩 처리하도록 위임한다.
+ *
+ *   1. campaigns INSERT (status='발송중')
+ *   2. messages INSERT (status='대기') — 1,000건 청크
+ *   3. `next/server` after() 로 드레인 워커를 fire-and-forget 호출
+ *   4. 즉시 응답 — UI 는 캠페인 상세에서 진행률을 폴링한다
+ */
 async function runImmediateSend(args: {
   supabase: SupabaseSrv;
   input: SendCampaignInput;
@@ -166,6 +178,7 @@ async function runImmediateSend(args: {
   userId: string;
 }): Promise<SendCampaignResult> {
   const { supabase, input, branch, preview, userId } = args;
+  void preview;
 
   // a) eligible 수신자 재조회 (preview 는 5명 샘플만 보존하므로)
   const eligible = await reloadEligibleRecipients({
@@ -179,9 +192,7 @@ async function runImmediateSend(args: {
     return { status: "failed", reason: "수신자 목록이 비었습니다" };
   }
 
-  // b) campaigns INSERT (status=발송중)
-  // 본문/제목/유형/광고여부는 0027 마이그 후 영속화 — 즉시 발송도 동일하게 채워서
-  // retry/감사 추적 + 예약발송과의 컬럼 일관성 확보.
+  // b) campaigns INSERT (status='발송중')
   const campaignInsert: Record<string, unknown> = {
     title: input.title,
     template_id: input.templateId,
@@ -190,7 +201,7 @@ async function runImmediateSend(args: {
     sent_at: new Date().toISOString(),
     status: "발송중",
     total_recipients: eligible.length,
-    total_cost: 0, // 발송 직후 갱신
+    total_cost: 0, // 드레인 워커가 누적 갱신
     created_by: userId,
     branch,
     is_test: input.isTest,
@@ -206,95 +217,60 @@ async function runImmediateSend(args: {
   }
   const campaignId = insertedCampaign.id;
 
-  // c) messages 일괄 INSERT (status=대기)
-  const messagesInsert = eligible.map((r) => ({
-    campaign_id: campaignId,
-    student_id: r.studentId,
-    phone: r.phone,
-    status: "대기",
-    vendor_message_id: null,
-    cost: 0,
-    sent_at: null,
-    delivered_at: null,
-    failed_reason: null,
-    is_test: input.isTest,
-  }));
+  // c) messages 청크 INSERT (status='대기')
+  // 60K 같은 대량을 단일 INSERT 로 보내면 Supabase request size 한도에 걸린다.
+  for (let i = 0; i < eligible.length; i += MESSAGES_INSERT_CHUNK) {
+    const slice = eligible.slice(i, i + MESSAGES_INSERT_CHUNK);
+    const rows = slice.map((r) => ({
+      campaign_id: campaignId,
+      student_id: r.studentId,
+      phone: r.phone,
+      status: "대기",
+      vendor_message_id: null,
+      cost: 0,
+      sent_at: null,
+      delivered_at: null,
+      failed_reason: null,
+      is_test: input.isTest,
+    }));
 
-  const inserted = await insertMessages(supabase, messagesInsert);
-  if (!inserted.ok) {
-    await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
-    return { status: "failed", reason: inserted.reason };
-  }
-
-  // d) 어댑터 호출 (batch=100)
-  const adapter = createSmsAdapter();
-  const fromNumber = readFromNumber(adapter.name);
-  if (!fromNumber) {
-    await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
-    return {
-      status: "failed",
-      reason: "발신번호 환경변수가 설정되어 있지 않습니다",
-    };
-  }
-
-  let sentOk = 0;
-  let failed = 0;
-  let totalCost = 0;
-
-  for (let i = 0; i < inserted.rows.length; i += SEND_BATCH_SIZE) {
-    const batch = inserted.rows.slice(i, i + SEND_BATCH_SIZE);
-
-    const sendResults = await Promise.allSettled(
-      batch.map((m) =>
-        adapter.send({
-          to: m.phone,
-          body: preview.finalBody,
-          subject: input.subject,
-          type: input.type,
-          fromNumber,
-        }),
-      ),
-    );
-
-    for (let j = 0; j < batch.length; j += 1) {
-      const row = batch[j];
-      if (!row) continue;
-      const sr = sendResults[j];
-      const nowIso = new Date().toISOString();
-
-      if (sr && sr.status === "fulfilled" && sr.value.status === "queued") {
-        sentOk += 1;
-        const unitCost = calculateCost(input.type, 1).totalCost;
-        totalCost += unitCost;
-        // messages.cost 는 INT 컬럼이라 소수 단가는 Math.round 후 저장
-        // (단가 7.4원 → 7원 표시). 합산 정확도는 totalCost 가 float 으로 누적해 보존.
-        await updateMessage(supabase, row.id, {
-          status: "발송됨",
-          vendor_message_id: sr.value.vendorMessageId,
-          cost: Math.round(unitCost),
-          sent_at: nowIso,
-        });
-      } else {
-        failed += 1;
-        const reason = extractFailedReason(sr);
-        await updateMessage(supabase, row.id, {
-          status: "실패",
-          failed_reason: reason,
-          sent_at: nowIso,
-        });
-      }
+    const inserted = await insertMessages(supabase, rows);
+    if (!inserted.ok) {
+      await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
+      return { status: "failed", reason: inserted.reason };
     }
   }
 
-  // e) 캠페인 최종 상태 갱신 (부분 실패는 '완료' + failed_count 로 표현)
-  // campaigns.total_cost 는 INT 컬럼 — float 누적 결과를 round 해 저장.
-  const finalStatus = failed === inserted.rows.length ? "실패" : "완료";
-  await safeUpdateCampaignStatus(
-    supabase,
-    campaignId,
-    finalStatus,
-    Math.round(totalCost),
-  );
+  // d) 드레인 워커 킥 — fire-and-forget. after() 는 응답 송출 후 실행되며
+  //    Vercel 런타임이 promise 완료까지 함수 인스턴스 수명을 연장해준다.
+  const drainSecret = process.env.DRAIN_SECRET;
+  if (!drainSecret) {
+    // 보안 가드: 시크릿 없으면 큐 적재까지만 완료하고 알려준다.
+    // 운영 배포 전 반드시 설정해야 한다.
+    await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
+    return {
+      status: "failed",
+      reason: "DRAIN_SECRET 환경변수가 설정되어 있지 않습니다",
+    };
+  }
+
+  after(async () => {
+    const url = `${getBaseUrl()}/api/messaging/drain`;
+    try {
+      await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-drain-secret": drainSecret,
+        },
+        body: JSON.stringify({ campaignId }),
+        keepalive: true,
+      });
+    } catch {
+      // 첫 킥 실패는 무시 — 캠페인은 '발송중' 으로 남아있고,
+      // 운영팀이 수동 재킥 또는 cron 으로 회복 가능.
+    }
+  });
 
   revalidatePath("/campaigns");
   revalidatePath(`/campaigns/${campaignId}`);
@@ -302,10 +278,16 @@ async function runImmediateSend(args: {
   return {
     status: "success",
     campaignId,
-    sent: sentOk,
-    failed,
-    cost: totalCost,
+    // 큐 적재 단계까지의 카운트. 실제 발송 결과는 캠페인 상세에서 확인.
+    sent: eligible.length,
+    failed: 0,
+    cost: 0,
   };
+}
+
+function getBaseUrl(): string {
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return process.env.APP_BASE_URL ?? "http://localhost:3000";
 }
 
 // ─── 예약 발송 ──────────────────────────────────────────────
@@ -462,49 +444,28 @@ async function insertCampaign(
 }
 
 type MessagesInsertReturn =
-  | { ok: true; rows: { id: string; phone: string }[] }
+  | { ok: true }
   | { ok: false; reason: string };
 
 async function insertMessages(
   supabase: SupabaseSrv,
   rows: Record<string, unknown>[],
 ): Promise<MessagesInsertReturn> {
-  const { data, error } = await (
+  // 즉시 발송 흐름은 드레인 워커가 messages 를 다시 SELECT 하므로
+  // INSERT 응답에서 id/phone 회신을 받을 필요가 없다. select 생략으로
+  // 6만건 대량 INSERT 의 응답 페이로드를 0 으로 줄인다.
+  const { error } = await (
     supabase.from("messages") as unknown as {
-      insert: (v: Record<string, unknown>[]) => {
-        select: (cols: string) => Promise<{
-          data: { id: string; phone: string }[] | null;
-          error: { message: string } | null;
-        }>;
-      };
+      insert: (v: Record<string, unknown>[]) => Promise<{
+        error: { message: string } | null;
+      }>;
     }
-  )
-    .insert(rows)
-    .select("id, phone");
+  ).insert(rows);
 
   if (error) {
     return { ok: false, reason: `메시지 큐 적재 실패: ${error.message}` };
   }
-  return { ok: true, rows: data ?? [] };
-}
-
-async function updateMessage(
-  supabase: SupabaseSrv,
-  id: string,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  await (
-    supabase.from("messages") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        eq: (
-          col: string,
-          val: string,
-        ) => Promise<{ error: { message: string } | null }>;
-      };
-    }
-  )
-    .update(patch)
-    .eq("id", id);
+  return { ok: true };
 }
 
 async function safeUpdateCampaignStatus(
@@ -525,32 +486,4 @@ async function safeUpdateCampaignStatus(
   )
     .update({ status, total_cost: totalCost })
     .eq("id", campaignId);
-}
-
-// ─── 기타 헬퍼 ──────────────────────────────────────────────
-
-function readFromNumber(adapterName: string): string | null {
-  // 어댑터 이름별 발신번호 환경변수 매핑.
-  // 어댑터 자체가 mock 모드여도 fromNumber 는 형식상 필요.
-  switch (adapterName) {
-    case "sendon":
-      return process.env.SENDON_FROM_NUMBER ?? "01000000000";
-    default:
-      return null;
-  }
-}
-
-function extractFailedReason(
-  sr: PromiseSettledResult<SmsSendResult> | undefined,
-): string {
-  if (!sr) return "발송 결과를 읽지 못했습니다";
-  if (sr.status === "rejected") {
-    const e = sr.reason;
-    if (e instanceof Error) return e.message;
-    return "벤더 응답 오류";
-  }
-  if (sr.value.status === "failed") {
-    return sr.value.reason;
-  }
-  return "벤더 응답이 비정상입니다";
 }

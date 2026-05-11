@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import type { CampaignListItem, CampaignMessageRow } from "@/types/database";
+import type { CampaignMessageCounts } from "@/lib/campaigns/get-campaign-message-counts";
 import { BranchBadge } from "@/components/groups/branch-badge";
 import { CampaignStatusBadge } from "@/components/campaigns/campaign-status-badge";
 import { CampaignMessagesTable } from "@/components/campaigns/campaign-messages-table";
 import { ResendFailedButton } from "@/components/campaigns/resend-failed-button";
+import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
 
 /**
  * F3-02 · 캠페인 상세 뷰 (Server Component).
@@ -14,25 +16,34 @@ import { ResendFailedButton } from "@/components/campaigns/resend-failed-button"
  *  2. 상단 카드: 제목 + 상태 + 메타(템플릿/그룹/분원) + 숫자블록 + 액션
  *  3. 건별 메시지 테이블 (상태 필터 칩 포함)
  *
- * "실패 건 재발송" 버튼은 **비활성 + 툴팁** 로 Part B 전까지 노출만.
+ * 진행률 카운트:
+ *  - getCampaignMessageCounts() 의 head 쿼리 결과(props.counts)를 신뢰.
+ *  - status='발송중' 동안 CampaignProgressPoller 가 5초마다 router.refresh().
  */
 interface Props {
   campaign: CampaignListItem;
   messages: CampaignMessageRow[];
+  counts: CampaignMessageCounts;
 }
 
-export function CampaignDetailView({ campaign, messages }: Props) {
-  const failedCount = campaign.failed_count;
+export function CampaignDetailView({ campaign, messages, counts }: Props) {
+  const isInFlight = campaign.status === "발송중";
+
+  // 접수 성공 = sendon 큐에 들어간 건수 (vendor 응답 status=queued)
   // sendon webhook/polling 미구현이라 "도달" 통계는 보유 X.
-  // 대신 sendon 접수 성공 = 총 수신자 - 실패 건 으로 정의 (벤더 큐에 들어간 건수).
-  const successCount = Math.max(0, campaign.total_recipients - failedCount);
+  const successCount = counts.발송됨;
+  const failedCount = counts.실패;
+  const pendingCount = counts.대기;
+  // 분모는 항상 캠페인 적재 시점의 total_recipients (드레인 진행 중에도 고정).
+  const denominator = campaign.total_recipients;
   const successRate =
-    campaign.total_recipients > 0
-      ? Math.round((successCount / campaign.total_recipients) * 100)
-      : 0;
+    denominator > 0 ? Math.round((successCount / denominator) * 100) : 0;
 
   return (
     <div className="max-w-7xl space-y-6">
+      {/* 발송중일 때만 폴링 — status 변경 시 자동 중단 */}
+      <CampaignProgressPoller status={campaign.status} />
+
       {/* 브레드크럼 */}
       <Link
         href="/campaigns"
@@ -61,16 +72,14 @@ export function CampaignDetailView({ campaign, messages }: Props) {
               {formatMeta(campaign)}
             </p>
 
-            {/* 숫자 블록 */}
+            {/* 숫자 블록 — 발송중에는 대기 카운트, 완료/실패 후엔 비용 */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 pt-4">
               <Metric label="총 수신자" value={campaign.total_recipients} />
               <Metric
                 label="성공"
                 value={successCount}
                 suffix={
-                  campaign.total_recipients > 0
-                    ? ` (${successRate}%)`
-                    : undefined
+                  denominator > 0 ? ` (${successRate}%)` : undefined
                 }
                 tone="success"
               />
@@ -79,11 +88,26 @@ export function CampaignDetailView({ campaign, messages }: Props) {
                 value={failedCount}
                 tone={failedCount > 0 ? "danger" : "default"}
               />
-              <Metric
-                label="비용"
-                valueFormatted={`${campaign.total_cost.toLocaleString()}원`}
-              />
+              {isInFlight ? (
+                <Metric
+                  label="발송 대기"
+                  value={pendingCount}
+                  tone={pendingCount > 0 ? "default" : "success"}
+                  suffix={pendingCount > 0 ? " 건 남음" : undefined}
+                />
+              ) : (
+                <Metric
+                  label="비용"
+                  valueFormatted={`${campaign.total_cost.toLocaleString()}원`}
+                />
+              )}
             </div>
+
+            {isInFlight && (
+              <p className="text-[12px] text-[color:var(--text-muted)]">
+                발송이 진행 중입니다. 화면이 5초마다 자동 갱신됩니다.
+              </p>
+            )}
 
             {/* 발송·예약시각 */}
             <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 pt-2 text-[13px]">

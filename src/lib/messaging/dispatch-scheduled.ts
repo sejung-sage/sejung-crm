@@ -27,14 +27,11 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
-import { createSmsAdapter } from "./adapters";
 import { applyAllGuards, type Recipient } from "./guards";
-import { calculateCost } from "./calculate-cost";
 import { listGroupStudents } from "@/lib/groups/list-group-students";
 import type { CampaignRow, MessageStatus, TemplateType } from "@/types/database";
 
-const SEND_BATCH_SIZE = 100;
-const MAX_RECIPIENTS_PER_CAMPAIGN = 10_000;
+const MAX_RECIPIENTS_PER_CAMPAIGN = 100_000;
 const DISPATCH_BATCH_SIZE = 30; // 한 cron 호출에서 처리할 최대 캠페인 수 (1일 1회 트리거 대응)
 
 export interface DispatchResult {
@@ -176,118 +173,82 @@ async function dispatchOne(
     return { campaignId, status: "failed", reason: "수신자 0명" };
   }
 
-  // 4) messages 일괄 INSERT
-  const insertPayload = eligible.recipients.map((r) => ({
-    campaign_id: campaignId,
-    student_id: r.studentId,
-    phone: r.phone,
-    status: "대기" as MessageStatus,
-    vendor_message_id: null,
-    cost: 0,
-    sent_at: null,
-    delivered_at: null,
-    failed_reason: null,
-    is_test: campaign.is_test,
-  }));
+  // 4) messages 청크 INSERT (1,000건 청크 — 대량 캠페인 대비)
+  const MESSAGES_INSERT_CHUNK = 1_000;
+  for (let i = 0; i < eligible.recipients.length; i += MESSAGES_INSERT_CHUNK) {
+    const slice = eligible.recipients.slice(i, i + MESSAGES_INSERT_CHUNK);
+    const insertPayload = slice.map((r) => ({
+      campaign_id: campaignId,
+      student_id: r.studentId,
+      phone: r.phone,
+      status: "대기" as MessageStatus,
+      vendor_message_id: null,
+      cost: 0,
+      sent_at: null,
+      delivered_at: null,
+      failed_reason: null,
+      is_test: campaign.is_test,
+    }));
 
-  const insertRes = await (
-    supabase.from("messages") as unknown as {
-      insert: (v: Record<string, unknown>[]) => {
-        select: (cols: string) => Promise<{
-          data: { id: string; phone: string }[] | null;
-          error: { message: string } | null;
-        }>;
+    const insertRes = await (
+      supabase.from("messages") as unknown as {
+        insert: (
+          v: Record<string, unknown>[],
+        ) => Promise<{ error: { message: string } | null }>;
+      }
+    ).insert(insertPayload);
+
+    if (insertRes.error) {
+      await markCampaignFailed(
+        supabase,
+        campaignId,
+        `메시지 큐 적재 실패: ${insertRes.error.message}`,
+      );
+      return {
+        campaignId,
+        status: "failed",
+        reason: insertRes.error.message,
       };
     }
-  )
-    .insert(insertPayload)
-    .select("id, phone");
-
-  if (insertRes.error || !insertRes.data) {
-    await markCampaignFailed(
-      supabase,
-      campaignId,
-      `메시지 큐 적재 실패: ${insertRes.error?.message ?? "unknown"}`,
-    );
-    return {
-      campaignId,
-      status: "failed",
-      reason: insertRes.error?.message ?? "메시지 큐 적재 실패",
-    };
   }
 
-  // 5) 어댑터 호출 (batch=100)
-  const adapter = createSmsAdapter();
-  const fromNumber = readFromNumber(adapter.name);
-  if (!fromNumber) {
-    await markCampaignFailed(supabase, campaignId, "발신번호 환경변수 누락");
-    return {
-      campaignId,
-      status: "failed",
-      reason: "발신번호 환경변수 누락",
-    };
-  }
-
-  const rows = insertRes.data;
-  let sentOk = 0;
-  let failed = 0;
-  let totalCost = 0;
-  const finalBody = eligible.finalBody;
-  const type = campaign.type;
-
-  for (let i = 0; i < rows.length; i += SEND_BATCH_SIZE) {
-    const batch = rows.slice(i, i + SEND_BATCH_SIZE);
-    const sendResults = await Promise.allSettled(
-      batch.map((m) =>
-        adapter.send({
-          to: m.phone,
-          body: finalBody,
-          subject: campaign.subject,
-          type,
-          fromNumber,
-        }),
-      ),
-    );
-
-    for (let j = 0; j < batch.length; j += 1) {
-      const row = batch[j];
-      if (!row) continue;
-      const sr = sendResults[j];
-      const nowIso = new Date().toISOString();
-
-      if (sr && sr.status === "fulfilled" && sr.value.status === "queued") {
-        sentOk += 1;
-        const unitCost = calculateCost(type, 1).totalCost;
-        totalCost += unitCost;
-        // messages.cost INT — 소수 단가는 round 후 저장.
-        await updateMessage(supabase, row.id, {
-          status: "발송됨",
-          vendor_message_id: sr.value.vendorMessageId,
-          cost: Math.round(unitCost),
-          sent_at: nowIso,
-        });
-      } else {
-        failed += 1;
-        const reason = extractFailedReason(sr);
-        await updateMessage(supabase, row.id, {
-          status: "실패",
-          failed_reason: reason,
-          sent_at: nowIso,
-        });
-      }
-    }
-  }
-
-  // 6) 캠페인 최종 상태 갱신
-  const finalStatus = failed === rows.length ? "실패" : "완료";
-  await updateCampaignStatus(supabase, campaignId, finalStatus, totalCost);
+  // 5) 드레인 워커 킥 — 실제 발송은 self-invocation 워커가 청크씩 처리.
+  //    campaigns.status='발송중' 유지, total_cost 는 드레인이 누적 갱신.
+  kickDrainWorker(campaignId);
 
   return {
     campaignId,
     status: "sent",
-    sent: sentOk,
-    failed,
+    sent: eligible.recipients.length,
+    failed: 0,
   };
+}
+
+function kickDrainWorker(campaignId: string): void {
+  const drainSecret = process.env.DRAIN_SECRET;
+  if (!drainSecret) {
+    // 운영 배포 전 필수. 시크릿이 없으면 캠페인이 '발송중' 으로 멈춰있게 된다.
+    console.error("DRAIN_SECRET 미설정 — 드레인 워커를 킥할 수 없습니다");
+    return;
+  }
+
+  const url = `${getBaseUrl()}/api/messaging/drain`;
+  void fetch(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-drain-secret": drainSecret,
+    },
+    body: JSON.stringify({ campaignId }),
+    keepalive: true,
+  }).catch(() => {
+    /* fire-and-forget — 운영팀이 수동 재시도로 회복 */
+  });
+}
+
+function getBaseUrl(): string {
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+  return process.env.APP_BASE_URL ?? "http://localhost:3000";
 }
 
 // ─── eligible 재조회 + 가드 (cron 시점) ────────────────────
@@ -372,31 +333,13 @@ async function loadEligibleForCampaign(args: {
 
 // ─── DB 헬퍼 ───────────────────────────────────────────────
 
-async function updateMessage(
-  supabase: SrvClient,
-  id: string,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  await (
-    supabase.from("messages") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        eq: (
-          c: string,
-          v: string,
-        ) => Promise<{ error: { message: string } | null }>;
-      };
-    }
-  )
-    .update(patch)
-    .eq("id", id);
-}
-
-async function updateCampaignStatus(
+async function markCampaignFailed(
   supabase: SrvClient,
   campaignId: string,
-  status: "완료" | "실패",
-  totalCost: number,
+  _reason: string,
 ): Promise<void> {
+  // failed_reason 컬럼이 campaigns 에 없어 messages 단까지만 reason 보존.
+  // campaigns.status='실패' 만 박는다.
   await (
     supabase.from("campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
@@ -407,37 +350,8 @@ async function updateCampaignStatus(
       };
     }
   )
-    .update({ status, total_cost: Math.round(totalCost) })
+    .update({ status: "실패", total_cost: 0 })
     .eq("id", campaignId);
-}
-
-async function markCampaignFailed(
-  supabase: SrvClient,
-  campaignId: string,
-  _reason: string,
-): Promise<void> {
-  // failed_reason 컬럼이 campaigns 에 없어 messages 단까지만 reason 보존.
-  // campaigns.status='실패' 만 박는다.
-  await updateCampaignStatus(supabase, campaignId, "실패", 0);
-}
-
-function readFromNumber(adapterName: string): string | null {
-  switch (adapterName) {
-    case "sendon":
-      return process.env.SENDON_FROM_NUMBER ?? "01000000000";
-    default:
-      return null;
-  }
-}
-
-function extractFailedReason(sr: PromiseSettledResult<unknown> | undefined): string {
-  if (!sr) return "어댑터 응답 누락";
-  if (sr.status === "rejected") {
-    return sr.reason instanceof Error ? sr.reason.message : String(sr.reason);
-  }
-  // fulfilled 인데 status !== queued
-  const v = sr.value as { status: string; reason?: string };
-  return v.reason ?? `어댑터 거부 (status=${v.status})`;
 }
 
 // type guard helper for TemplateType narrowing (re-export safety)
