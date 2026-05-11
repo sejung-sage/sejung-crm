@@ -8,8 +8,13 @@
  * 본 함수는 발송 큐 적재 직전 eligible 재조회 전용. 다음을 보장한다:
  *   - unsubscribes 1회만 페치
  *   - getGroup 1회만 호출
- *   - student_profiles 를 청크(기본 10,000건) 단위 range 페치
- *   - 60K 기준 8 ~ 10 쿼리로 끝남 (1 + 1 + 6)
+ *   - student_profiles 를 PostgREST `max_rows` cap (1,000) 청크로 range 페치
+ *   - 60K 기준 약 62 쿼리 (1 + 1 + 60)
+ *
+ * 주의: CHUNK_SIZE 는 반드시 PostgREST `max_rows` (supabase/config.toml 의
+ * `max_rows = 1000`) 이하여야 한다. cap 보다 크면 서버가 무성 잘라서 응답하고,
+ * `rows.length < requestedSize` early break 조건에 즉시 걸려 첫 cap 분량만
+ * 수집되는 버그가 난다. (2026-05-11 10,083명 캠페인이 1,000명만 발송된 회귀.)
  *
  * 필터 정책은 count-recipients.ts 와 동일. includeStudentIds 우선, 분원·탈퇴·
  * 수신거부 가드는 항상 적용.
@@ -22,7 +27,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGroup } from "./get-group";
 import type { Database, StudentStatus } from "@/types/database";
 
-const CHUNK_SIZE = 10_000;
+/** PostgREST `max_rows` cap (supabase/config.toml). 이보다 크게 잡으면 cap 으로
+ *  잘려 early break 회귀가 발생한다. */
+const CHUNK_SIZE = 1_000;
 const SAFE_PHONE_PATTERN = /^[\d-]+$/;
 
 export interface GroupRecipient {
