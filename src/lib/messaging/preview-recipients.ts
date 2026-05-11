@@ -9,21 +9,31 @@
  *   - 상위 5명 샘플 (서버 내부에선 raw, UI 에선 마스킹)
  *
  * 동작 모드:
- *   - dev-seed 모드: DEV_STUDENT_PROFILES + applyGroupFiltersDev 로 후보 산출.
- *     unsubscribes 시드 없음 → 빈 배열로 처리.
- *   - 일반 모드: listGroupStudents 호출 → unsubscribes 테이블 조회.
+ *   - dev-seed: DEV_STUDENT_PROFILES + applyGroupFiltersDev 로 후보 산출.
+ *     unsubscribes 시드 없음 → 빈 배열.
+ *   - 일반: SQL head:exact count + LIMIT 5 sample 4건 병렬 호출.
+ *     6만 건 그룹도 ~1초 응답 (이전 구현은 50건/page × 1,200 round-trip = 4분).
  *
- * 순수 함수에 가깝지만 dev-seed/Supabase 분기로 IO 가 있다.
  * 권한 가드는 호출부(Server Action) 책임.
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getGroup } from "@/lib/groups/get-group";
-import { listGroupStudents } from "@/lib/groups/list-group-students";
-import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
-import { applyAllGuards, type Recipient } from "./guards";
+import {
+  DEV_STUDENT_PROFILES,
+  isDevSeedMode,
+} from "@/lib/profile/students-dev-seed";
+import { applyGroupFiltersDev } from "@/lib/groups/apply-filters";
+import {
+  applyAllGuards,
+  checkQuietHours,
+  insertAdTag,
+  insertUnsubscribeFooter,
+  type Recipient,
+} from "./guards";
 import { calculateCost } from "./calculate-cost";
 import type { SmsCostBreakdown } from "./cost-rates";
+import type { GroupRow } from "@/types/database";
 
 export type PreviewExclusionReason = "탈퇴학생" | "수신거부";
 
@@ -64,22 +74,35 @@ export interface PreviewRecipientsInput {
 
 const SAMPLE_LIMIT = 5;
 
+/** 수신거부 phone 값에 허용할 문자 패턴 (숫자/하이픈만).
+ *  PostgREST `.or(...)` 인자로 박을 때 메타문자 인젝션 방지. */
+const SAFE_PHONE_PATTERN = /^[\d-]+$/;
+
 export async function previewRecipients(
   input: PreviewRecipientsInput,
 ): Promise<PreviewResult> {
-  // 그룹 → 수신자 후보 수집
   const group = await getGroup(input.groupId);
   if (!group) {
     throw new Error("존재하지 않는 그룹입니다");
   }
 
-  // 1) 수신자 후보 (탈퇴는 listGroupStudents 가 이미 제외함)
-  //    1만건 수신자도 한 번에 가져오기 위해 페이지 크기 우회
-  //    listGroupStudents 는 50건/페이지이므로 Supabase 모드에서 수신자 많으면
-  //    여러 페이지를 모아야 한다. 현 시점 MVP 는 단일 그룹 1만건 이내 가정.
-  const allCandidates = await collectAllGroupCandidates(input.groupId);
+  if (isDevSeedMode()) {
+    return previewFromDevSeed(input, group);
+  }
+  return previewFromSupabase(input, group);
+}
 
-  // 2) Recipient 형 변환 (필터 가드는 phone 기준으로 정규화)
+// ─── dev-seed 경로 (인메모리, 변경 없음) ─────────────────────
+
+function previewFromDevSeed(
+  input: PreviewRecipientsInput,
+  group: GroupRow,
+): PreviewResult {
+  const allCandidates = applyGroupFiltersDev(
+    DEV_STUDENT_PROFILES,
+    group.filters,
+    group.branch,
+  );
   const recipients: Recipient[] = allCandidates
     .filter((p) => !!p.parent_phone)
     .map((p) => ({
@@ -89,19 +112,14 @@ export async function previewRecipients(
       status: p.status,
     }));
 
-  // 3) unsubscribes 조회 (dev-seed 는 빈 배열)
-  const unsubscribedPhones = await fetchUnsubscribedPhones();
-
-  // 4) 가드 일괄 적용
   const guarded = applyAllGuards({
     body: input.body,
     isAd: input.isAd,
     scheduledAt: input.scheduledAt ?? new Date(),
     recipients,
-    unsubscribedPhones,
+    unsubscribedPhones: [], // dev-seed 미보유
   });
 
-  // 5) 제외 사유 집계
   const reasonMap = new Map<PreviewExclusionReason, number>();
   for (const ex of guarded.excluded) {
     reasonMap.set(ex.reason, (reasonMap.get(ex.reason) ?? 0) + 1);
@@ -111,14 +129,6 @@ export async function previewRecipients(
     if (count > 0) excludedReasons.push({ reason, count });
   }
 
-  // 6) 비용 계산
-  const cost = calculateCost(input.type, guarded.eligible.length);
-
-  // 7) 상위 5명 샘플
-  const sampleRecipients: PreviewSampleRecipient[] = guarded.eligible
-    .slice(0, SAMPLE_LIMIT)
-    .map((r) => ({ name: r.name, phone: r.phone }));
-
   return {
     recipientCount: guarded.eligible.length,
     excludedCount: guarded.excluded.length,
@@ -126,69 +136,212 @@ export async function previewRecipients(
     finalBody: guarded.finalBody,
     blockedByQuietHours: !guarded.allowedToSend,
     blockReason: guarded.blockReason,
-    cost,
-    sampleRecipients,
+    cost: calculateCost(input.type, guarded.eligible.length),
+    sampleRecipients: guarded.eligible
+      .slice(0, SAMPLE_LIMIT)
+      .map((r) => ({ name: r.name, phone: r.phone })),
   };
 }
 
-// ─── 내부 헬퍼 ──────────────────────────────────────────────
+// ─── Supabase 경로 (head count + LIMIT sample 병렬) ──────────
 
-/**
- * 그룹의 모든 수신자 후보를 페이지를 넘어 모은다.
- * `listGroupStudents` 의 페이지 크기(50)에 맞춰 반복 호출.
- * 안전 상한 1만 명 (그 이상은 잘림 + 추후 stream 화 필요).
- */
-async function collectAllGroupCandidates(groupId: string): Promise<
-  {
-    id: string;
-    name: string;
-    parent_phone: string | null;
-    status: string;
-  }[]
-> {
-  const HARD_CAP = 10_000;
-  const collected: {
-    id: string;
-    name: string;
-    parent_phone: string | null;
-    status: string;
-  }[] = [];
-  let page = 1;
-  for (;;) {
-    const res = await listGroupStudents(groupId, { page });
-    for (const r of res.items) {
-      collected.push({
-        id: r.id,
-        name: r.name,
-        parent_phone: r.parent_phone ?? null,
-        status: r.status,
-      });
-      if (collected.length >= HARD_CAP) return collected;
-    }
-    const reached = page * res.items.length;
-    if (res.items.length === 0 || collected.length >= res.total) {
-      return collected;
-    }
-    if (reached >= HARD_CAP) return collected;
-    page += 1;
-    // 안전 가드: 수만 페이지 무한루프 방지
-    if (page > 1000) return collected;
+async function previewFromSupabase(
+  input: PreviewRecipientsInput,
+  group: GroupRow,
+): Promise<PreviewResult> {
+  const supabase = await createSupabaseServerClient();
+
+  // 텍스트 가드는 row 무관 — 즉시 계산.
+  const withAdTag = insertAdTag(input.body, input.isAd);
+  const finalBody = insertUnsubscribeFooter(withAdTag, input.isAd);
+  const quiet = checkQuietHours(input.scheduledAt ?? new Date(), input.isAd);
+
+  // 1) 수신거부 phone 목록 선(先)페치 — SQL 절 인자로 사용.
+  const { data: unsubRows, error: unsubError } = await supabase
+    .from("unsubscribes")
+    .select("phone");
+  if (unsubError) {
+    throw new Error(
+      `수신거부 목록 조회에 실패했습니다: ${unsubError.message}`,
+    );
   }
+  const safeUnsubPhones = (unsubRows ?? [])
+    .map((r) => (r as { phone: string }).phone)
+    .filter(
+      (v): v is string =>
+        typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
+    );
+
+  // 2) 4건 병렬 — eligible count / sample / 탈퇴 count / 수신거부 count.
+  //    head:exact count 는 body 안 받아 빠름 (PostgREST max_rows cap 무관).
+  //    parent_phone IS NOT NULL 도 SQL 단에서 필터해 발송 가능 범위와 일치.
+  const [eligibleCount, eligibleSample, withdrawnCount, unsubExcludedCount] =
+    await Promise.all([
+      countEligible(supabase, group, safeUnsubPhones),
+      sampleEligible(supabase, group, safeUnsubPhones),
+      countWithdrawn(supabase, group),
+      countUnsubExcluded(supabase, group, safeUnsubPhones),
+    ]);
+
+  const excludedReasons: PreviewResult["excludedReasons"] = [];
+  if (withdrawnCount > 0) {
+    excludedReasons.push({ reason: "탈퇴학생", count: withdrawnCount });
+  }
+  if (unsubExcludedCount > 0) {
+    excludedReasons.push({ reason: "수신거부", count: unsubExcludedCount });
+  }
+
+  return {
+    recipientCount: eligibleCount,
+    excludedCount: withdrawnCount + unsubExcludedCount,
+    excludedReasons,
+    finalBody,
+    blockedByQuietHours: !quiet.allowed,
+    blockReason: quiet.reason,
+    cost: calculateCost(input.type, eligibleCount),
+    sampleRecipients: eligibleSample,
+  };
 }
 
-/**
- * unsubscribes 테이블에서 phone 목록을 가져온다.
- * dev-seed 모드는 빈 배열.
- */
-async function fetchUnsubscribedPhones(): Promise<string[]> {
-  if (isDevSeedMode()) return [];
+// ─── SQL 쿼리 빌더 ─────────────────────────────────────────
 
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase.from("unsubscribes").select("phone");
-  if (error) {
-    throw new Error(`수신거부 목록 조회에 실패했습니다: ${error.message}`);
+/**
+ * 그룹 필터(branch + grades/schools/subjects/regions/includeStudentIds) 를
+ * student_profiles 쿼리에 일괄 적용. count·sample 양쪽이 동일 필터셋을 갖도록
+ * 한 곳에 모은다.
+ *
+ * `statusMode`:
+ *   - "active"   : status != '탈퇴' (eligible/수신거부 카운트 대상)
+ *   - "withdrawn": status =  '탈퇴' (탈퇴 사유 카운트)
+ */
+type StatusMode = "active" | "withdrawn";
+
+function applyGroupFilters<Q extends ProfilesQueryBuilder>(
+  query: Q,
+  group: GroupRow,
+  statusMode: StatusMode,
+): Q {
+  let q = query;
+
+  q =
+    statusMode === "withdrawn"
+      ? (q.eq("status", "탈퇴") as Q)
+      : (q.neq("status", "탈퇴") as Q);
+
+  if (group.branch) {
+    q = q.eq("branch", group.branch) as Q;
   }
-  return (data ?? [])
-    .map((r) => (r as { phone: string }).phone)
-    .filter((v): v is string => typeof v === "string" && v.length > 0);
+
+  const f = group.filters;
+  if (f.includeStudentIds.length > 0) {
+    q = q.in("id", f.includeStudentIds) as Q;
+  } else {
+    if (f.grades.length > 0) q = q.in("grade", f.grades) as Q;
+    if (f.schools.length > 0) q = q.in("school", f.schools) as Q;
+    if (f.subjects.length > 0) q = q.overlaps("subjects", f.subjects) as Q;
+    if (f.regions.length > 0) q = q.in("region", f.regions) as Q;
+  }
+
+  return q;
+}
+
+async function countEligible(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  group: GroupRow,
+  unsubPhones: string[],
+): Promise<number> {
+  let q = applyGroupFilters(
+    supabase
+      .from("student_profiles")
+      .select("id", { count: "exact", head: true }),
+    group,
+    "active",
+  );
+  q = q.not("parent_phone", "is", null);
+  if (unsubPhones.length > 0) {
+    // IS NOT NULL 위 가드 + parent_phone NOT IN (수신거부)
+    q = q.not("parent_phone", "in", `(${unsubPhones.join(",")})`);
+  }
+  const { count, error } = await q;
+  if (error) {
+    throw new Error(`수신자 카운트 조회에 실패했습니다: ${error.message}`);
+  }
+  return count ?? 0;
+}
+
+async function sampleEligible(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  group: GroupRow,
+  unsubPhones: string[],
+): Promise<PreviewSampleRecipient[]> {
+  let q = applyGroupFilters(
+    supabase.from("student_profiles").select("name, parent_phone"),
+    group,
+    "active",
+  );
+  q = q.not("parent_phone", "is", null);
+  if (unsubPhones.length > 0) {
+    q = q.not("parent_phone", "in", `(${unsubPhones.join(",")})`);
+  }
+  const { data, error } = await q
+    .order("registered_at", { ascending: false, nullsFirst: false })
+    .limit(SAMPLE_LIMIT);
+  if (error) {
+    throw new Error(`수신자 샘플 조회에 실패했습니다: ${error.message}`);
+  }
+  return ((data ?? []) as Array<{ name: string; parent_phone: string | null }>)
+    .map((r) => ({
+      name: r.name,
+      phone: (r.parent_phone ?? "").replace(/\D/g, ""),
+    }))
+    .filter((r) => r.phone.length > 0);
+}
+
+async function countWithdrawn(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  group: GroupRow,
+): Promise<number> {
+  const q = applyGroupFilters(
+    supabase
+      .from("student_profiles")
+      .select("id", { count: "exact", head: true }),
+    group,
+    "withdrawn",
+  );
+  const { count, error } = await q;
+  if (error) {
+    throw new Error(`탈퇴학생 카운트 조회에 실패했습니다: ${error.message}`);
+  }
+  return count ?? 0;
+}
+
+async function countUnsubExcluded(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  group: GroupRow,
+  unsubPhones: string[],
+): Promise<number> {
+  if (unsubPhones.length === 0) return 0;
+  let q = applyGroupFilters(
+    supabase
+      .from("student_profiles")
+      .select("id", { count: "exact", head: true }),
+    group,
+    "active",
+  );
+  q = q.in("parent_phone", unsubPhones);
+  const { count, error } = await q;
+  if (error) {
+    throw new Error(`수신거부 카운트 조회에 실패했습니다: ${error.message}`);
+  }
+  return count ?? 0;
+}
+
+/** applyGroupFilters 의 제네릭 제약용 minimal 인터페이스. */
+interface ProfilesQueryBuilder {
+  eq(column: string, value: string): ProfilesQueryBuilder;
+  neq(column: string, value: string): ProfilesQueryBuilder;
+  in(column: string, values: readonly string[]): ProfilesQueryBuilder;
+  overlaps(column: string, values: readonly string[]): ProfilesQueryBuilder;
+  not(column: string, operator: string, value: string | null): ProfilesQueryBuilder;
+  or(filters: string): ProfilesQueryBuilder;
 }
