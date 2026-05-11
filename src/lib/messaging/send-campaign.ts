@@ -25,6 +25,7 @@ import { revalidatePath } from "next/cache";
 import { after } from "next/server";
 import { previewRecipients, type PreviewResult } from "./preview-recipients";
 import { applyAllGuards, type Recipient } from "./guards";
+import { getMessagingBaseUrl } from "./base-url";
 import { getGroup } from "@/lib/groups/get-group";
 import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
@@ -255,7 +256,7 @@ async function runImmediateSend(args: {
   }
 
   after(async () => {
-    const url = `${getBaseUrl()}/api/messaging/drain`;
+    const url = `${getMessagingBaseUrl()}/api/messaging/drain`;
     try {
       await fetch(url, {
         method: "POST",
@@ -283,11 +284,6 @@ async function runImmediateSend(args: {
     failed: 0,
     cost: 0,
   };
-}
-
-function getBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return process.env.APP_BASE_URL ?? "http://localhost:3000";
 }
 
 // ─── 예약 발송 ──────────────────────────────────────────────

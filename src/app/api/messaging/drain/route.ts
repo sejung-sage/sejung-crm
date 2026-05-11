@@ -22,6 +22,7 @@
  */
 
 import { drainCampaignChunk } from "@/lib/messaging/drain-campaign";
+import { getMessagingBaseUrl } from "@/lib/messaging/base-url";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -83,7 +84,7 @@ export async function POST(request: Request): Promise<Response> {
  * 현재 함수의 응답이 끝난 뒤에도 다음 함수 호출이 별도 인스턴스로 시작된다.
  */
 function kickNextChunk(campaignId: string, secret: string): void {
-  const url = `${getBaseUrl()}/api/messaging/drain`;
+  const url = `${getMessagingBaseUrl()}/api/messaging/drain`;
   // await 하지 않음. node 가 미해결 promise 를 정리해도 fetch 는 이미
   // 외부로 HTTP 요청을 발사한 상태가 된다.
   void fetch(url, {
@@ -98,9 +99,4 @@ function kickNextChunk(campaignId: string, secret: string): void {
   }).catch(() => {
     // 네트워크 실패는 의도적으로 무시. 다음 청크는 cron 또는 수동 재시도로 회복.
   });
-}
-
-function getBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return process.env.APP_BASE_URL ?? "http://localhost:3000";
 }

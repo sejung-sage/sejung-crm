@@ -28,6 +28,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { applyAllGuards, type Recipient } from "./guards";
+import { getMessagingBaseUrl } from "./base-url";
 import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import type { CampaignRow, MessageStatus, TemplateType } from "@/types/database";
 
@@ -232,7 +233,7 @@ function kickDrainWorker(campaignId: string): void {
     return;
   }
 
-  const url = `${getBaseUrl()}/api/messaging/drain`;
+  const url = `${getMessagingBaseUrl()}/api/messaging/drain`;
   void fetch(url, {
     method: "POST",
     headers: {
@@ -244,11 +245,6 @@ function kickDrainWorker(campaignId: string): void {
   }).catch(() => {
     /* fire-and-forget — 운영팀이 수동 재시도로 회복 */
   });
-}
-
-function getBaseUrl(): string {
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  return process.env.APP_BASE_URL ?? "http://localhost:3000";
 }
 
 // ─── eligible 재조회 + 가드 (cron 시점) ────────────────────
