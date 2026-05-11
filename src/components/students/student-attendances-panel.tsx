@@ -213,8 +213,19 @@ function weekdayKoFromIsoDate(dateIso: string): string {
 }
 
 /**
- * 강좌가 그 일자에 운영 중인지 + 그 요일이 schedule_days 에 있는지.
- * 둘 다 충족 → "이 날 수업이 있었어야 함" 으로 판정 → 빈 cell 출석 간주 후보.
+ * 강좌가 그 일자에 수업 가능한 요일인지.
+ *
+ * schedule_days 매칭만 보고 운영 기간(start_date/end_date) 은 의도적으로 무시.
+ * 이유:
+ *   - `classes.start_date` 는 ETL 가 `enrollments.start_date 의 강좌별 MIN`
+ *     으로 백필한 값이라 실제 강좌 첫 수업일과 다를 수 있음 (학생마다 다름).
+ *   - "결석이 아닌 모든 수강은 출석" 이라는 KPI 정책과 일관 — KPI 도 운영
+ *     기간 체크 없이 수강 등록만 보고 분모 잡음.
+ *   - 강좌 column 에 등장한 일자는 어차피 그 학생의 다른 강좌에서 출결 row 가
+ *     있던 일자라 "그 시점에 학원에 다닌 적 있음" 이라는 약한 보장은 됨.
+ *
+ * 정확성보다 일관성을 택한 판정. schedule_days 가 NULL 이면 false (요일 정보
+ * 없으면 매칭 불가) → 빈 cell 유지.
  */
 function isClassScheduledOn(
   cls: AttendanceClassLookup | null,
@@ -222,10 +233,6 @@ function isClassScheduledOn(
 ): boolean {
   if (!cls) return false;
   if (!cls.schedule_days) return false;
-  // 운영 기간 체크 — start_date 가 NULL 이면 보수적으로 통과 (간주 false 보다는
-  // raw 데이터 기반 판정이 우선이지만, 빈 cell 만 다루는 함수라 안전 폴백).
-  if (cls.start_date && dateIso < cls.start_date) return false;
-  if (cls.end_date && dateIso > cls.end_date) return false;
   // 요일 substring 매칭 — schedule_days 가 "월수금" / "화목" 등 한 글자 이어붙임.
   const weekday = weekdayKoFromIsoDate(dateIso);
   return cls.schedule_days.includes(weekday);
