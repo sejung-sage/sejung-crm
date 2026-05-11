@@ -205,7 +205,7 @@ async function attachAttendanceClassLookup(
   const { data, error } = await supabase
     .from("classes")
     .select(
-      "aca_class_id, name, teacher_name, subject, subject_raw, schedule_days, schedule_time",
+      "aca_class_id, name, teacher_name, subject, subject_raw, schedule_days, schedule_time, start_date, end_date",
     )
     .in("aca_class_id", ids);
 
@@ -226,6 +226,8 @@ async function attachAttendanceClassLookup(
       subject_raw: row.subject_raw,
       schedule_days: row.schedule_days,
       schedule_time: row.schedule_time,
+      start_date: row.start_date,
+      end_date: row.end_date,
     });
   }
 

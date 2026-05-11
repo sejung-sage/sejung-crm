@@ -482,6 +482,8 @@ export type AttendanceClassLookup = Pick<
   | "subject_raw"
   | "schedule_days"
   | "schedule_time"
+  | "start_date"
+  | "end_date"
 >;
 
 /**

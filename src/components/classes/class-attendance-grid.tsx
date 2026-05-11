@@ -4,6 +4,7 @@ import type {
   ClassStudentRow,
 } from "@/types/database";
 import { AttendanceStatusChip } from "@/components/students/attendance-status-chip";
+import { isStrictAttendanceBranch } from "@/lib/profile/attendance-policy";
 
 type AttendanceMatrixRow = Pick<
   AttendanceRow,
@@ -53,7 +54,7 @@ export function ClassAttendanceGrid({
     );
   }
 
-  const matrix = buildMatrix(students, attendances);
+  const matrix = buildMatrix(students, attendances, branch);
 
   // 모든 학생이 출결 0 인 비정상 케이스는 빈 격자가 되므로 빈 상태 처리.
   // (loader 가 attendances 가 0 이 아니면 여기로 오지만, students 는 비어 있을 수 있다.)
@@ -171,6 +172,8 @@ export function ClassAttendanceGrid({
                   ))}
                   {matrix.dates.map((d) => {
                     const status = r.byDate.get(d.iso);
+                    // 비-방배: 빈 cell = 추정 출석 (column date 는 이미 그 강좌의 수업 일자).
+                    const presumed = !status && !isStrictAttendanceBranch(branch);
                     return (
                       <td
                         key={d.iso}
@@ -179,6 +182,11 @@ export function ClassAttendanceGrid({
                         {status ? (
                           <AttendanceStatusChip
                             status={status}
+                            branch={branch}
+                          />
+                        ) : presumed ? (
+                          <AttendanceStatusChip
+                            status="출석"
                             branch={branch}
                           />
                         ) : (
@@ -251,6 +259,7 @@ const COUNT_LEFT_OFFSETS = [
 function buildMatrix(
   students: ClassStudentRow[],
   attendances: AttendanceMatrixRow[],
+  branch?: string | null,
 ): Matrix {
   // 1) distinct 일자 (오름차순).
   const dateSet = new Set<string>();
@@ -302,6 +311,19 @@ function buildMatrix(
       },
       byDate,
     });
+  }
+
+  // "결석 외 = 출석" 정책 — 비-방배 강좌의 column date 는 모두 그 강좌의 실제
+  // 수업 일자 (다른 학생이 출석한 적 있어 column 으로 등장). 학생 row 가 그 일자에
+  // explicit row 가 없으면 추정 출석으로 카운트해 출/총에 합산.
+  if (!isStrictAttendanceBranch(branch)) {
+    for (const r of rows) {
+      const presumed = dates.length - r.byDate.size;
+      if (presumed > 0) {
+        r.counts["출석"] += presumed;
+        r.counts["총"] += presumed;
+      }
+    }
   }
 
   return { dates, rows };

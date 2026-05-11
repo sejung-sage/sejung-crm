@@ -1,8 +1,10 @@
 import type {
+  AttendanceClassLookup,
   AttendanceStatus,
   AttendanceWithClass,
 } from "@/types/database";
 import { AttendanceStatusChip } from "@/components/students/attendance-status-chip";
+import { isStrictAttendanceBranch } from "@/lib/profile/attendance-policy";
 
 interface Props {
   // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
@@ -37,7 +39,7 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
     );
   }
 
-  const matrix = buildMatrix(attendances);
+  const matrix = buildMatrix(attendances, branch);
 
   return (
     <section aria-label="출석 격자" className="space-y-2">
@@ -148,6 +150,13 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
                   ))}
                   {matrix.dates.map((d) => {
                     const status = g.byDate.get(d.iso);
+                    // "결석 외 = 출석" 정책 적용: 비-방배 분원 + 빈 cell + 그 강좌가
+                    // 그 일자에 운영 중이고 schedule_days 에 요일 포함 → "출" 추정 chip.
+                    // 방배는 5종 raw 정확 추적 정책이라 빈 cell 그대로 유지.
+                    const presumed =
+                      !status &&
+                      !isStrictAttendanceBranch(branch) &&
+                      isClassScheduledOn(g.classMeta, d.iso);
                     return (
                       <td
                         key={d.iso}
@@ -156,6 +165,11 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
                         {status ? (
                           <AttendanceStatusChip
                             status={status}
+                            branch={branch}
+                          />
+                        ) : presumed ? (
+                          <AttendanceStatusChip
+                            status="출석"
                             branch={branch}
                           />
                         ) : (
@@ -184,6 +198,39 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
   );
 }
 
+// ─── 헬퍼: 빈 cell 을 "결석 외 = 출석" 정책으로 채우기 위한 활성 기간/요일 검사 ─
+
+/**
+ * 'YYYY-MM-DD' 의 KST 한글 요일 (월/화/수/목/금/토/일).
+ * UTC midnight 으로 파싱 후 ko-KR weekday short.
+ */
+function weekdayKoFromIsoDate(dateIso: string): string {
+  const d = new Date(`${dateIso}T00:00:00Z`);
+  return new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    weekday: "short",
+  }).format(d);
+}
+
+/**
+ * 강좌가 그 일자에 운영 중인지 + 그 요일이 schedule_days 에 있는지.
+ * 둘 다 충족 → "이 날 수업이 있었어야 함" 으로 판정 → 빈 cell 출석 간주 후보.
+ */
+function isClassScheduledOn(
+  cls: AttendanceClassLookup | null,
+  dateIso: string,
+): boolean {
+  if (!cls) return false;
+  if (!cls.schedule_days) return false;
+  // 운영 기간 체크 — start_date 가 NULL 이면 보수적으로 통과 (간주 false 보다는
+  // raw 데이터 기반 판정이 우선이지만, 빈 cell 만 다루는 함수라 안전 폴백).
+  if (cls.start_date && dateIso < cls.start_date) return false;
+  if (cls.end_date && dateIso > cls.end_date) return false;
+  // 요일 substring 매칭 — schedule_days 가 "월수금" / "화목" 등 한 글자 이어붙임.
+  const weekday = weekdayKoFromIsoDate(dateIso);
+  return cls.schedule_days.includes(weekday);
+}
+
 // ─── 매트릭스 빌드 ────────────────────────────────────────
 
 interface DateColumn {
@@ -199,6 +246,11 @@ interface GroupRow {
   note: string | null;
   counts: Record<AttendanceStatus | "총", number>;
   byDate: Map<string, AttendanceStatus>;
+  /**
+   * 강좌 메타 — 빈 cell 을 "결석 외 = 출석" 정책에 따라 출석 chip 으로 채울 때
+   * 활성 기간/요일 검사에 사용. null 이면 강좌 매칭 실패 → 빈 cell 유지.
+   */
+  classMeta: AttendanceClassLookup | null;
 }
 
 interface Matrix {
@@ -228,7 +280,10 @@ const COUNT_LEFT_OFFSETS = [
   220 + 44 * 5,
 ];
 
-function buildMatrix(attendances: AttendanceWithClass[]): Matrix {
+function buildMatrix(
+  attendances: AttendanceWithClass[],
+  branch?: string | null,
+): Matrix {
   // 1) distinct 일자 (오름차순)
   const dateSet = new Set<string>();
   for (const a of attendances) {
@@ -252,6 +307,7 @@ function buildMatrix(attendances: AttendanceWithClass[]): Matrix {
         ...buildGroupHeader(a),
         counts: { 총: 0, 출석: 0, 지각: 0, 결석: 0, 조퇴: 0, 보강: 0 },
         byDate: new Map<string, AttendanceStatus>(),
+        classMeta: a.class,
       };
       groupMap.set(key, g);
     }
@@ -264,7 +320,21 @@ function buildMatrix(attendances: AttendanceWithClass[]): Matrix {
     g.counts["총"] += 1;
   }
 
-  // 3) 그룹 정렬 — 매칭된 강좌(이름순) 먼저, "강좌 미매칭" 마지막
+  // 3) "결석 외 = 출석" 정책 — 비-방배 분원에서 빈 cell 중 강좌가 그 일자에
+  //    운영 중이고 schedule_days 에 요일 포함이면 "추정 출석" 으로 카운트.
+  //    counts 의 출석/총 에 합산해 좌측 sticky 카운트 표시도 일관되게.
+  if (!isStrictAttendanceBranch(branch)) {
+    for (const g of groupMap.values()) {
+      for (const d of dates) {
+        if (g.byDate.has(d.iso)) continue; // 명시 row 있음 → skip
+        if (!isClassScheduledOn(g.classMeta, d.iso)) continue;
+        g.counts["출석"] += 1;
+        g.counts["총"] += 1;
+      }
+    }
+  }
+
+  // 4) 그룹 정렬 — 매칭된 강좌(이름순) 먼저, "강좌 미매칭" 마지막
   const groups = Array.from(groupMap.values()).sort((a, b) => {
     if (a.key === UNMATCHED_KEY) return 1;
     if (b.key === UNMATCHED_KEY) return -1;
