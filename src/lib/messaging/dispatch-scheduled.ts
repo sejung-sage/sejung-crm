@@ -28,7 +28,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { applyAllGuards, type Recipient } from "./guards";
-import { listGroupStudents } from "@/lib/groups/list-group-students";
+import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import type { CampaignRow, MessageStatus, TemplateType } from "@/types/database";
 
 const MAX_RECIPIENTS_PER_CAMPAIGN = 100_000;
@@ -267,49 +267,33 @@ async function loadEligibleForCampaign(args: {
     }
   | { kind: "blocked"; reason: string }
 > {
-  // 후보 전체 수집 (페이지 50건)
+  // 1) 후보 전체 일괄 수집 — SQL 단에서 분원·탈퇴·수신거부 가드까지 처리.
+  //    60K 기준 8~10 쿼리로 끝남.
+  const rows = await loadAllGroupRecipients(
+    args.supabase,
+    args.groupId,
+    MAX_RECIPIENTS_PER_CAMPAIGN,
+  );
+
   const collected: Recipient[] = [];
-  let page = 1;
-  for (;;) {
-    const res = await listGroupStudents(args.groupId, { page });
-    for (const r of res.items) {
-      if (!r.parent_phone) continue;
-      collected.push({
-        studentId: r.id,
-        phone: r.parent_phone.replace(/\D/g, ""),
-        name: r.name,
-        status: r.status,
-      });
-      if (collected.length >= MAX_RECIPIENTS_PER_CAMPAIGN) break;
-    }
-    if (
-      res.items.length === 0 ||
-      collected.length >= res.total ||
-      collected.length >= MAX_RECIPIENTS_PER_CAMPAIGN
-    ) {
-      break;
-    }
-    page += 1;
-    if (page > 1000) break;
+  for (const r of rows) {
+    if (!r.parent_phone) continue;
+    collected.push({
+      studentId: r.id,
+      phone: r.parent_phone.replace(/\D/g, ""),
+      name: r.name,
+      status: r.status,
+    });
   }
 
-  // unsubscribes
-  const { data: unsubData, error: unsubErr } = await args.supabase
-    .from("unsubscribes")
-    .select("phone");
-  if (unsubErr) {
-    throw new Error(`수신거부 목록 조회 실패: ${unsubErr.message}`);
-  }
-  const unsubscribedPhones = ((unsubData ?? []) as Array<{ phone: string }>)
-    .map((r) => r.phone)
-    .filter((v): v is string => typeof v === "string" && v.length > 0);
-
+  // 2) 본문 가드 (광고 prefix / 080 footer / 야간 차단) 적용.
+  //    수신거부·탈퇴는 SQL 단에서 이미 제외됐으므로 unsubscribedPhones 비워서 호출.
   const guarded = applyAllGuards({
     body: args.body,
     isAd: args.isAd,
     scheduledAt: args.scheduledAt,
     recipients: collected,
-    unsubscribedPhones,
+    unsubscribedPhones: [],
   });
 
   if (!guarded.allowedToSend) {

@@ -26,7 +26,7 @@ import { after } from "next/server";
 import { previewRecipients, type PreviewResult } from "./preview-recipients";
 import { applyAllGuards, type Recipient } from "./guards";
 import { getGroup } from "@/lib/groups/get-group";
-import { listGroupStudents } from "@/lib/groups/list-group-students";
+import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
@@ -351,54 +351,40 @@ async function reloadEligibleRecipients(args: {
   isAd: boolean;
   scheduledAt: Date;
 }): Promise<EligibleRecipient[]> {
-  // 후보 전체 수집 (페이지 50건씩)
+  if (isDevSeedMode()) {
+    // dev-seed 는 실 발송이 차단되므로 본 함수가 도달할 일 없음. 안전망.
+    return [];
+  }
+
+  // 1) 후보 전체 일괄 수집 — loadAllGroupRecipients 가 SQL 단에서 분원·탈퇴·수신거부
+  //    가드까지 처리. 60K 기준 8~10 쿼리로 완료 (이전: 약 5,000 쿼리).
+  const supabase = await createSupabaseServerClient();
+  const rows = await loadAllGroupRecipients(
+    supabase,
+    args.groupId,
+    MAX_RECIPIENTS_PER_CAMPAIGN,
+  );
+
   const collected: Recipient[] = [];
-  let page = 1;
-  for (;;) {
-    const res = await listGroupStudents(args.groupId, { page });
-    for (const r of res.items) {
-      if (!r.parent_phone) continue;
-      collected.push({
-        studentId: r.id,
-        phone: r.parent_phone.replace(/\D/g, ""),
-        name: r.name,
-        // listGroupStudents 가 탈퇴를 사전 제외하므로 안전
-        status: r.status,
-      });
-      if (collected.length >= MAX_RECIPIENTS_PER_CAMPAIGN) break;
-    }
-    if (
-      res.items.length === 0 ||
-      collected.length >= res.total ||
-      collected.length >= MAX_RECIPIENTS_PER_CAMPAIGN
-    ) {
-      break;
-    }
-    page += 1;
-    if (page > 1000) break; // 안전 가드
+  for (const r of rows) {
+    if (!r.parent_phone) continue;
+    collected.push({
+      studentId: r.id,
+      phone: r.parent_phone.replace(/\D/g, ""),
+      name: r.name,
+      // loadAllGroupRecipients 가 탈퇴를 SQL 단에서 제외하므로 안전
+      status: r.status,
+    });
   }
 
-  // unsubscribes 조회
-  let unsubscribedPhones: string[] = [];
-  if (!isDevSeedMode()) {
-    const supabase = await createSupabaseServerClient();
-    const { data, error } = await supabase
-      .from("unsubscribes")
-      .select("phone");
-    if (error) {
-      throw new Error(`수신거부 목록 조회에 실패했습니다: ${error.message}`);
-    }
-    unsubscribedPhones = (data ?? [])
-      .map((r) => (r as { phone: string }).phone)
-      .filter((v): v is string => typeof v === "string" && v.length > 0);
-  }
-
+  // 2) 본문 가드 (광고 prefix / 080 footer / 야간 차단) 만 추가 적용.
+  //    수신거부·탈퇴는 위에서 이미 제외됐으므로 unsubscribedPhones 비워서 호출.
   const guarded = applyAllGuards({
     body: args.body,
     isAd: args.isAd,
     scheduledAt: args.scheduledAt,
     recipients: collected,
-    unsubscribedPhones,
+    unsubscribedPhones: [],
   });
 
   return guarded.eligible.map((r) => ({
