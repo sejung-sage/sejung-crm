@@ -41,7 +41,7 @@ describe("effectiveAttendanceStatus", () => {
   });
 });
 
-describe("computeAttendanceRate", () => {
+describe("computeAttendanceRate · attendance row 기반 (expectedTotal 미지정)", () => {
   const counts = { attended: 7, late: 1, absent: 1, earlyLeave: 0, makeup: 1 };
   // total = 10. 결석 1.
 
@@ -79,5 +79,40 @@ describe("computeAttendanceRate", () => {
     const c = { attended: 8, late: 1, absent: 0, earlyLeave: 1, makeup: 0 };
     expect(computeAttendanceRate(c, "방배")).toBe(90.0); // (8+1+0)/10
     expect(computeAttendanceRate(c, "대치")).toBe(100); // (10-0)/10
+  });
+});
+
+describe("computeAttendanceRate · expectedTotal (enrollment_count) 기반", () => {
+  it("비-방배: 김도윤 케이스 — 5 수강 / 1 결석 → 80%", () => {
+    const c = { attended: 0, late: 0, absent: 1, earlyLeave: 0, makeup: 0 };
+    // (5 - 1) / 5 = 80.0
+    expect(computeAttendanceRate(c, "대치", 5)).toBe(80.0);
+  });
+
+  it("비-방배: 김태영 케이스 — 14 수강 / 2 결석 → 85.7%", () => {
+    const c = { attended: 0, late: 0, absent: 2, earlyLeave: 0, makeup: 0 };
+    // (14 - 2) / 14 = 0.857142... → 85.7
+    expect(computeAttendanceRate(c, "반포", 14)).toBe(85.7);
+  });
+
+  it("비-방배: 결석 0 이면 100% (출결 row 자체가 없어도)", () => {
+    const c = { attended: 0, late: 0, absent: 0, earlyLeave: 0, makeup: 0 };
+    expect(computeAttendanceRate(c, "대치", 5)).toBe(100);
+  });
+
+  it("비-방배: 결석이 enrollment 보다 많으면 0% 클램프 (데이터 비정상)", () => {
+    const c = { attended: 0, late: 0, absent: 7, earlyLeave: 0, makeup: 0 };
+    expect(computeAttendanceRate(c, "대치", 5)).toBe(0);
+  });
+
+  it("비-방배: enrollment 0 이면 null (데이터 없음)", () => {
+    const c = { attended: 0, late: 0, absent: 0, earlyLeave: 0, makeup: 0 };
+    expect(computeAttendanceRate(c, "대치", 0)).toBeNull();
+  });
+
+  it("방배: expectedTotal 무시 — 항상 attendance row 기반", () => {
+    const c = { attended: 0, late: 0, absent: 1, earlyLeave: 0, makeup: 0 };
+    // 방배는 row 기반 룰 유지: (0+0+0)/1 = 0%
+    expect(computeAttendanceRate(c, "방배", 5)).toBe(0);
   });
 });
