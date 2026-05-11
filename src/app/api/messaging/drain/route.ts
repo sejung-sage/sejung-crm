@@ -21,6 +21,7 @@
  *   - 한 청크 ≈ 20~40초, 안전 마진 충분.
  */
 
+import { waitUntil } from "@vercel/functions";
 import { drainCampaignChunk } from "@/lib/messaging/drain-campaign";
 import { getMessagingBaseUrl } from "@/lib/messaging/base-url";
 
@@ -85,18 +86,19 @@ export async function POST(request: Request): Promise<Response> {
  */
 function kickNextChunk(campaignId: string, secret: string): void {
   const url = `${getMessagingBaseUrl()}/api/messaging/drain`;
-  // await 하지 않음. node 가 미해결 promise 를 정리해도 fetch 는 이미
-  // 외부로 HTTP 요청을 발사한 상태가 된다.
-  void fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-drain-secret": secret,
-    },
-    body: JSON.stringify({ campaignId }),
-    // 응답 대기 안 함 (Node 24 의 keepalive 호환).
-    keepalive: true,
-  }).catch(() => {
-    // 네트워크 실패는 의도적으로 무시. 다음 청크는 cron 또는 수동 재시도로 회복.
-  });
+  // Vercel `waitUntil` 로 fetch 가 실제 발사된 뒤 함수가 종료되도록 보장.
+  // 단순 `void fetch` 는 응답 송출 직후 Vercel 이 함수 인스턴스를 정리하면서
+  // 미발사 promise 가 캔슬되는 케이스가 있어 self-invocation 체인이 끊긴다.
+  waitUntil(
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-drain-secret": secret,
+      },
+      body: JSON.stringify({ campaignId }),
+    }).catch(() => {
+      // 네트워크 실패는 의도적으로 무시. 운영팀이 수동 재킥으로 회복 가능.
+    }),
+  );
 }

@@ -26,6 +26,7 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { waitUntil } from "@vercel/functions";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { applyAllGuards, type Recipient } from "./guards";
 import { getMessagingBaseUrl } from "./base-url";
@@ -234,17 +235,19 @@ function kickDrainWorker(campaignId: string): void {
   }
 
   const url = `${getMessagingBaseUrl()}/api/messaging/drain`;
-  void fetch(url, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-drain-secret": drainSecret,
-    },
-    body: JSON.stringify({ campaignId }),
-    keepalive: true,
-  }).catch(() => {
-    /* fire-and-forget — 운영팀이 수동 재시도로 회복 */
-  });
+  // Vercel `waitUntil` 로 fetch 가 실제 발사되도록 보장.
+  waitUntil(
+    fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-drain-secret": drainSecret,
+      },
+      body: JSON.stringify({ campaignId }),
+    }).catch(() => {
+      /* fire-and-forget — 운영팀이 수동 재시도로 회복 */
+    }),
+  );
 }
 
 // ─── eligible 재조회 + 가드 (cron 시점) ────────────────────
