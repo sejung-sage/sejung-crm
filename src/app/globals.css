@@ -29,9 +29,14 @@
   --text-muted: #6c757d;      /* 보조 텍스트 · 중간 회색 */
   --text-dim: #adb5bd;        /* 플레이스홀더 · 연한 회색 */
 
-  /* 경계·구분선 */
-  --border: #dee2e6;          /* 기본 보더 · 새 배경과의 대비 확보 */
-  --border-strong: #ced4da;   /* 강조 보더 (인풋 focus 등) */
+  /* 경계·구분선
+   * 사용자 피드백(2026-05-13): 카드/테이블/사이드바 등 시각적 보더가 답답해서
+   * --border 토큰을 transparent 로 통일. `* { @apply border-border }` 와
+   * `border-[color:var(--border)]` 사용처가 모두 자동으로 보더 없는 상태로 전환.
+   * --border-strong 은 input focus 강조에 필요해 그대로 유지.
+   */
+  --border: transparent;      /* 기본 보더 (시각적 제거) */
+  --border-strong: #ced4da;   /* 강조 보더 (인풋 focus 등) — 유지 */
 
   /* 액션 */
   --action: #212529;          /* 주요 버튼 배경 · 검정 */
