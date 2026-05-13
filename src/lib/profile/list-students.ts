@@ -38,7 +38,13 @@ async function listFromSupabase(
   const from = (input.page - 1) * input.pageSize;
   const to = from + input.pageSize - 1;
 
-  let query = supabase.from("student_profiles").select("*", { count: "exact" });
+  // count: "estimated" — student_profiles 뷰가 LEFT JOIN enrollments + attendances
+  // 카테시안이라 풀 카운트가 Supabase statement_timeout(8s) 을 초과해 페이지가
+  // 통째로 깨졌다. 페이지네이션 표시용으로는 추정 카운트로 충분.
+  // (PostgREST: 행이 많으면 pg_class 통계 기반 추정, 적으면 자동 exact 로 fallback.)
+  let query = supabase
+    .from("student_profiles")
+    .select("*", { count: "estimated" });
 
   if (input.search) {
     // 이름·학교·학부모 연락처 전체 검색
