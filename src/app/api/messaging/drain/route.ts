@@ -71,14 +71,11 @@ export async function POST(request: Request): Promise<Response> {
     console.log(
       `[drain] campaign=${campaignId} attempted=${result.attempted} ` +
         `sent=${result.sent} failed=${result.failed} hasMore=${result.hasMore} ` +
-        `lockSkipped=${result.lockSkipped} done=${result.campaignDone}`,
+        `done=${result.campaignDone}`,
     );
 
     // 다음 청크 남았으면 자기 자신 재호출 (fire-and-forget).
-    // 단 lockSkipped 인 경우는 다른 인스턴스가 이미 처리 중이므로 self-invocation 생략 —
-    // hasMore=true 라도 sweep(매 3분) 이 다음 cycle 에서 잡거나, 점유 중이던
-    // 인스턴스가 자기 self-invocation 으로 이어간다.
-    if (result.hasMore && !result.lockSkipped) {
+    if (result.hasMore) {
       kickNextChunk(campaignId, secret);
     }
 
