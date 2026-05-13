@@ -11,9 +11,10 @@
  * 동작 (Vercel 300s 타임아웃 안):
  *   - 청크당: PostgREST `max_rows` = 1,000 으로 다음 '대기' 1,000건 fetch
  *   - 어댑터 호출: sendon batch API 1회 (1,000명을 1요청으로 적재)
- *   - DB UPDATE: 50건 Promise.all 병렬
- *   - 한 청크 예상 처리 시간 ≈ 2~5초
- *   - MAX_BATCHES_PER_INVOCATION × ≈3초 ≤ TIME_BUDGET_MS 가 되도록 튜닝.
+ *   - DB UPDATE: mark_messages_sent / mark_messages_failed RPC 1회 (1,000건을
+ *     단일 SQL UPDATE 로 일괄 갱신)
+ *   - 한 청크 예상 처리 시간 ≈ 4~6초 (이전 20~30초)
+ *   - MAX_BATCHES_PER_INVOCATION × ≈5초 ≤ TIME_BUDGET_MS 가 되도록 튜닝.
  *
  * 왜 한 호출에서 여러 청크를 처리하는가:
  *   self-invocation chain (waitUntil + keepalive) 이 Vercel 환경에서 일정
@@ -39,11 +40,9 @@ import { calculateCost } from "./calculate-cost";
 import type {
   CampaignRow,
   CampaignStatus,
-  MessageStatus,
   TemplateType,
 } from "@/types/database";
 
-const UPDATE_PARALLELISM = 50;
 /** PostgREST max_rows cap. 한 fetchPending 가 가져오는 '대기' 메시지 수 = 한 batch
  *  sendon 호출의 수신자 수. */
 export const DRAIN_CHUNK_SIZE = 1_000;
@@ -173,7 +172,7 @@ async function processOneBatch(args: {
     args;
 
   const nowIso = new Date().toISOString();
-  const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+  const ids = pending.map((p) => p.id);
   let sent = 0;
   let failed = 0;
   let addedCost = 0;
@@ -187,40 +186,17 @@ async function processOneBatch(args: {
   });
 
   if (batchResult.status === "queued") {
+    // 한 batch 의 N건이 같은 vendor_message_id 를 공유 → 단일 RPC 로 일괄 UPDATE.
+    // PostgREST round-trip: 1,000회 → 1회.
     sent = pending.length;
     const totalCost = calculateCost(type, pending.length).totalCost;
     addedCost = totalCost;
     const perRowCost = Math.round(batchResult.unitCost);
-    for (const row of pending) {
-      updates.push({
-        id: row.id,
-        patch: {
-          status: "발송됨" satisfies MessageStatus,
-          vendor_message_id: batchResult.vendorMessageId,
-          cost: perRowCost,
-          sent_at: nowIso,
-        },
-      });
-    }
+    await markMessagesSent(supabase, ids, batchResult.vendorMessageId, perRowCost, nowIso);
   } else {
+    // batch 전체 실패 — 동일 사유로 일괄 UPDATE.
     failed = pending.length;
-    const failedReason = batchResult.reason;
-    for (const row of pending) {
-      updates.push({
-        id: row.id,
-        patch: {
-          status: "실패" satisfies MessageStatus,
-          failed_reason: failedReason,
-          sent_at: nowIso,
-        },
-      });
-    }
-  }
-
-  // UPDATE 병렬 적용
-  for (let i = 0; i < updates.length; i += UPDATE_PARALLELISM) {
-    const wave = updates.slice(i, i + UPDATE_PARALLELISM);
-    await Promise.all(wave.map((u) => updateMessage(supabase, u.id, u.patch)));
+    await markMessagesFailed(supabase, ids, batchResult.reason, nowIso);
   }
 
   if (addedCost > 0) {
@@ -304,23 +280,61 @@ async function determineFinalStatus(
   return (okCount ?? 0) > 0 ? "완료" : "실패";
 }
 
-async function updateMessage(
+/**
+ * mark_messages_sent RPC 호출 — 한 batch 의 N건을 단일 SQL UPDATE 로 갱신.
+ * PostgREST 라운드트립 N → 1.
+ */
+async function markMessagesSent(
   supabase: SrvClient,
-  id: string,
-  patch: Record<string, unknown>,
+  ids: string[],
+  vendorMessageId: string,
+  cost: number,
+  sentAtIso: string,
 ): Promise<void> {
-  await (
-    supabase.from("messages") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        eq: (
-          c: string,
-          v: string,
-        ) => Promise<{ error: { message: string } | null }>;
-      };
+  if (ids.length === 0) return;
+  const { error } = await (
+    supabase as unknown as {
+      rpc: (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: number | null; error: { message: string } | null }>;
     }
-  )
-    .update(patch)
-    .eq("id", id);
+  ).rpc("mark_messages_sent", {
+    p_ids: ids,
+    p_vendor_message_id: vendorMessageId,
+    p_cost: cost,
+    p_sent_at: sentAtIso,
+  });
+  if (error) {
+    throw new Error(`mark_messages_sent RPC 실패: ${error.message}`);
+  }
+}
+
+/**
+ * mark_messages_failed RPC 호출 — batch 전체 실패 케이스를 단일 UPDATE 로 갱신.
+ */
+async function markMessagesFailed(
+  supabase: SrvClient,
+  ids: string[],
+  failedReason: string,
+  sentAtIso: string,
+): Promise<void> {
+  if (ids.length === 0) return;
+  const { error } = await (
+    supabase as unknown as {
+      rpc: (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: number | null; error: { message: string } | null }>;
+    }
+  ).rpc("mark_messages_failed", {
+    p_ids: ids,
+    p_failed_reason: failedReason,
+    p_sent_at: sentAtIso,
+  });
+  if (error) {
+    throw new Error(`mark_messages_failed RPC 실패: ${error.message}`);
+  }
 }
 
 async function updateCampaignStatus(
