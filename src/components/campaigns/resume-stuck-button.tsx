@@ -69,7 +69,7 @@ export function ResumeStuckButton({ campaignId, pendingCount }: Props) {
         disabled={pendingCount === 0 || isPending}
         className="
           inline-flex items-center gap-1.5 h-10 px-4 rounded-lg
-          border border-[color:var(--border)] bg-white
+          border border-[color:var(--border)] bg-bg-card
           text-[14px] text-[color:var(--text)]
           hover:bg-[color:var(--bg-hover)]
           disabled:opacity-40 disabled:cursor-not-allowed

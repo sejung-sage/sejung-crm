@@ -41,7 +41,7 @@ export default async function MePage() {
       {/* 내 정보 카드 (읽기 전용) */}
       <section
         aria-labelledby="profile-heading"
-        className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg)] p-6"
+        className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg-card)] p-6"
       >
         <h2
           id="profile-heading"
@@ -88,7 +88,7 @@ export default async function MePage() {
       {/* 비밀번호 변경 카드 */}
       <section
         aria-labelledby="password-heading"
-        className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg)] p-6"
+        className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg-card)] p-6"
       >
         <h2
           id="password-heading"
@@ -102,7 +102,7 @@ export default async function MePage() {
       {/* 로그아웃 */}
       <section
         aria-labelledby="signout-heading"
-        className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg)] p-6"
+        className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg-card)] p-6"
       >
         <h2
           id="signout-heading"
@@ -120,7 +120,7 @@ export default async function MePage() {
               inline-flex items-center gap-1.5
               h-10 px-4 rounded-lg
               border border-[color:var(--border-strong)]
-              bg-[color:var(--bg)] text-[color:var(--text)]
+              bg-[color:var(--bg-card)] text-[color:var(--text)]
               text-[14px] font-medium
               hover:bg-[color:var(--bg-hover)]
               transition-colors

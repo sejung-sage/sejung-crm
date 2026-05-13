@@ -21,7 +21,7 @@ export function StudentProfileHeader({ profile }: Props) {
 
   return (
     <section
-      className="rounded-xl border border-[color:var(--border)] bg-white p-6"
+      className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6"
       aria-label="학생 프로필"
     >
       <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">

@@ -8,13 +8,21 @@
  * 세정학원 CRM · 디자인 토큰 (PRD 2.2)
  * 흰색+검정 미니멀. 보라·형광·강한 색 금지.
  * 모든 색상은 아래 CSS 변수만 사용. 값 하드코딩 금지.
+ *
+ * 회색 배경 + 흰 카드 전략:
+ *   - --bg       : 메인 캔버스. 살짝 회색조 (#fafbfc) 로 눈부심 완화.
+ *   - --bg-card  : 카드/패널/테이블/팝오버. 순백 (#ffffff) 으로 본 배경 위에
+ *                  살짝 떠 보이게 해서 시각적 깊이 확보.
+ *   - --bg-muted : 섹션 구분 (테이블 헤더, 안내 박스). 한 단계 진하게.
+ *   - --bg-hover : 호버 상태. 변화가 명확히 보이도록 한 단계 더 진하게.
  * -------------------------------------------------------------- */
 
 :root {
   /* 배경 */
-  --bg: #ffffff;              /* 기본 배경 · 완전 흰색 */
-  --bg-muted: #f8f9fa;        /* 섹션 구분용 아주 옅은 회색 */
-  --bg-hover: #f1f3f5;        /* 호버 상태 */
+  --bg: #fafbfc;              /* 메인 캔버스 · 살짝 회색조 (눈부심 완화) */
+  --bg-card: #ffffff;         /* 카드/패널/팝오버 · 순백 (회색 배경 위에 떠 보임) */
+  --bg-muted: #f1f3f5;        /* 섹션 구분 (테이블 헤더, 안내 박스) */
+  --bg-hover: #e9ecef;        /* 호버 상태 · 명확히 보이게 */
 
   /* 텍스트 */
   --text: #212529;            /* 기본 텍스트 · 거의 검정 */
@@ -22,7 +30,7 @@
   --text-dim: #adb5bd;        /* 플레이스홀더 · 연한 회색 */
 
   /* 경계·구분선 */
-  --border: #e9ecef;          /* 기본 보더 */
+  --border: #dee2e6;          /* 기본 보더 · 새 배경과의 대비 확보 */
   --border-strong: #ced4da;   /* 강조 보더 (인풋 focus 등) */
 
   /* 액션 */
@@ -45,12 +53,14 @@
   /* ---- shadcn/ui 토큰을 세정 팔레트에 맞춰 재정의 ----
    * 기본 shadcn이 oklch 계산값을 쓰는데, 디자인 시스템은 헥스 기반이므로
    * 우리 팔레트로 오버라이드해서 보라·강한 색상이 튀어나오지 않게 한다.
+   *
+   * card / popover 는 회색 배경 위에 떠야 하므로 --bg-card (순백) 로 매핑.
    */
   --background: var(--bg);
   --foreground: var(--text);
-  --card: var(--bg);
+  --card: var(--bg-card);
   --card-foreground: var(--text);
-  --popover: var(--bg);
+  --popover: var(--bg-card);
   --popover-foreground: var(--text);
   --primary: var(--action);
   --primary-foreground: var(--action-text);
@@ -61,13 +71,14 @@
   --accent: var(--bg-hover);
   --accent-foreground: var(--text);
   --destructive: var(--danger);
-  --border: #e9ecef;
+  --border: var(--border);
   --input: var(--border-strong);
   --ring: var(--border-strong);
 
   --radius: 0.5rem;           /* 8px · 버튼/입력창 기본 */
 
-  --sidebar: var(--bg);
+  /* 사이드바도 카드와 동일한 순백 — 메인 영역(회색) 과 시각적으로 분리 */
+  --sidebar: var(--bg-card);
   --sidebar-foreground: var(--text);
   --sidebar-primary: var(--action);
   --sidebar-primary-foreground: var(--action-text);
@@ -112,6 +123,7 @@
 
   /* 세정 팔레트 토큰 — Tailwind 유틸(bg-bg-muted, text-text-muted 등)로 사용 */
   --color-bg: var(--bg);
+  --color-bg-card: var(--bg-card);
   --color-bg-muted: var(--bg-muted);
   --color-bg-hover: var(--bg-hover);
   --color-text: var(--text);
@@ -159,5 +171,31 @@
   :focus-visible {
     outline: 2px solid var(--text);
     outline-offset: 2px;
+  }
+
+  /* ---------------------------------------------------------------
+   * 클릭 가능 요소 기본 커서 정책
+   * 모든 button / a[href] / [role=button] / summary / label[for] / select /
+   * checkbox / radio 에 손모양 커서. 비활성 상태는 not-allowed.
+   *
+   * 빈 링크 a:not([href]) / a[href=""] 는 cursor:default 유지 (기본값).
+   * -------------------------------------------------------------- */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href]:not([href=""]),
+  summary,
+  label[for],
+  select:not(:disabled),
+  [type="checkbox"]:not(:disabled),
+  [type="radio"]:not(:disabled) {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"],
+  select:disabled,
+  [type="checkbox"]:disabled,
+  [type="radio"]:disabled {
+    cursor: not-allowed;
   }
 }

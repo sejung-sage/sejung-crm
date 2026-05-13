@@ -188,7 +188,7 @@ function RegionsSearchBar({
           placeholder="예: 휘문고"
           className="
             w-full h-10 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]
             focus:outline-none focus:border-[color:var(--border-strong)]
@@ -206,7 +206,7 @@ function RegionsSearchBar({
           defaultValue={regionFilter}
           className="
             w-full h-10 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             focus:outline-none focus:border-[color:var(--border-strong)]
             cursor-pointer
@@ -241,7 +241,7 @@ function RegionsSearchBar({
             className="
               inline-flex items-center justify-center
               h-10 px-4 rounded-lg
-              border border-[color:var(--border)] bg-white
+              border border-[color:var(--border)] bg-bg-card
               text-[14px] text-[color:var(--text-muted)]
               hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]
               transition-colors
@@ -260,7 +260,7 @@ function RegionsSearchBar({
 function ForbiddenCard() {
   return (
     <div className="max-w-2xl">
-      <div className="rounded-xl border border-[color:var(--border)] bg-white p-8 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-8 text-center">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-[color:var(--bg-muted)]">
           <ShieldAlert
             className="size-6 text-[color:var(--text-muted)]"

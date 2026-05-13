@@ -119,7 +119,7 @@ export function AccountsToolbar({
             className="
               w-full h-11 rounded-lg
               pl-9 pr-3
-              bg-white
+              bg-bg-card
               border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               placeholder:text-[color:var(--text-dim)]
@@ -136,7 +136,7 @@ export function AccountsToolbar({
         onChange={(e) => onRoleChange(e.target.value)}
         className="
           h-11 min-w-36 rounded-lg px-3
-          bg-white border border-[color:var(--border)]
+          bg-bg-card border border-[color:var(--border)]
           text-[15px] text-[color:var(--text)]
           focus:outline-none focus:border-[color:var(--border-strong)]
           cursor-pointer
@@ -161,7 +161,7 @@ export function AccountsToolbar({
         onChange={(e) => onBranchChange(e.target.value)}
         className="
           h-11 min-w-36 rounded-lg px-3
-          bg-white border border-[color:var(--border)]
+          bg-bg-card border border-[color:var(--border)]
           text-[15px] text-[color:var(--text)]
           focus:outline-none focus:border-[color:var(--border-strong)]
           disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-muted)]
@@ -186,7 +186,7 @@ export function AccountsToolbar({
         onChange={(e) => onActiveChange(e.target.value)}
         className="
           h-11 min-w-32 rounded-lg px-3
-          bg-white border border-[color:var(--border)]
+          bg-bg-card border border-[color:var(--border)]
           text-[15px] text-[color:var(--text)]
           focus:outline-none focus:border-[color:var(--border-strong)]
           cursor-pointer

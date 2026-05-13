@@ -310,7 +310,7 @@ export function GroupBuilder({
         {/* 좌측: 필터 편집 */}
         <div className="space-y-5">
           {/* 기본 정보 */}
-          <section className="rounded-xl border border-[color:var(--border)] bg-white p-6 space-y-5">
+          <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-5">
             <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
               기본 정보
             </h2>
@@ -324,7 +324,7 @@ export function GroupBuilder({
                 placeholder="예: 대치 고2 수학 수강생"
                 className="
                   w-full h-10 rounded-lg px-3
-                  bg-white border border-[color:var(--border)]
+                  bg-bg-card border border-[color:var(--border)]
                   text-[15px] text-[color:var(--text)]
                   placeholder:text-[color:var(--text-dim)]
                   focus:outline-none focus:border-[color:var(--border-strong)]
@@ -348,7 +348,7 @@ export function GroupBuilder({
           </section>
 
           {/* 필터 */}
-          <section className="rounded-xl border border-[color:var(--border)] bg-white p-6 space-y-5">
+          <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-5">
             <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
               수신자 조건
             </h2>
@@ -362,7 +362,7 @@ export function GroupBuilder({
                 <div
                   role="radiogroup"
                   aria-label="학교급 선택"
-                  className="inline-flex h-9 rounded-lg border border-[color:var(--border)] bg-white p-0.5"
+                  className="inline-flex h-9 rounded-lg border border-[color:var(--border)] bg-bg-card p-0.5"
                 >
                   {LEVEL_SEGMENTS.map((opt) => {
                     const active = opt.value === level;
@@ -586,7 +586,7 @@ export function GroupBuilder({
 
         {/* 우측: 프리뷰 */}
         <aside className="lg:sticky lg:top-6 h-fit">
-          <div className="rounded-xl border border-[color:var(--border)] bg-white p-6 space-y-4">
+          <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4">
             <h2 className="text-[13px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
               수신자 미리보기
             </h2>
@@ -705,7 +705,7 @@ function Chip({
         ${
           active
             ? "bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]"
-            : "bg-white text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
+            : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
         }
       `}
     >
@@ -786,17 +786,17 @@ function DirectStudentPicker({
             : "분원을 먼저 선택해주세요"
         }
         disabled={!branch}
-        className="block w-full min-h-[40px] rounded-md border border-[color:var(--border)] bg-white px-3 text-[14px] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[color:var(--action)] disabled:bg-[color:var(--bg-muted)]"
+        className="block w-full min-h-[40px] rounded-md border border-[color:var(--border)] bg-bg-card px-3 text-[14px] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[color:var(--action)] disabled:bg-[color:var(--bg-muted)]"
       />
 
       {error && (
-        <div className="text-[12px] text-rose-600" role="alert">
+        <div className="text-[12px] text-[color:var(--danger)]" role="alert">
           {error}
         </div>
       )}
 
       {query.trim().length >= 2 && (
-        <div className="rounded-md border border-[color:var(--border)] bg-white max-h-60 overflow-y-auto">
+        <div className="rounded-md border border-[color:var(--border)] bg-bg-card max-h-60 overflow-y-auto">
           {loading && (
             <div className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
               검색 중...

@@ -87,7 +87,7 @@ export default async function EditAccountPage({
 function ForbiddenCard({ reason }: { reason: string }) {
   return (
     <div className="max-w-2xl">
-      <div className="rounded-xl border border-[color:var(--border)] bg-white p-8 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-8 text-center">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-[color:var(--bg-muted)]">
           <ShieldAlert
             className="size-6 text-[color:var(--text-muted)]"
@@ -106,7 +106,7 @@ function ForbiddenCard({ reason }: { reason: string }) {
           className="
             mt-6 inline-flex items-center justify-center
             h-11 px-5 rounded-lg
-            border border-[color:var(--border)] bg-white
+            border border-[color:var(--border)] bg-bg-card
             text-[14px] text-[color:var(--text)]
             hover:bg-[color:var(--bg-hover)]
             transition-colors

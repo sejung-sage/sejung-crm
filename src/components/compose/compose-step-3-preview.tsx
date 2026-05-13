@@ -90,7 +90,7 @@ export function ComposeStep3Preview({
           disabled={!preview || preview.recipientCount === 0 || loading}
           className="
             inline-flex items-center gap-1.5 h-10 px-4 rounded-lg
-            border border-[color:var(--border)] bg-white
+            border border-[color:var(--border)] bg-bg-card
             text-[14px] text-[color:var(--text)]
             hover:bg-[color:var(--bg-hover)]
             disabled:opacity-40 disabled:cursor-not-allowed
@@ -298,7 +298,7 @@ export function ComposeStep3Preview({
               maxLength={60}
               className="
                 w-full h-10 rounded-lg px-3
-                bg-white border border-[color:var(--border)]
+                bg-bg-card border border-[color:var(--border)]
                 text-[15px] text-[color:var(--text)]
                 placeholder:text-[color:var(--text-dim)]
                 focus:outline-none focus:border-[color:var(--border-strong)]
@@ -406,7 +406,7 @@ function TestSendDialog({
     >
       <form
         onSubmit={onSubmit}
-        className="w-full max-w-md rounded-xl bg-white border border-[color:var(--border)] shadow-lg p-6 space-y-4"
+        className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4"
       >
         <h3
           id="test-send-title"
@@ -436,7 +436,7 @@ function TestSendDialog({
             disabled={isPending}
             className="
               w-full h-10 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               placeholder:text-[color:var(--text-dim)]
               focus:outline-none focus:border-[color:var(--border-strong)]
@@ -467,7 +467,7 @@ function TestSendDialog({
             disabled={isPending}
             className="
               inline-flex items-center h-10 px-4 rounded-lg
-              border border-[color:var(--border)] bg-white
+              border border-[color:var(--border)] bg-bg-card
               text-[14px] text-[color:var(--text)]
               hover:bg-[color:var(--bg-hover)]
               disabled:opacity-50

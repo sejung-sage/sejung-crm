@@ -86,7 +86,7 @@ export function RegionsTable({ rows, knownRegions }: Props) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
           매핑된 학교가 없습니다.
         </p>
@@ -100,7 +100,7 @@ export function RegionsTable({ rows, knownRegions }: Props) {
 
   return (
     <>
-      <div className="rounded-xl border border-[color:var(--border)] bg-white overflow-visible">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-visible">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
@@ -141,7 +141,7 @@ export function RegionsTable({ rows, knownRegions }: Props) {
                           onChange={(e) => handleSave(r.school, e.target.value)}
                           className="
                             h-10 min-w-36 rounded-lg px-3
-                            bg-white border border-[color:var(--border-strong)]
+                            bg-bg-card border border-[color:var(--border-strong)]
                             text-[14px] text-[color:var(--text)]
                             focus:outline-none
                             disabled:bg-[color:var(--bg-muted)] disabled:opacity-60
@@ -326,7 +326,7 @@ function ConfirmDialog({
         if (e.key === "Escape" && !busy) onCancel();
       }}
     >
-      <div className="w-full max-w-md rounded-xl bg-white border border-[color:var(--border)] shadow-lg p-6 space-y-4">
+      <div className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4">
         <h2
           id="region-confirm-title"
           className="text-[18px] font-semibold text-[color:var(--text)]"
@@ -351,7 +351,7 @@ function ConfirmDialog({
             disabled={busy}
             className="
               inline-flex items-center h-11 px-4 rounded-lg
-              border border-[color:var(--border)] bg-white
+              border border-[color:var(--border)] bg-bg-card
               text-[14px] text-[color:var(--text)]
               hover:bg-[color:var(--bg-hover)]
               disabled:opacity-50

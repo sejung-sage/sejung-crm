@@ -23,7 +23,7 @@ interface Props {
 export function StudentEnrollmentsPanel({ enrollments }: Props) {
   if (enrollments.length === 0) {
     return (
-      <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
           수강 이력이 없습니다.
         </p>
@@ -32,7 +32,7 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-[color:var(--border)] bg-white overflow-hidden">
+    <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">

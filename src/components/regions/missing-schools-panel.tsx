@@ -56,7 +56,7 @@ export function MissingSchoolsPanel({ items, knownRegions }: Props) {
   return (
     <section
       aria-label="미매핑 학교"
-      className="rounded-xl border border-[color:var(--border)] bg-white"
+      className="rounded-xl border border-[color:var(--border)] bg-bg-card"
     >
       <button
         type="button"
@@ -165,7 +165,7 @@ export function MissingSchoolsPanel({ items, knownRegions }: Props) {
                         }
                         className="
                           h-10 min-w-36 rounded-lg px-3
-                          bg-white border border-[color:var(--border)]
+                          bg-bg-card border border-[color:var(--border)]
                           text-[14px] text-[color:var(--text)]
                           focus:outline-none focus:border-[color:var(--border-strong)]
                           disabled:bg-[color:var(--bg-muted)] disabled:opacity-60

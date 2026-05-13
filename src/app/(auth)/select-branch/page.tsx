@@ -45,7 +45,7 @@ export default async function SelectBranchPage({
           </p>
         </div>
 
-        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg)] p-8 shadow-sm">
+        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-card)] p-8 shadow-sm">
           <h2 className="text-[16px] font-semibold text-[color:var(--text)] mb-5">
             분원 선택
           </h2>

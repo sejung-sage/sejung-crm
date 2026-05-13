@@ -52,7 +52,7 @@ export function AccountsTable({ rows, currentUserId }: Props) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
           조건에 해당하는 계정이 없습니다.
         </p>
@@ -115,7 +115,7 @@ export function AccountsTable({ rows, currentUserId }: Props) {
       )}
 
       {/* 테이블 */}
-      <div className="rounded-xl border border-[color:var(--border)] bg-white overflow-visible">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-visible">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
@@ -372,7 +372,7 @@ function RowMenu({
             role="menu"
             className="
               absolute right-0 top-full z-20 mt-1 min-w-44
-              rounded-lg border border-[color:var(--border)] bg-white
+              rounded-lg border border-[color:var(--border)] bg-bg-card
               shadow-md py-1
             "
           >
@@ -474,7 +474,7 @@ function ConfirmDialog({
         if (e.key === "Escape") onCancel();
       }}
     >
-      <div className="w-full max-w-md rounded-xl bg-white border border-[color:var(--border)] shadow-lg p-6 space-y-4">
+      <div className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4">
         <h2
           id="confirm-title"
           className="text-[18px] font-semibold text-[color:var(--text)]"
@@ -491,7 +491,7 @@ function ConfirmDialog({
             disabled={busy}
             className="
               inline-flex items-center h-11 px-4 rounded-lg
-              border border-[color:var(--border)] bg-white
+              border border-[color:var(--border)] bg-bg-card
               text-[14px] text-[color:var(--text)]
               hover:bg-[color:var(--bg-hover)]
               disabled:opacity-50

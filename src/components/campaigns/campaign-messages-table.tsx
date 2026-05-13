@@ -77,7 +77,7 @@ export function CampaignMessagesTable({ rows }: Props) {
                 ${
                   active
                     ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
-                    : "bg-white border border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]"
+                    : "bg-bg-card border border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]"
                 }
               `}
             >
@@ -98,13 +98,13 @@ export function CampaignMessagesTable({ rows }: Props) {
 
       {/* 테이블 */}
       {visible.length === 0 ? (
-        <div className="rounded-xl border border-[color:var(--border)] bg-white py-12 text-center">
+        <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-12 text-center">
           <p className="text-[14px] text-[color:var(--text-muted)]">
             해당 상태의 메시지가 없습니다.
           </p>
         </div>
       ) : (
-        <div className="rounded-xl border border-[color:var(--border)] bg-white overflow-visible">
+        <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-visible">
           <table className="w-full border-collapse">
             <thead>
               <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
@@ -224,7 +224,7 @@ function PageBtn({
       className="
         inline-flex items-center justify-center
         h-9 px-3 rounded-lg
-        border border-[color:var(--border)] bg-white
+        border border-[color:var(--border)] bg-bg-card
         text-[14px] text-[color:var(--text)]
         hover:bg-[color:var(--bg-hover)]
         disabled:opacity-40 disabled:cursor-not-allowed

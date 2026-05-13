@@ -54,7 +54,7 @@ export function SidebarBranchSwitcher({ current, branches }: Props) {
         className="
           flex items-center gap-2 w-full h-10 px-3 rounded-lg
           border border-[color:var(--border)]
-          bg-[color:var(--bg)]
+          bg-[color:var(--bg-card)]
           hover:bg-[color:var(--bg-hover)]
           text-left text-[14px] text-[color:var(--text)]
           transition-colors
@@ -83,7 +83,7 @@ export function SidebarBranchSwitcher({ current, branches }: Props) {
           className="
             absolute top-full mt-1 left-0 right-0 z-20
             rounded-lg border border-[color:var(--border)]
-            bg-[color:var(--bg)]
+            bg-[color:var(--bg-card)]
             shadow-lg
             py-1
           "

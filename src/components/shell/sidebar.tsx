@@ -105,7 +105,7 @@ export async function Sidebar() {
   return (
     <aside
       aria-label="주 메뉴"
-      className="w-60 shrink-0 border-r border-border bg-[color:var(--bg)] flex flex-col h-screen sticky top-0"
+      className="w-60 shrink-0 border-r border-border bg-[color:var(--bg-card)] flex flex-col h-screen sticky top-0"
     >
       {/* 로고 */}
       <div className="px-6 pt-6 pb-4">
@@ -164,7 +164,7 @@ export async function Sidebar() {
               text-[15px] text-[color:var(--text)]
               placeholder:text-[color:var(--text-dim)]
               focus:outline-none focus:border-[color:var(--border-strong)]
-              focus:bg-[color:var(--bg)]
+              focus:bg-[color:var(--bg-card)]
               transition-colors
             "
           />
@@ -192,7 +192,7 @@ export async function Sidebar() {
                   text-[15px]
                   transition-colors
                 "
-                activeClassName="bg-[color:var(--bg-hover)] text-[color:var(--text)] font-medium"
+                activeClassName="bg-[color:var(--bg-muted)] text-[color:var(--text)] font-semibold border-l-2 border-[color:var(--action)] pl-[10px]"
                 inactiveClassName="text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
               >
                 <item.icon
@@ -215,7 +215,7 @@ export async function Sidebar() {
                           text-[14px]
                           transition-colors
                         "
-                        activeClassName="bg-[color:var(--bg-hover)] text-[color:var(--text)] font-medium"
+                        activeClassName="bg-[color:var(--bg-muted)] text-[color:var(--text)] font-semibold"
                         inactiveClassName="text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]"
                       >
                         {child.label}

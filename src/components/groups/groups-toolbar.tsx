@@ -75,7 +75,7 @@ export function GroupsToolbar({ canPickBranch }: { canPickBranch: boolean }) {
             className="
               w-full h-10 rounded-lg
               pl-9 pr-3
-              bg-white
+              bg-bg-card
               border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               placeholder:text-[color:var(--text-dim)]
@@ -93,7 +93,7 @@ export function GroupsToolbar({ canPickBranch }: { canPickBranch: boolean }) {
           onChange={(e) => onBranchChange(e.target.value)}
           className="
             h-10 min-w-40 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             focus:outline-none focus:border-[color:var(--border-strong)]
             cursor-pointer

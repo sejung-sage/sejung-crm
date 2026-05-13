@@ -172,7 +172,7 @@ export function StudentCreateForm() {
         {error && (
           <div
             role="alert"
-            className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[14px] text-rose-700"
+            className="rounded-md border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-3 py-2 text-[14px] text-[color:var(--danger)]"
           >
             {error}
           </div>
@@ -200,7 +200,7 @@ export function StudentCreateForm() {
 }
 
 const inputClass =
-  "block w-full min-h-[40px] rounded-md border border-[color:var(--border)] bg-white px-3 text-[15px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[color:var(--action)]";
+  "block w-full min-h-[40px] rounded-md border border-[color:var(--border)] bg-bg-card px-3 text-[15px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[color:var(--action)]";
 
 function Field({
   label,
@@ -217,7 +217,7 @@ function Field({
     <label className="block space-y-1">
       <span className="block text-[13px] font-medium text-[color:var(--text)]">
         {label}
-        {required && <span className="text-rose-500"> *</span>}
+        {required && <span className="text-[color:var(--danger)]"> *</span>}
       </span>
       {input}
       {hint && (

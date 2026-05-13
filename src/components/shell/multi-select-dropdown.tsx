@@ -70,7 +70,7 @@ export function MultiSelectDropdown({
         className="
           inline-flex items-center gap-1.5 h-8 px-3 rounded-full
           text-[14px] font-medium
-          bg-white text-[color:var(--text)]
+          bg-bg-card text-[color:var(--text)]
           border border-dashed border-[color:var(--border-strong)]
           hover:bg-[color:var(--bg-hover)]
           transition-colors
@@ -93,7 +93,7 @@ export function MultiSelectDropdown({
             min-w-56 max-w-72
             max-h-72 overflow-y-auto
             rounded-lg
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             shadow-md
             p-1
           "
@@ -129,7 +129,7 @@ export function MultiSelectDropdown({
                       ${
                         active
                           ? "bg-[color:var(--action)] border-[color:var(--action)] text-[color:var(--action-text)]"
-                          : "bg-white border-[color:var(--border-strong)]"
+                          : "bg-bg-card border-[color:var(--border-strong)]"
                       }
                     `}
                     aria-hidden

@@ -93,7 +93,7 @@ function PageBtn({
       className="
         inline-flex items-center justify-center
         size-9 rounded-lg
-        border border-[color:var(--border)] bg-white
+        border border-[color:var(--border)] bg-bg-card
         text-[color:var(--text)]
         hover:bg-[color:var(--bg-hover)]
         disabled:opacity-40 disabled:cursor-not-allowed

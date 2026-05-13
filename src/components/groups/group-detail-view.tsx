@@ -44,7 +44,7 @@ export function GroupDetailView({
 
       {/* 상단 카드 */}
       <section
-        className="rounded-xl border border-[color:var(--border)] bg-white p-6"
+        className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6"
         aria-label="발송 그룹 요약"
       >
         <div className="flex flex-col gap-5 md:flex-row md:items-start md:justify-between">

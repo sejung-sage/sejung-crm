@@ -46,7 +46,7 @@ export function ClassAttendanceGrid({
 }: Props) {
   if (attendances.length === 0) {
     return (
-      <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
           출결 기록이 없습니다.
         </p>
@@ -60,7 +60,7 @@ export function ClassAttendanceGrid({
   // (loader 가 attendances 가 0 이 아니면 여기로 오지만, students 는 비어 있을 수 있다.)
   if (matrix.rows.length === 0 || matrix.dates.length === 0) {
     return (
-      <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
           출결 기록이 없습니다.
         </p>
@@ -74,7 +74,7 @@ export function ClassAttendanceGrid({
         학생별 일자 출결. 가로로 스크롤해 전체 기간을 확인할 수 있습니다.
       </p>
 
-      <div className="rounded-xl border border-[color:var(--border)] bg-white overflow-hidden">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="border-collapse text-[14px]">
             <thead>
@@ -139,7 +139,7 @@ export function ClassAttendanceGrid({
                   <th
                     scope="row"
                     className="
-                      sticky left-0 z-10 bg-white
+                      sticky left-0 z-10 bg-bg-card
                       px-4 py-3 text-left
                       border-r border-[color:var(--border)]
                       align-top
@@ -158,7 +158,7 @@ export function ClassAttendanceGrid({
                     <td
                       key={col.key}
                       className={`
-                        sticky z-10 bg-white
+                        sticky z-10 bg-bg-card
                         px-2 py-3 text-center text-[13px] tabular-nums
                         text-[color:var(--text)]
                         ${i === COUNT_COLUMNS.length - 1 ? "border-r border-[color:var(--border)]" : ""}

@@ -185,7 +185,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           maxLength={60}
           className="
             w-full h-10 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]
             focus:outline-none focus:border-[color:var(--border-strong)]
@@ -267,7 +267,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           maxLength={40}
           className="
             w-full h-10 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]
             focus:outline-none focus:border-[color:var(--border-strong)]
@@ -299,7 +299,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           rows={8}
           className="
             w-full min-h-40 rounded-lg p-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] leading-relaxed text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]
             focus:outline-none focus:border-[color:var(--border-strong)]
@@ -363,7 +363,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           maxLength={20}
           className="
             w-full h-10 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]
             focus:outline-none focus:border-[color:var(--border-strong)]

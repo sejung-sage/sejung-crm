@@ -37,7 +37,7 @@ export default async function LoginPage({
         </div>
 
         {/* 카드 */}
-        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg)] p-8 shadow-sm">
+        <div className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-card)] p-8 shadow-sm">
           <h2 className="text-[16px] font-semibold text-[color:var(--text)] mb-5">
             로그인
           </h2>

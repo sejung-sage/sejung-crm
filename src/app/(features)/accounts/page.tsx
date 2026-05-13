@@ -116,7 +116,7 @@ export default async function AccountsPage({
 function ForbiddenCard() {
   return (
     <div className="max-w-2xl">
-      <div className="rounded-xl border border-[color:var(--border)] bg-white p-8 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-8 text-center">
         <div className="mx-auto mb-4 flex size-12 items-center justify-center rounded-full bg-[color:var(--bg-muted)]">
           <ShieldAlert
             className="size-6 text-[color:var(--text-muted)]"

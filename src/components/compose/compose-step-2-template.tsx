@@ -200,7 +200,7 @@ function TemplatePicker({
             onChange={(e) => onPick(e.target.value)}
             className="
               w-full h-10 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               focus:outline-none focus:border-[color:var(--border-strong)]
               cursor-pointer
@@ -219,7 +219,7 @@ function TemplatePicker({
       {selected && (
         <section
           aria-label="템플릿 미리보기"
-          className="rounded-lg border border-[color:var(--border)] bg-white p-4 space-y-3"
+          className="rounded-lg border border-[color:var(--border)] bg-bg-card p-4 space-y-3"
         >
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[15px] font-semibold text-[color:var(--text)]">
@@ -347,7 +347,7 @@ function InlineComposer({
           maxLength={40}
           className="
             w-full h-10 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]
             focus:outline-none focus:border-[color:var(--border-strong)]
@@ -373,7 +373,7 @@ function InlineComposer({
           rows={8}
           className="
             w-full min-h-40 rounded-lg p-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] leading-relaxed text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]
             focus:outline-none focus:border-[color:var(--border-strong)]
@@ -439,9 +439,9 @@ function InlineComposer({
             />
             <div className="text-[13px] leading-relaxed text-[color:var(--text)]">
               <strong className="font-medium">광고 발송 안전 가드:</strong>{" "}
-              본문 앞에 <code className="px-1 rounded bg-white">[광고]</code>{" "}
+              본문 앞에 <code className="px-1 rounded bg-bg-card">[광고]</code>{" "}
               prefix 와 끝에{" "}
-              <code className="px-1 rounded bg-white">080 수신거부</code>{" "}
+              <code className="px-1 rounded bg-bg-card">080 수신거부</code>{" "}
               안내가 자동 삽입되며, 21시 ~ 08시에는 발송이 차단됩니다.
             </div>
           </div>

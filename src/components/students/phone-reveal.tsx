@@ -56,7 +56,7 @@ export function PhoneReveal({ phone }: Props) {
         aria-pressed={revealed}
         className="
           inline-flex items-center gap-1 h-10 px-3 rounded-lg
-          border border-[color:var(--border)] bg-white
+          border border-[color:var(--border)] bg-bg-card
           text-[14px] text-[color:var(--text)]
           hover:bg-[color:var(--bg-hover)] hover:border-[color:var(--border-strong)]
           transition-colors
@@ -76,10 +76,10 @@ export function PhoneReveal({ phone }: Props) {
         aria-label="번호 복사"
         className="
           inline-flex items-center gap-1 h-10 px-3 rounded-lg
-          border border-[color:var(--border)] bg-white
+          border border-[color:var(--border)] bg-bg-card
           text-[14px] text-[color:var(--text)]
           hover:bg-[color:var(--bg-hover)] hover:border-[color:var(--border-strong)]
-          disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white
+          disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-bg-card
           transition-colors
         "
       >

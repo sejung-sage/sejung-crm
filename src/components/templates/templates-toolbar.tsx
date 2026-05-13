@@ -92,7 +92,7 @@ export function TemplatesToolbar({ teachers }: Props) {
             className="
               w-full h-10 rounded-lg
               pl-9 pr-3
-              bg-white
+              bg-bg-card
               border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               placeholder:text-[color:var(--text-dim)]
@@ -109,7 +109,7 @@ export function TemplatesToolbar({ teachers }: Props) {
         onChange={(e) => onTypeChange(e.target.value)}
         className="
           h-10 min-w-36 rounded-lg px-3
-          bg-white border border-[color:var(--border)]
+          bg-bg-card border border-[color:var(--border)]
           text-[15px] text-[color:var(--text)]
           focus:outline-none focus:border-[color:var(--border-strong)]
           cursor-pointer
@@ -128,7 +128,7 @@ export function TemplatesToolbar({ teachers }: Props) {
         onChange={(e) => onTeacherChange(e.target.value)}
         className="
           h-10 min-w-36 rounded-lg px-3
-          bg-white border border-[color:var(--border)]
+          bg-bg-card border border-[color:var(--border)]
           text-[15px] text-[color:var(--text)]
           focus:outline-none focus:border-[color:var(--border-strong)]
           cursor-pointer

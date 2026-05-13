@@ -266,7 +266,7 @@ export function StudentsFilters({
               className="
                 w-full h-10 rounded-lg
                 pl-9 pr-3
-                bg-white
+                bg-bg-card
                 border border-[color:var(--border)]
                 text-[15px] text-[color:var(--text)]
                 placeholder:text-[color:var(--text-dim)]
@@ -284,7 +284,7 @@ export function StudentsFilters({
             onChange={(e) => setBranch(e.target.value)}
             className="
               h-10 min-w-40 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               focus:outline-none focus:border-[color:var(--border-strong)]
               cursor-pointer
@@ -311,7 +311,7 @@ export function StudentsFilters({
           onChange={(e) => setSort(e.target.value as StudentSort)}
           className="
             h-10 min-w-44 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             focus:outline-none focus:border-[color:var(--border-strong)]
             cursor-pointer
@@ -350,7 +350,7 @@ export function StudentsFilters({
             ${
               includeHidden
                 ? "bg-[color:var(--bg-hover)] text-[color:var(--text)] border-[color:var(--border-strong)]"
-                : "bg-white text-[color:var(--text-muted)] border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                : "bg-bg-card text-[color:var(--text-muted)] border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
             }
           `}
         >
@@ -473,7 +473,7 @@ function Chip({
         ${
           active
             ? "bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]"
-            : "bg-white text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
+            : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
         }
       `}
     >
@@ -541,7 +541,7 @@ function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className="inline-flex h-10 rounded-lg border border-[color:var(--border)] bg-white p-0.5"
+      className="inline-flex h-10 rounded-lg border border-[color:var(--border)] bg-bg-card p-0.5"
     >
       {options.map((opt) => {
         const active = opt.value === value;
@@ -653,7 +653,7 @@ function ComboboxMulti({
           className="
             inline-flex items-center gap-1.5 h-8 px-3 rounded-full
             text-[14px] font-medium
-            bg-white text-[color:var(--text)]
+            bg-bg-card text-[color:var(--text)]
             border border-dashed border-[color:var(--border-strong)]
             hover:bg-[color:var(--bg-hover)]
             transition-colors
@@ -666,7 +666,7 @@ function ComboboxMulti({
         <div
           className="
             inline-flex items-center gap-1.5 h-8 pl-3 pr-1 rounded-full
-            bg-white
+            bg-bg-card
             border border-[color:var(--border-strong)]
           "
         >
@@ -719,7 +719,7 @@ function ComboboxMulti({
             min-w-64 max-w-80
             max-h-72 overflow-y-auto
             rounded-lg
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             shadow-md
             p-1
           "
@@ -759,7 +759,7 @@ function ComboboxMulti({
                       ${
                         active
                           ? "bg-[color:var(--action)] border-[color:var(--action)] text-[color:var(--action-text)]"
-                          : "bg-white border-[color:var(--border-strong)]"
+                          : "bg-bg-card border-[color:var(--border-strong)]"
                       }
                     `}
                     aria-hidden

@@ -11,7 +11,7 @@ interface Props {
 export function StudentMessagesPanel({ messages }: Props) {
   if (messages.length === 0) {
     return (
-      <div className="rounded-xl border border-[color:var(--border)] bg-white py-16 text-center">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
           이 학생 학부모에게 발송된 문자가 없습니다.
         </p>
@@ -20,7 +20,7 @@ export function StudentMessagesPanel({ messages }: Props) {
   }
 
   return (
-    <div className="rounded-xl border border-[color:var(--border)] bg-white overflow-hidden">
+    <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
       <table className="w-full border-collapse">
         <thead>
           <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">

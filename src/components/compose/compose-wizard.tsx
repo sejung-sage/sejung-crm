@@ -127,7 +127,7 @@ export function ComposeWizard({
                       ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
                       : isDone
                         ? "bg-[color:var(--text-muted)] text-white"
-                        : "border border-[color:var(--border-strong)] text-[color:var(--text-muted)] bg-[color:var(--bg)]",
+                        : "border border-[color:var(--border-strong)] text-[color:var(--text-muted)] bg-[color:var(--bg-card)]",
                   ].join(" ")}
                 >
                   {isDone ? (
@@ -163,7 +163,7 @@ export function ComposeWizard({
       </ol>
 
       {/* 본문 */}
-      <div className="rounded-xl border border-[color:var(--border)] bg-white p-6 space-y-6">
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-6">
         {step === 1 && (
           <ComposeStep1Group
             groups={groups}
@@ -210,7 +210,7 @@ export function ComposeWizard({
             disabled={step === 1}
             className="
               inline-flex items-center h-10 px-4 rounded-lg
-              border border-[color:var(--border)] bg-white
+              border border-[color:var(--border)] bg-bg-card
               text-[14px] text-[color:var(--text)]
               hover:bg-[color:var(--bg-hover)]
               disabled:opacity-40 disabled:cursor-not-allowed

@@ -84,7 +84,7 @@ export function LoginForm({ next }: { next?: string }) {
           className="
             h-11 w-full rounded-lg
             border border-[color:var(--border-strong)]
-            bg-[color:var(--bg)]
+            bg-[color:var(--bg-card)]
             px-3
             text-[15px] text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]
@@ -111,7 +111,7 @@ export function LoginForm({ next }: { next?: string }) {
           className="
             h-11 w-full rounded-lg
             border border-[color:var(--border-strong)]
-            bg-[color:var(--bg)]
+            bg-[color:var(--bg-card)]
             px-3
             text-[15px] text-[color:var(--text)]
             placeholder:text-[color:var(--text-dim)]

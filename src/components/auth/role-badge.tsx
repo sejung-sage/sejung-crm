@@ -24,7 +24,7 @@ const ROLE_STYLE: Record<UserRole, string> = {
   master:
     "bg-[color:var(--action)] text-[color:var(--action-text)] border border-transparent",
   admin:
-    "bg-[color:var(--bg)] text-[color:var(--text)] border border-[color:var(--text)]",
+    "bg-[color:var(--bg-card)] text-[color:var(--text)] border border-[color:var(--text)]",
   manager:
     "bg-[color:var(--bg-hover)] text-[color:var(--text)] border border-transparent",
   viewer:

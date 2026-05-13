@@ -87,7 +87,7 @@ export function ClassKpiCards({ detail }: Props) {
 
 function KpiCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[color:var(--border)] bg-white px-5 py-4">
+    <div className="rounded-xl border border-[color:var(--border)] bg-bg-card px-5 py-4">
       <p className="text-[12px] font-medium text-[color:var(--text-muted)]">
         {label}
       </p>

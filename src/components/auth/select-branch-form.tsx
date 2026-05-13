@@ -101,7 +101,7 @@ function RadioOption({
       className="
         flex items-center gap-3 h-12 px-4 rounded-lg
         border border-[color:var(--border)]
-        bg-[color:var(--bg)]
+        bg-[color:var(--bg-card)]
         hover:bg-[color:var(--bg-hover)]
         cursor-pointer transition-colors
         has-[:checked]:border-[color:var(--action)]

@@ -294,7 +294,7 @@ export function AccountEditForm({
           <label
             className={`
               flex items-center gap-2 h-11 px-3 rounded-lg
-              border border-[color:var(--border)] bg-white
+              border border-[color:var(--border)] bg-bg-card
               ${isSelf ? "opacity-60 cursor-not-allowed" : "cursor-pointer hover:bg-[color:var(--bg-hover)]"}
               transition-colors
             `}
@@ -332,10 +332,10 @@ export function AccountEditForm({
                 }
                 className="
                   inline-flex items-center gap-1.5 h-11 px-4 rounded-lg
-                  border border-[color:var(--border)] bg-white
+                  border border-[color:var(--border)] bg-bg-card
                   text-[14px] text-[color:var(--danger)]
                   hover:bg-[color:var(--danger-bg)]
-                  disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white
+                  disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-bg-card
                   transition-colors
                 "
               >
@@ -349,7 +349,7 @@ export function AccountEditForm({
                 onClick={() => setPendingToggle("reactivate")}
                 className="
                   inline-flex items-center gap-1.5 h-11 px-4 rounded-lg
-                  border border-[color:var(--border)] bg-white
+                  border border-[color:var(--border)] bg-bg-card
                   text-[14px] text-[color:var(--text)]
                   hover:bg-[color:var(--bg-hover)]
                   disabled:opacity-40 disabled:cursor-not-allowed
@@ -369,7 +369,7 @@ export function AccountEditForm({
               className="
                 inline-flex items-center justify-center
                 h-11 px-4 rounded-lg
-                border border-[color:var(--border)] bg-white
+                border border-[color:var(--border)] bg-bg-card
                 text-[14px] text-[color:var(--text)]
                 hover:bg-[color:var(--bg-hover)]
                 transition-colors
@@ -492,7 +492,7 @@ function ConfirmDialog({
         if (e.key === "Escape") onCancel();
       }}
     >
-      <div className="w-full max-w-md rounded-xl bg-white border border-[color:var(--border)] shadow-lg p-6 space-y-4">
+      <div className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4">
         <h2
           id="confirm-title"
           className="text-[18px] font-semibold text-[color:var(--text)]"
@@ -509,7 +509,7 @@ function ConfirmDialog({
             disabled={busy}
             className="
               inline-flex items-center h-11 px-4 rounded-lg
-              border border-[color:var(--border)] bg-white
+              border border-[color:var(--border)] bg-bg-card
               text-[14px] text-[color:var(--text)]
               hover:bg-[color:var(--bg-hover)]
               disabled:opacity-50
@@ -543,7 +543,7 @@ function ConfirmDialog({
 
 const inputClass = `
   w-full h-11 rounded-lg px-3
-  bg-white border border-[color:var(--border)]
+  bg-bg-card border border-[color:var(--border)]
   text-[15px] text-[color:var(--text)]
   placeholder:text-[color:var(--text-dim)]
   focus:outline-none focus:border-[color:var(--border-strong)]
@@ -552,7 +552,7 @@ const inputClass = `
 
 const selectClass = `
   w-full h-11 rounded-lg px-3
-  bg-white border border-[color:var(--border)]
+  bg-bg-card border border-[color:var(--border)]
   text-[15px] text-[color:var(--text)]
   focus:outline-none focus:border-[color:var(--border-strong)]
   cursor-pointer

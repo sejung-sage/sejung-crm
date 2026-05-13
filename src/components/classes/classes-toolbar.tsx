@@ -329,7 +329,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
               className="
                 w-full h-10 rounded-lg
                 pl-9 pr-3
-                bg-white
+                bg-bg-card
                 border border-[color:var(--border)]
                 text-[15px] text-[color:var(--text)]
                 placeholder:text-[color:var(--text-dim)]
@@ -347,7 +347,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
             onChange={(e) => onBranchChange(e.target.value)}
             className="
               h-10 min-w-40 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               focus:outline-none focus:border-[color:var(--border-strong)]
               cursor-pointer
@@ -367,7 +367,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
           onChange={(e) => onSubjectChange(e.target.value)}
           className="
             h-10 min-w-32 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             focus:outline-none focus:border-[color:var(--border-strong)]
             cursor-pointer
@@ -386,7 +386,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
           onChange={(e) => onSortChange(e.target.value as ClassSort)}
           className="
             h-10 min-w-44 rounded-lg px-3
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             text-[15px] text-[color:var(--text)]
             focus:outline-none focus:border-[color:var(--border-strong)]
             cursor-pointer
@@ -404,7 +404,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
           aria-label="진행 상태"
           className="
             inline-flex items-stretch h-10 rounded-lg
-            bg-white border border-[color:var(--border)]
+            bg-bg-card border border-[color:var(--border)]
             overflow-hidden
           "
         >
@@ -424,7 +424,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
                   ${
                     active
                       ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
-                      : "bg-white text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                      : "bg-bg-card text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
                   }
                 `}
               >
@@ -449,7 +449,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
         <div
           role="radiogroup"
           aria-label="일자 단위"
-          className="inline-flex items-stretch h-10 rounded-lg bg-white border border-[color:var(--border)] overflow-hidden"
+          className="inline-flex items-stretch h-10 rounded-lg bg-bg-card border border-[color:var(--border)] overflow-hidden"
         >
           {(["day", "month"] as const).map((mode, idx) => {
             const active = dateMode === mode;
@@ -467,7 +467,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
                   ${
                     active
                       ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
-                      : "bg-white text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                      : "bg-bg-card text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
                   }
                 `}
               >
@@ -486,7 +486,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
             onChange={(e) => onDateChange(e.target.value)}
             className="
               h-10 min-w-44 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               focus:outline-none focus:border-[color:var(--border-strong)]
               cursor-pointer
@@ -500,7 +500,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
             onChange={(e) => onMonthChange(e.target.value)}
             className="
               h-10 min-w-44 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               focus:outline-none focus:border-[color:var(--border-strong)]
               cursor-pointer
@@ -519,7 +519,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
           className="
             inline-flex items-center h-10 px-3 rounded-lg
             text-[14px] font-medium
-            bg-white text-[color:var(--text)]
+            bg-bg-card text-[color:var(--text)]
             border border-[color:var(--border)]
             hover:border-[color:var(--border-strong)]
             hover:bg-[color:var(--bg-hover)]
@@ -646,7 +646,7 @@ function Chip({
         ${
           active
             ? "bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]"
-            : "bg-white text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
+            : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
         }
       `}
     >

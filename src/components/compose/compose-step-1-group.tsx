@@ -60,7 +60,7 @@ export function ComposeStep1Group({ groups, groupId, onGroupIdChange }: Props) {
             onChange={(e) => onGroupIdChange(e.target.value)}
             className="
               w-full h-10 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               focus:outline-none focus:border-[color:var(--border-strong)]
               cursor-pointer

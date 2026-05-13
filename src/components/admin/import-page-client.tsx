@@ -402,7 +402,7 @@ function Dropzone({
                 mt-3 inline-flex items-center justify-center
                 h-9 px-3 rounded-md
                 border border-[color:var(--border)]
-                bg-[color:var(--bg)]
+                bg-[color:var(--bg-card)]
                 text-[13px] font-medium text-[color:var(--text)]
                 hover:bg-[color:var(--bg-hover)]
                 cursor-pointer
@@ -537,7 +537,7 @@ function SummaryCard({
         ${
           tone === "danger" && value > 0
             ? "border-[color:var(--danger)] bg-[color:var(--danger-bg)]"
-            : "border-[color:var(--border)] bg-[color:var(--bg)]"
+            : "border-[color:var(--border)] bg-[color:var(--bg-card)]"
         }
       `}
     >
@@ -576,7 +576,7 @@ function FileSection({ report }: { report: ImportValidationReport }) {
   const hasErrors = report.errors.length > 0;
 
   return (
-    <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg)] overflow-hidden">
+    <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg-card)] overflow-hidden">
       <div className="flex flex-wrap items-center gap-3 px-4 py-3 border-b border-[color:var(--border)]">
         <div className="flex items-center gap-2">
           <FileSpreadsheet
@@ -690,7 +690,7 @@ function CrossErrorSection({ errors }: { errors: RowError[] }) {
       </div>
 
       {expanded && (
-        <div className="border-t border-[color:var(--warning)] bg-[color:var(--bg)]">
+        <div className="border-t border-[color:var(--warning)] bg-[color:var(--bg-card)]">
           <ErrorsTable errors={errors} />
         </div>
       )}
@@ -787,7 +787,7 @@ function Badge({
     muted:
       "border-[color:var(--border)] text-[color:var(--text-muted)] bg-[color:var(--bg-muted)]",
     danger:
-      "border-[color:var(--danger)] text-[color:var(--danger)] bg-[color:var(--bg)]",
+      "border-[color:var(--danger)] text-[color:var(--danger)] bg-[color:var(--bg-card)]",
     success:
       "border-[color:var(--success)] text-[color:var(--success)] bg-[color:var(--success-bg)]",
   };
@@ -860,7 +860,7 @@ function ApplyResultCard({
               inline-flex items-center gap-1.5
               h-10 px-4 rounded-lg
               border border-[color:var(--border)]
-              bg-[color:var(--bg)]
+              bg-[color:var(--bg-card)]
               text-[14px] text-[color:var(--text)]
               hover:bg-[color:var(--bg-hover)]
               transition-colors
@@ -904,7 +904,7 @@ function ApplyResultCard({
               inline-flex items-center gap-1.5
               h-10 px-4 rounded-lg
               border border-[color:var(--border)]
-              bg-[color:var(--bg)]
+              bg-[color:var(--bg-card)]
               text-[14px] text-[color:var(--text)]
               hover:bg-[color:var(--bg-hover)]
               transition-colors

@@ -81,7 +81,7 @@ export function ResendFailedButton({ campaignId, failedCount }: Props) {
         disabled={failedCount === 0}
         className="
           inline-flex items-center gap-1.5 h-10 px-4 rounded-lg
-          border border-[color:var(--border)] bg-white
+          border border-[color:var(--border)] bg-bg-card
           text-[14px] text-[color:var(--text)]
           hover:bg-[color:var(--bg-hover)]
           disabled:opacity-40 disabled:cursor-not-allowed
@@ -127,7 +127,7 @@ export function ResendFailedButton({ campaignId, failedCount }: Props) {
             if (e.key === "Escape" && !isPending) setConfirming(false);
           }}
         >
-          <div className="w-full max-w-md rounded-xl bg-white border border-[color:var(--border)] shadow-lg p-6 space-y-4">
+          <div className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4">
             <h3
               id="resend-confirm-title"
               className="text-[18px] font-semibold text-[color:var(--text)]"
@@ -148,7 +148,7 @@ export function ResendFailedButton({ campaignId, failedCount }: Props) {
                 disabled={isPending}
                 className="
                   inline-flex items-center h-10 px-4 rounded-lg
-                  border border-[color:var(--border)] bg-white
+                  border border-[color:var(--border)] bg-bg-card
                   text-[14px] text-[color:var(--text)]
                   hover:bg-[color:var(--bg-hover)]
                   disabled:opacity-50 transition-colors

@@ -198,7 +198,7 @@ export function ComposeStep4Send({
               onChange={(e) => onScheduleAtChange(e.target.value || null)}
               className="
                 h-10 rounded-lg px-3
-                bg-white border border-[color:var(--border)]
+                bg-bg-card border border-[color:var(--border)]
                 text-[15px] text-[color:var(--text)]
                 focus:outline-none focus:border-[color:var(--border-strong)]
               "
@@ -362,7 +362,7 @@ function ResultBox({
           onClick={onBack}
           className="
             inline-flex items-center h-10 px-4 rounded-lg
-            border border-[color:var(--border)] bg-white
+            border border-[color:var(--border)] bg-bg-card
             text-[14px] text-[color:var(--text)]
             hover:bg-[color:var(--bg-hover)]
             transition-colors

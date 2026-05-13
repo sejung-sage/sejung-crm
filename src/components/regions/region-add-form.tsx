@@ -80,7 +80,7 @@ export function RegionAddForm({ knownRegions }: Props) {
   return (
     <section
       aria-label="새 학교 추가"
-      className="rounded-xl border border-[color:var(--border)] bg-white p-4 md:p-5"
+      className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 md:p-5"
     >
       <h2 className="text-[16px] font-semibold text-[color:var(--text)] mb-3">
         새 학교 추가
@@ -102,7 +102,7 @@ export function RegionAddForm({ knownRegions }: Props) {
             disabled={isPending}
             className="
               w-full h-10 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               placeholder:text-[color:var(--text-dim)]
               focus:outline-none focus:border-[color:var(--border-strong)]
@@ -130,7 +130,7 @@ export function RegionAddForm({ knownRegions }: Props) {
             disabled={isPending}
             className="
               w-full h-10 rounded-lg px-3
-              bg-white border border-[color:var(--border)]
+              bg-bg-card border border-[color:var(--border)]
               text-[15px] text-[color:var(--text)]
               focus:outline-none focus:border-[color:var(--border-strong)]
               disabled:bg-[color:var(--bg-muted)] disabled:opacity-60
@@ -160,7 +160,7 @@ export function RegionAddForm({ knownRegions }: Props) {
               disabled={isPending}
               className="
                 w-full h-10 rounded-lg px-3
-                bg-white border border-[color:var(--border)]
+                bg-bg-card border border-[color:var(--border)]
                 text-[15px] text-[color:var(--text)]
                 placeholder:text-[color:var(--text-dim)]
                 focus:outline-none focus:border-[color:var(--border-strong)]
