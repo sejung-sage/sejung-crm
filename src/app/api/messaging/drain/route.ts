@@ -82,6 +82,12 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json(result);
   } catch (e) {
     const message = e instanceof Error ? e.message : "드레인 처리 실패";
+    const stack = e instanceof Error && e.stack ? e.stack : "";
+    // Vercel logs 에 error level 로 강제 노출 — 500 응답만 보이고 원인 못 잡는
+    // 사고 방지. 학부모 번호 등 민감정보는 throw 메시지에 들어 있지 않음.
+    console.error(
+      `[drain] campaign=${campaignId} 처리 실패: ${message}\n${stack}`,
+    );
     return Response.json({ error: message }, { status: 500 });
   }
 }
