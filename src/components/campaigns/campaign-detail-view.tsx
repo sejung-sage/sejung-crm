@@ -6,6 +6,7 @@ import { BranchBadge } from "@/components/groups/branch-badge";
 import { CampaignStatusBadge } from "@/components/campaigns/campaign-status-badge";
 import { CampaignMessagesTable } from "@/components/campaigns/campaign-messages-table";
 import { ResendFailedButton } from "@/components/campaigns/resend-failed-button";
+import { ResumeStuckButton } from "@/components/campaigns/resume-stuck-button";
 import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
 
 /**
@@ -135,7 +136,13 @@ export function CampaignDetailView({ campaign, messages, counts }: Props) {
           </div>
 
           {/* 우상단 액션 */}
-          <div className="shrink-0">
+          <div className="shrink-0 flex flex-col items-end gap-2">
+            {isInFlight && pendingCount > 0 && (
+              <ResumeStuckButton
+                campaignId={campaign.id}
+                pendingCount={pendingCount}
+              />
+            )}
             <ResendFailedButton
               campaignId={campaign.id}
               failedCount={failedCount}

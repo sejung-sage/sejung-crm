@@ -67,8 +67,18 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const result = await drainCampaignChunk(campaignId);
 
-    // 다음 청크 남았으면 자기 자신 재호출 (fire-and-forget)
-    if (result.hasMore) {
+    // 관찰성 로깅 (Vercel logs 추적용). 학부모 번호 등 민감정보는 들어 있지 않음.
+    console.log(
+      `[drain] campaign=${campaignId} attempted=${result.attempted} ` +
+        `sent=${result.sent} failed=${result.failed} hasMore=${result.hasMore} ` +
+        `lockSkipped=${result.lockSkipped} done=${result.campaignDone}`,
+    );
+
+    // 다음 청크 남았으면 자기 자신 재호출 (fire-and-forget).
+    // 단 lockSkipped 인 경우는 다른 인스턴스가 이미 처리 중이므로 self-invocation 생략 —
+    // hasMore=true 라도 sweep(매 3분) 이 다음 cycle 에서 잡거나, 점유 중이던
+    // 인스턴스가 자기 self-invocation 으로 이어간다.
+    if (result.hasMore && !result.lockSkipped) {
       kickNextChunk(campaignId, secret);
     }
 
@@ -86,9 +96,13 @@ export async function POST(request: Request): Promise<Response> {
  */
 function kickNextChunk(campaignId: string, secret: string): void {
   const url = `${getMessagingBaseUrl()}/api/messaging/drain`;
-  // Vercel `waitUntil` 로 fetch 가 실제 발사된 뒤 함수가 종료되도록 보장.
-  // 단순 `void fetch` 는 응답 송출 직후 Vercel 이 함수 인스턴스를 정리하면서
-  // 미발사 promise 가 캔슬되는 케이스가 있어 self-invocation 체인이 끊긴다.
+  // 안전망 2중:
+  //   - `keepalive: true`  : Vercel 이 함수 인스턴스를 정리하더라도 in-flight 요청
+  //     이 끊기지 않고 끝까지 보내지도록 fetch 에 지시 (page-unload 패턴 차용).
+  //   - `waitUntil(...)`   : 응답 송출 후에도 fetch 가 resolve 될 때까지 인스턴스
+  //     수명을 연장.
+  // 둘 중 하나만 있어도 대부분 동작하지만, 자가호출 chain 의 N번째 단계에서
+  // 끊기는 회귀(2026-05-11 10K 캠페인이 4K 에서 멈춤)가 관측돼 둘 다 적용.
   waitUntil(
     fetch(url, {
       method: "POST",
@@ -97,8 +111,10 @@ function kickNextChunk(campaignId: string, secret: string): void {
         "x-drain-secret": secret,
       },
       body: JSON.stringify({ campaignId }),
+      keepalive: true,
     }).catch(() => {
-      // 네트워크 실패는 의도적으로 무시. 운영팀이 수동 재킥으로 회복 가능.
+      // 네트워크 실패는 의도적으로 무시. /campaigns/[id] 의 "이어보내기" 버튼으로
+      // 수동 재개 가능 (lib/messaging/resume-stuck-campaign.ts).
     }),
   );
 }
