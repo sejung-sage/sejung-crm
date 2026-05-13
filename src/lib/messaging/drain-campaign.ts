@@ -58,6 +58,14 @@ export interface DrainChunkResult {
   addedCost: number;
   /** 캠페인 최종 상태가 본 호출에서 마감되었는지 */
   campaignDone: boolean;
+  /**
+   * 캠페인 단위 advisory lock 을 못 잡아 즉시 종료한 케이스인지.
+   * true 면 다른 drain 인스턴스가 같은 캠페인을 처리 중이라는 뜻.
+   * 호출자(drain route)는 이 경우 self-invocation 을 띄우지 않는다 —
+   * sweep 이 다음 cycle 에서 다시 잡거나, 점유 중이던 인스턴스가 끝나면
+   * 자기 self-invocation 으로 이어간다.
+   */
+  lockSkipped: boolean;
 }
 
 export async function drainCampaignChunk(
@@ -65,125 +73,144 @@ export async function drainCampaignChunk(
 ): Promise<DrainChunkResult> {
   const supabase = createSupabaseServiceClient();
 
-  // 1) 캠페인 로드 + 상태 검증
-  const campaign = await loadCampaign(supabase, campaignId);
-  if (campaign.status !== "발송중") {
-    return doneResult(campaignId);
-  }
-  if (!campaign.body || !campaign.type) {
-    await updateCampaignStatus(supabase, campaignId, "실패");
-    throw new Error("캠페인 body/type 누락 — 발송 불가");
-  }
-
-  // 2) 다음 청크 가져오기 (오래된 순)
-  const pending = await fetchPending(supabase, campaignId);
-
-  if (pending.length === 0) {
-    // 더 발송할 게 없음 — 캠페인 마감
-    const finalStatus = await determineFinalStatus(supabase, campaignId);
-    await updateCampaignStatus(supabase, campaignId, finalStatus);
-    return doneResult(campaignId);
+  // 0) 캠페인 단위 advisory lock 시도.
+  //    sweep(0031) 도입 후 동시성 윈도우 방지. 다른 drain 인스턴스가 점유 중이면
+  //    즉시 종료해 같은 메시지가 두 번 sendon 으로 가는 사고를 차단한다.
+  //    PostgREST 풀 한계로 false 가 false-positive 일 수 있음 — 안전한 fail-mode
+  //    (이중 발송보다 sweep 한 cycle 더 기다리는 게 낫다).
+  const acquired = await tryLockCampaign(supabase, campaignId);
+  if (!acquired) {
+    // hasMore=true 로 반환해 sweep 이 다음 cycle 에서 다시 잡도록 한다.
+    // 단 호출자(drain route)는 lockSkipped=true 면 self-invocation 띄우지 않음.
+    return lockSkippedResult(campaignId);
   }
 
-  // 3) 최종 본문 재계산 (광고 prefix + 080 footer)
-  const finalBody = insertUnsubscribeFooter(
-    insertAdTag(campaign.body, campaign.is_ad),
-    campaign.is_ad,
-  );
+  try {
+    // 1) 캠페인 로드 + 상태 검증
+    const campaign = await loadCampaign(supabase, campaignId);
+    if (campaign.status !== "발송중") {
+      return doneResult(campaignId);
+    }
+    if (!campaign.body || !campaign.type) {
+      await updateCampaignStatus(supabase, campaignId, "실패");
+      throw new Error("캠페인 body/type 누락 — 발송 불가");
+    }
 
-  // 4) 어댑터 + 발신번호
-  const adapter = createSmsAdapter();
-  const fromNumber = readFromNumber(adapter.name);
-  if (!fromNumber) {
-    await updateCampaignStatus(supabase, campaignId, "실패");
-    throw new Error("발신번호 환경변수가 설정되어 있지 않습니다");
-  }
+    // 2) 다음 청크 가져오기 (오래된 순)
+    const pending = await fetchPending(supabase, campaignId);
 
-  // 5) 발송 (batch=100)
-  const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
-  let sent = 0;
-  let failed = 0;
-  let addedCost = 0;
-  const type = campaign.type as TemplateType;
+    if (pending.length === 0) {
+      // 더 발송할 게 없음 — 캠페인 마감
+      const finalStatus = await determineFinalStatus(supabase, campaignId);
+      await updateCampaignStatus(supabase, campaignId, finalStatus);
+      return doneResult(campaignId);
+    }
 
-  for (let i = 0; i < pending.length; i += SEND_BATCH) {
-    const batch = pending.slice(i, i + SEND_BATCH);
-    const results = await Promise.allSettled(
-      batch.map((m) =>
-        adapter.send({
-          to: m.phone,
-          body: finalBody,
-          subject: campaign.subject,
-          type,
-          fromNumber,
-        }),
-      ),
+    // 3) 최종 본문 재계산 (광고 prefix + 080 footer)
+    const finalBody = insertUnsubscribeFooter(
+      insertAdTag(campaign.body, campaign.is_ad),
+      campaign.is_ad,
     );
 
-    for (let j = 0; j < batch.length; j += 1) {
-      const row = batch[j];
-      if (!row) continue;
-      const sr = results[j];
-      const nowIso = new Date().toISOString();
+    // 4) 어댑터 + 발신번호
+    const adapter = createSmsAdapter();
+    const fromNumber = readFromNumber(adapter.name);
+    if (!fromNumber) {
+      await updateCampaignStatus(supabase, campaignId, "실패");
+      throw new Error("발신번호 환경변수가 설정되어 있지 않습니다");
+    }
 
-      if (sr && sr.status === "fulfilled" && sr.value.status === "queued") {
-        sent += 1;
-        const unitCost = calculateCost(type, 1).totalCost;
-        addedCost += unitCost;
-        // messages.cost INT — 소수 단가는 round 후 저장 (합산 정확도는 totalCost float 누적으로 보존).
-        updates.push({
-          id: row.id,
-          patch: {
-            status: "발송됨" satisfies MessageStatus,
-            vendor_message_id: sr.value.vendorMessageId,
-            cost: Math.round(unitCost),
-            sent_at: nowIso,
-          },
-        });
-      } else {
-        failed += 1;
-        updates.push({
-          id: row.id,
-          patch: {
-            status: "실패" satisfies MessageStatus,
-            failed_reason: extractFailedReason(sr),
-            sent_at: nowIso,
-          },
-        });
+    // 5) 발송 (batch=100)
+    const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
+    let sent = 0;
+    let failed = 0;
+    let addedCost = 0;
+    const type = campaign.type as TemplateType;
+
+    for (let i = 0; i < pending.length; i += SEND_BATCH) {
+      const batch = pending.slice(i, i + SEND_BATCH);
+      const results = await Promise.allSettled(
+        batch.map((m) =>
+          adapter.send({
+            to: m.phone,
+            body: finalBody,
+            subject: campaign.subject,
+            type,
+            fromNumber,
+          }),
+        ),
+      );
+
+      for (let j = 0; j < batch.length; j += 1) {
+        const row = batch[j];
+        if (!row) continue;
+        const sr = results[j];
+        const nowIso = new Date().toISOString();
+
+        if (sr && sr.status === "fulfilled" && sr.value.status === "queued") {
+          sent += 1;
+          const unitCost = calculateCost(type, 1).totalCost;
+          addedCost += unitCost;
+          // messages.cost INT — 소수 단가는 round 후 저장 (합산 정확도는 totalCost float 누적으로 보존).
+          updates.push({
+            id: row.id,
+            patch: {
+              status: "발송됨" satisfies MessageStatus,
+              vendor_message_id: sr.value.vendorMessageId,
+              cost: Math.round(unitCost),
+              sent_at: nowIso,
+            },
+          });
+        } else {
+          failed += 1;
+          updates.push({
+            id: row.id,
+            patch: {
+              status: "실패" satisfies MessageStatus,
+              failed_reason: extractFailedReason(sr),
+              sent_at: nowIso,
+            },
+          });
+        }
       }
     }
+
+    // 6) UPDATE 병렬 적용 (50건씩 묶어 라운드트립 단축)
+    for (let i = 0; i < updates.length; i += UPDATE_PARALLELISM) {
+      const wave = updates.slice(i, i + UPDATE_PARALLELISM);
+      await Promise.all(wave.map((u) => updateMessage(supabase, u.id, u.patch)));
+    }
+
+    // 7) 캠페인 누적 비용 갱신
+    if (addedCost > 0) {
+      await incrementCampaignCost(supabase, campaignId, addedCost);
+    }
+
+    // 8) 남은 '대기' 있는지 확인 → hasMore 결정
+    const hasMore = await hasPending(supabase, campaignId);
+
+    let campaignDone = false;
+    if (!hasMore) {
+      const finalStatus = await determineFinalStatus(supabase, campaignId);
+      await updateCampaignStatus(supabase, campaignId, finalStatus);
+      campaignDone = true;
+    }
+
+    return {
+      campaignId,
+      attempted: pending.length,
+      sent,
+      failed,
+      hasMore,
+      addedCost,
+      campaignDone,
+      lockSkipped: false,
+    };
+  } finally {
+    // 락 해제. PostgREST 풀에서 다른 connection 이 호출되면 false 반환할 수 있으나
+    // 실패해도 무시 — connection idle 종료 시 자동 해제되므로 영구 데드락 위험 없음.
+    await unlockCampaign(supabase, campaignId);
   }
-
-  // 6) UPDATE 병렬 적용 (50건씩 묶어 라운드트립 단축)
-  for (let i = 0; i < updates.length; i += UPDATE_PARALLELISM) {
-    const wave = updates.slice(i, i + UPDATE_PARALLELISM);
-    await Promise.all(wave.map((u) => updateMessage(supabase, u.id, u.patch)));
-  }
-
-  // 7) 캠페인 누적 비용 갱신
-  if (addedCost > 0) {
-    await incrementCampaignCost(supabase, campaignId, addedCost);
-  }
-
-  // 8) 남은 '대기' 있는지 확인 → hasMore 결정
-  const hasMore = await hasPending(supabase, campaignId);
-
-  let campaignDone = false;
-  if (!hasMore) {
-    const finalStatus = await determineFinalStatus(supabase, campaignId);
-    await updateCampaignStatus(supabase, campaignId, finalStatus);
-    campaignDone = true;
-  }
-
-  return {
-    campaignId,
-    attempted: pending.length,
-    sent,
-    failed,
-    hasMore,
-    addedCost,
-    campaignDone,
-  };
 }
 
 // ─── 헬퍼 ──────────────────────────────────────────────────
@@ -197,7 +224,81 @@ function doneResult(campaignId: string): DrainChunkResult {
     hasMore: false,
     addedCost: 0,
     campaignDone: true,
+    lockSkipped: false,
   };
+}
+
+/**
+ * advisory lock 미획득으로 즉시 종료한 케이스 결과.
+ * hasMore=true 로 두어 sweep 이 다음 cycle 에서 다시 시도하도록.
+ * (호출자는 lockSkipped=true 면 self-invocation 띄우지 않음)
+ */
+function lockSkippedResult(campaignId: string): DrainChunkResult {
+  return {
+    campaignId,
+    attempted: 0,
+    sent: 0,
+    failed: 0,
+    hasMore: true,
+    addedCost: 0,
+    campaignDone: false,
+    lockSkipped: true,
+  };
+}
+
+/**
+ * 캠페인 단위 advisory lock 시도 (RPC: try_lock_campaign).
+ * RPC 자체가 실패하면 보수적으로 false 반환 → drain 인스턴스 즉시 종료.
+ * sweep 이 다음 cycle 에서 다시 잡으므로 안전.
+ */
+async function tryLockCampaign(
+  supabase: SrvClient,
+  campaignId: string,
+): Promise<boolean> {
+  const { data, error } = await (
+    supabase as unknown as {
+      rpc: (
+        fn: string,
+        args: Record<string, unknown>,
+      ) => Promise<{ data: boolean | null; error: { message: string } | null }>;
+    }
+  ).rpc("try_lock_campaign", { p_campaign_id: campaignId });
+
+  if (error) {
+    // RPC 자체 실패는 보수적으로 락 미획득 처리.
+    console.warn(
+      `[drain] try_lock_campaign RPC 실패 (campaign=${campaignId}): ${error.message}`,
+    );
+    return false;
+  }
+  return data === true;
+}
+
+/**
+ * 캠페인 단위 advisory lock 해제 (RPC: unlock_campaign).
+ * 다른 connection 에서 호출되면 false 반환할 수 있으나 무시.
+ * connection idle 종료 시 자동 해제되므로 영구 데드락 위험 없음.
+ */
+async function unlockCampaign(
+  supabase: SrvClient,
+  campaignId: string,
+): Promise<void> {
+  try {
+    await (
+      supabase as unknown as {
+        rpc: (
+          fn: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ data: boolean | null; error: { message: string } | null }>;
+      }
+    ).rpc("unlock_campaign", { p_campaign_id: campaignId });
+  } catch (e) {
+    // unlock 실패는 의도적으로 무시 (connection idle 종료 시 자동 해제).
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn(
+      `[drain] unlock_campaign RPC 예외 (campaign=${campaignId}): ${msg}`,
+    );
+  }
 }
 
 async function loadCampaign(
