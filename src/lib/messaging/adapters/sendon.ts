@@ -36,6 +36,8 @@ import {
 import type {
   AdapterMode,
   SmsAdapter,
+  SmsBatchSendRequest,
+  SmsBatchSendResult,
   SmsSendRequest,
   SmsSendResult,
   SmsStatusQueryResult,
@@ -76,6 +78,13 @@ export function createSendonAdapter(opts: SendonAdapterOptions): SmsAdapter {
         return sendMock(req);
       }
       return await sendLive(req, opts);
+    },
+
+    async sendBatch(req: SmsBatchSendRequest): Promise<SmsBatchSendResult> {
+      if (mode === "mock") {
+        return sendBatchMock(req);
+      }
+      return await sendBatchLive(req, opts);
     },
 
     async queryStatus(
@@ -185,6 +194,94 @@ async function sendLive(
     return {
       status: "failed",
       reason: safe ? `sendon 발송 실패: ${safe}` : "sendon 발송에 실패했습니다",
+    };
+  }
+}
+
+// ─── live batch 발송 (다중 수신자 1회 API) ───────────────────
+
+async function sendBatchLive(
+  req: SmsBatchSendRequest,
+  opts: SendonAdapterOptions,
+): Promise<SmsBatchSendResult> {
+  if (!opts.userId) {
+    return { status: "failed", reason: "sendon USER ID 가 설정되지 않았습니다" };
+  }
+  if (!opts.apiKey) {
+    return { status: "failed", reason: "sendon API KEY 가 설정되지 않았습니다" };
+  }
+  if (!opts.fromNumber) {
+    return { status: "failed", reason: "sendon 발신번호가 설정되지 않았습니다" };
+  }
+  if (req.to.length === 0) {
+    return { status: "failed", reason: "수신자 배열이 비어 있습니다" };
+  }
+
+  if (req.type === "ALIMTALK") {
+    return {
+      status: "failed",
+      reason:
+        "sendon 알림톡 batch 발송은 사전 등록된 템플릿 ID 가 필요합니다 (Phase 1 지원 예정)",
+    };
+  }
+
+  let client: Sendon;
+  try {
+    client = new Sendon({
+      id: opts.userId,
+      apikey: opts.apiKey,
+      debug: false,
+    });
+  } catch {
+    return {
+      status: "failed",
+      reason: "sendon 클라이언트 초기화에 실패했습니다",
+    };
+  }
+
+  const sdkType =
+    req.type === "SMS" ? SmsMessageType.SMS : SmsMessageType.LMS;
+
+  const payload: SendMessageRequestDto = {
+    type: sdkType,
+    from: opts.fromNumber,
+    to: req.to,
+    message: req.body,
+  };
+  if (req.type === "LMS") {
+    payload.title =
+      req.subject && req.subject.trim().length > 0
+        ? req.subject.trim()
+        : req.body.slice(0, 20);
+  }
+
+  try {
+    const result = await client.sms.send(payload);
+    if (result.code === 200 && result.data?.groupId) {
+      const unitCost = SENDON_MOCK_UNIT_COST[req.type];
+      return {
+        status: "queued",
+        vendorMessageId: result.data.groupId,
+        unitCost,
+      };
+    }
+    const reason = sanitizeErrorMessage(
+      result.message ?? `code ${result.code}`,
+    );
+    return {
+      status: "failed",
+      reason: reason
+        ? `sendon batch 접수 실패 (코드 ${result.code}): ${reason}`
+        : `sendon batch 접수 실패 (코드 ${result.code})`,
+    };
+  } catch (e: unknown) {
+    const raw = extractErrorMessage(e);
+    const safe = sanitizeErrorMessage(raw);
+    return {
+      status: "failed",
+      reason: safe
+        ? `sendon batch 발송 실패: ${safe}`
+        : "sendon batch 발송에 실패했습니다",
     };
   }
 }
@@ -305,5 +402,20 @@ function sendMock(req: SmsSendRequest): SmsSendResult {
     status: "queued",
     vendorMessageId,
     cost,
+  };
+}
+
+/**
+ * mock batch 응답 — 단일 groupId 발급, 모든 수신자 동일 vendor_message_id 공유.
+ */
+function sendBatchMock(req: SmsBatchSendRequest): SmsBatchSendResult {
+  if (req.to.length === 0) {
+    return { status: "failed", reason: "수신자 배열이 비어 있습니다" };
+  }
+  const unitCost = SENDON_MOCK_UNIT_COST[req.type];
+  return {
+    status: "queued",
+    vendorMessageId: `mock-sendon-batch-${randomUUID()}`,
+    unitCost,
   };
 }

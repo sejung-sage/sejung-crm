@@ -29,6 +29,44 @@ export type SmsSendResult =
   | { status: "queued"; vendorMessageId: string; cost: number }
   | { status: "failed"; reason: string };
 
+/**
+ * 다중 수신자 일괄 발송 요청.
+ * sendon `SendMessageRequestDto.to: Array<...>` 1회 API 호출에 매핑.
+ * 본 인터페이스로 보내는 모든 수신자는 동일한 body / subject / type / fromNumber
+ * 를 공유한다 (개인화 변수는 Phase 2 — sendon userParameters).
+ *
+ * 수신자별 개별 vendor_message_id 가 필요하면 send() 를 N번 호출해야 한다.
+ * 본 batch 는 1 groupId 를 N건이 공유 — Status polling 시 groupId 단위 조회.
+ */
+export type SmsBatchSendRequest = {
+  /** 수신자 번호 배열. 각 항목은 하이픈 없는 11자리(01012345678). */
+  to: string[];
+  /** 안전 가드까지 모두 적용 완료된 최종 본문. */
+  body: string;
+  /** LMS/알림톡 제목. SMS 는 null. */
+  subject: string | null;
+  /** 메시지 유형. */
+  type: SmsType;
+  /** 발신번호. 사전에 벤더에 등록된 번호. */
+  fromNumber: string;
+};
+
+/**
+ * 다중 수신자 일괄 발송 결과.
+ * - queued : 모든 수신자가 벤더 큐에 적재됨. vendorMessageId 는 N건이 공유.
+ * - failed : 일괄 실패. 어떤 수신자 때문에 실패했는지는 본 결과만으로 모름
+ *            (필요 시 sendon `find` API 로 groupId 조회).
+ */
+export type SmsBatchSendResult =
+  | {
+      status: "queued";
+      /** 벤더의 groupId. N건이 모두 같은 값을 공유. */
+      vendorMessageId: string;
+      /** 1건당 단가 (총 비용은 호출자가 to.length 곱해서 계산). */
+      unitCost: number;
+    }
+  | { status: "failed"; reason: string };
+
 export type SmsStatusQueryResult =
   | {
       status: "queued" | "sent" | "delivered" | "failed";
@@ -39,6 +77,11 @@ export type SmsStatusQueryResult =
 export interface SmsAdapter {
   readonly name: "sendon";
   send(req: SmsSendRequest): Promise<SmsSendResult>;
+  /**
+   * 다중 수신자 일괄 발송. 벤더 API 1회 호출로 다수 수신자에게 동시 적재.
+   * 6만+ 대량 발송에서 send() N회 호출 (= N round-trip) 을 1회로 축소하는 핵심.
+   */
+  sendBatch(req: SmsBatchSendRequest): Promise<SmsBatchSendResult>;
   queryStatus(vendorMessageId: string): Promise<SmsStatusQueryResult>;
 }
 

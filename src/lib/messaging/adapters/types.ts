@@ -9,6 +9,8 @@
 export type {
   AdapterMode,
   SmsAdapter,
+  SmsBatchSendRequest,
+  SmsBatchSendResult,
   SmsSendRequest,
   SmsSendResult,
   SmsStatusQueryResult,

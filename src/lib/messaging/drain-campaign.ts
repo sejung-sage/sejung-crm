@@ -10,9 +10,9 @@
  *
  * Vercel 함수 타임아웃(300s) 안에 한 청크가 안전하게 끝나도록 설계:
  *   - DRAIN_CHUNK_SIZE = 1,000
- *   - 어댑터 호출: 100건 Promise.allSettled batch
+ *   - 어댑터 호출: sendon batch API 1회 (다중 수신자 1회 발사)
  *   - DB UPDATE: 50건 Promise.all 병렬 (라운드트립 단축)
- *   - 한 청크 예상 처리 시간 ≈ 20~40초
+ *   - 한 청크 예상 처리 시간 ≈ 2~5초 (이전 20~40초)
  *
  * 동시성:
  *   - 같은 캠페인을 두 인스턴스가 동시에 드레인하면 같은 메시지가 두 번 발송될 수 있다.
@@ -29,7 +29,6 @@ import { createSmsAdapter } from "./adapters";
 import { insertAdTag } from "./guards/insert-ad-tag";
 import { insertUnsubscribeFooter } from "./guards/insert-unsubscribe-footer";
 import { calculateCost } from "./calculate-cost";
-import type { SmsSendResult } from "./adapters/types";
 import type {
   CampaignRow,
   CampaignStatus,
@@ -37,7 +36,6 @@ import type {
   TemplateType,
 } from "@/types/database";
 
-const SEND_BATCH = 100;
 const UPDATE_PARALLELISM = 50;
 /** 한 드레인 호출에서 처리할 최대 메시지 수. Vercel 300s 한도 내 안전 마진. */
 export const DRAIN_CHUNK_SIZE = 1_000;
@@ -99,58 +97,55 @@ export async function drainCampaignChunk(
     throw new Error("발신번호 환경변수가 설정되어 있지 않습니다");
   }
 
-  // 5) 발송 (batch=100)
+  // 5) 발송 — sendon batch API 로 1회 호출 (수신자 N명을 한 번에 적재)
+  //    이전: pending.length 회 호출 (100 parallel × 10 batch = 여전히 1000회 round-trip)
+  //    현재: 1 회 호출 — 10K 캠페인 기준 10000회 → 10회 (1청크당 1회).
   const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
   let sent = 0;
   let failed = 0;
   let addedCost = 0;
   const type = campaign.type as TemplateType;
+  const nowIso = new Date().toISOString();
 
-  for (let i = 0; i < pending.length; i += SEND_BATCH) {
-    const batch = pending.slice(i, i + SEND_BATCH);
-    const results = await Promise.allSettled(
-      batch.map((m) =>
-        adapter.send({
-          to: m.phone,
-          body: finalBody,
-          subject: campaign.subject,
-          type,
-          fromNumber,
-        }),
-      ),
-    );
+  const batchResult = await adapter.sendBatch({
+    to: pending.map((p) => p.phone),
+    body: finalBody,
+    subject: campaign.subject,
+    type,
+    fromNumber,
+  });
 
-    for (let j = 0; j < batch.length; j += 1) {
-      const row = batch[j];
-      if (!row) continue;
-      const sr = results[j];
-      const nowIso = new Date().toISOString();
-
-      if (sr && sr.status === "fulfilled" && sr.value.status === "queued") {
-        sent += 1;
-        const unitCost = calculateCost(type, 1).totalCost;
-        addedCost += unitCost;
-        // messages.cost INT — 소수 단가는 round 후 저장 (합산 정확도는 totalCost float 누적으로 보존).
-        updates.push({
-          id: row.id,
-          patch: {
-            status: "발송됨" satisfies MessageStatus,
-            vendor_message_id: sr.value.vendorMessageId,
-            cost: Math.round(unitCost),
-            sent_at: nowIso,
-          },
-        });
-      } else {
-        failed += 1;
-        updates.push({
-          id: row.id,
-          patch: {
-            status: "실패" satisfies MessageStatus,
-            failed_reason: extractFailedReason(sr),
-            sent_at: nowIso,
-          },
-        });
-      }
+  if (batchResult.status === "queued") {
+    // 모든 수신자가 같은 groupId 를 공유. 상태 polling 시 groupId 단위 조회.
+    sent = pending.length;
+    const totalCost = calculateCost(type, pending.length).totalCost;
+    addedCost = totalCost;
+    const perRowCost = Math.round(batchResult.unitCost);
+    for (const row of pending) {
+      updates.push({
+        id: row.id,
+        patch: {
+          status: "발송됨" satisfies MessageStatus,
+          vendor_message_id: batchResult.vendorMessageId,
+          cost: perRowCost,
+          sent_at: nowIso,
+        },
+      });
+    }
+  } else {
+    // batch 전체 실패 — 모든 수신자에 동일 사유 기록.
+    // 부분 실패 식별이 필요하면 sendon `find` API 로 groupId 조회 (Phase 2).
+    failed = pending.length;
+    const failedReason = batchResult.reason;
+    for (const row of pending) {
+      updates.push({
+        id: row.id,
+        patch: {
+          status: "실패" satisfies MessageStatus,
+          failed_reason: failedReason,
+          sent_at: nowIso,
+        },
+      });
     }
   }
 
@@ -334,17 +329,3 @@ function readFromNumber(adapterName: string): string | null {
   }
 }
 
-function extractFailedReason(
-  sr: PromiseSettledResult<SmsSendResult> | undefined,
-): string {
-  if (!sr) return "발송 결과를 읽지 못했습니다";
-  if (sr.status === "rejected") {
-    const e = sr.reason;
-    if (e instanceof Error) return e.message;
-    return "벤더 응답 오류";
-  }
-  if (sr.value.status === "failed") {
-    return sr.value.reason;
-  }
-  return "벤더 응답이 비정상입니다";
-}
