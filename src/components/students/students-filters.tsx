@@ -541,7 +541,7 @@ function SegmentedControl<T extends string>({
     <div
       role="radiogroup"
       aria-label={ariaLabel}
-      className="inline-flex h-10 rounded-lg border border-[color:var(--border)] bg-bg-card p-0.5"
+      className="inline-flex h-10 rounded-lg bg-[color:var(--bg-muted)] p-1"
     >
       {options.map((opt) => {
         const active = opt.value === value;
