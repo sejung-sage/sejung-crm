@@ -1,18 +1,25 @@
 /**
  * 캠페인 드레인 워커.
  *
- * 한 캠페인의 status='대기' 메시지 다음 청크(최대 DRAIN_CHUNK_SIZE 건) 를 발송하고,
- * messages.status / cost / vendor_message_id 를 갱신한 뒤, 더 남은 '대기' 가 있는지
- * 응답한다.
+ * 한 캠페인의 status='대기' 메시지를 청크 단위로 발송한다. 한 청크는 1,000건
+ * (PostgREST max_rows cap 동일), 한 호출 안에서 여러 청크를 time budget 안에서
+ * 연속 처리해 Vercel 함수 1 호출로 최대 ~50K 건까지 처리한다.
  *
- * API route(`/api/messaging/drain`) 가 본 함수를 호출하고, `hasMore=true` 면
- * 자기 자신을 fire-and-forget 으로 재호출해 다음 청크를 이어 발송한다.
+ * API route(`/api/messaging/drain`) 가 본 함수를 호출하고, 다 처리하지 못해
+ * `hasMore=true` 가 돌아오면 자기 자신을 fire-and-forget 으로 재호출.
  *
- * Vercel 함수 타임아웃(300s) 안에 한 청크가 안전하게 끝나도록 설계:
- *   - DRAIN_CHUNK_SIZE = 1,000
- *   - 어댑터 호출: sendon batch API 1회 (다중 수신자 1회 발사)
- *   - DB UPDATE: 50건 Promise.all 병렬 (라운드트립 단축)
- *   - 한 청크 예상 처리 시간 ≈ 2~5초 (이전 20~40초)
+ * 동작 (Vercel 300s 타임아웃 안):
+ *   - 청크당: PostgREST `max_rows` = 1,000 으로 다음 '대기' 1,000건 fetch
+ *   - 어댑터 호출: sendon batch API 1회 (1,000명을 1요청으로 적재)
+ *   - DB UPDATE: 50건 Promise.all 병렬
+ *   - 한 청크 예상 처리 시간 ≈ 2~5초
+ *   - MAX_BATCHES_PER_INVOCATION × ≈3초 ≤ TIME_BUDGET_MS 가 되도록 튜닝.
+ *
+ * 왜 한 호출에서 여러 청크를 처리하는가:
+ *   self-invocation chain (waitUntil + keepalive) 이 Vercel 환경에서 일정
+ *   횟수 이상 연속되면 끊기는 회귀 발견 (2026-05-13 60K 캠페인이 4 청크만에
+ *   정지). 한 호출이 더 많이 처리할수록 chain 호출 횟수가 줄어 안정적이고,
+ *   "이어보내기" 버튼/sweep 도 1회 호출로 더 많은 분량을 복구할 수 있다.
  *
  * 동시성:
  *   - 같은 캠페인을 두 인스턴스가 동시에 드레인하면 같은 메시지가 두 번 발송될 수 있다.
@@ -37,8 +44,14 @@ import type {
 } from "@/types/database";
 
 const UPDATE_PARALLELISM = 50;
-/** 한 드레인 호출에서 처리할 최대 메시지 수. Vercel 300s 한도 내 안전 마진. */
+/** PostgREST max_rows cap. 한 fetchPending 가 가져오는 '대기' 메시지 수 = 한 batch
+ *  sendon 호출의 수신자 수. */
 export const DRAIN_CHUNK_SIZE = 1_000;
+/** 한 drain 호출에서 처리할 최대 청크 수. 50청크 × 1,000건 = 50,000건. */
+const MAX_BATCHES_PER_INVOCATION = 50;
+/** 한 drain 호출의 sendon 발송 작업 time budget. Vercel maxDuration=300s 의 80%.
+ *  남은 시간은 응답 송출 + waitUntil 안전 마진. */
+const TIME_BUDGET_MS = 240_000;
 
 type SrvClient = SupabaseClient;
 
@@ -73,50 +86,107 @@ export async function drainCampaignChunk(
     throw new Error("캠페인 body/type 누락 — 발송 불가");
   }
 
-  // 2) 다음 청크 가져오기 (오래된 순)
-  const pending = await fetchPending(supabase, campaignId);
-
-  if (pending.length === 0) {
-    // 더 발송할 게 없음 — 캠페인 마감
-    const finalStatus = await determineFinalStatus(supabase, campaignId);
-    await updateCampaignStatus(supabase, campaignId, finalStatus);
-    return doneResult(campaignId);
-  }
-
-  // 3) 최종 본문 재계산 (광고 prefix + 080 footer)
+  // 2) 본문 가드 + 어댑터 + 발신번호 (반복 호출 전 1회만 준비)
   const finalBody = insertUnsubscribeFooter(
     insertAdTag(campaign.body, campaign.is_ad),
     campaign.is_ad,
   );
-
-  // 4) 어댑터 + 발신번호
   const adapter = createSmsAdapter();
   const fromNumber = readFromNumber(adapter.name);
   if (!fromNumber) {
     await updateCampaignStatus(supabase, campaignId, "실패");
     throw new Error("발신번호 환경변수가 설정되어 있지 않습니다");
   }
+  const type = campaign.type as TemplateType;
 
-  // 5) 발송 — sendon batch API 로 1회 호출 (수신자 N명을 한 번에 적재)
-  //    이전: pending.length 회 호출 (100 parallel × 10 batch = 여전히 1000회 round-trip)
-  //    현재: 1 회 호출 — 10K 캠페인 기준 10000회 → 10회 (1청크당 1회).
+  // 3) 본 호출에서 누적 카운트
+  let totalAttempted = 0;
+  let totalSent = 0;
+  let totalFailed = 0;
+  let totalAddedCost = 0;
+  const t0 = Date.now();
+
+  // 4) 청크 루프 — time budget / MAX_BATCHES 가 다 차면 break, 그 외엔 끝까지
+  for (let batchIdx = 0; batchIdx < MAX_BATCHES_PER_INVOCATION; batchIdx += 1) {
+    if (Date.now() - t0 > TIME_BUDGET_MS) break;
+
+    const pending = await fetchPending(supabase, campaignId);
+    if (pending.length === 0) break; // 더 처리할 게 없음
+
+    const result = await processOneBatch({
+      supabase,
+      pending,
+      adapter,
+      finalBody,
+      subject: campaign.subject,
+      type,
+      fromNumber,
+      campaignId,
+    });
+    totalAttempted += result.attempted;
+    totalSent += result.sent;
+    totalFailed += result.failed;
+    totalAddedCost += result.addedCost;
+  }
+
+  // 5) 남은 '대기' 있는지 확인 → hasMore 결정
+  const hasMore = await hasPending(supabase, campaignId);
+
+  let campaignDone = false;
+  if (!hasMore) {
+    const finalStatus = await determineFinalStatus(supabase, campaignId);
+    await updateCampaignStatus(supabase, campaignId, finalStatus);
+    campaignDone = true;
+  }
+
+  return {
+    campaignId,
+    attempted: totalAttempted,
+    sent: totalSent,
+    failed: totalFailed,
+    hasMore,
+    addedCost: totalAddedCost,
+    campaignDone,
+  };
+}
+
+/**
+ * 한 청크(최대 1,000건) 처리 — sendon batch 1회 + DB UPDATE.
+ * drainCampaignChunk 의 루프 안에서 반복 호출된다.
+ */
+async function processOneBatch(args: {
+  supabase: SrvClient;
+  pending: Array<{ id: string; phone: string }>;
+  adapter: ReturnType<typeof createSmsAdapter>;
+  finalBody: string;
+  subject: string | null;
+  type: TemplateType;
+  fromNumber: string;
+  campaignId: string;
+}): Promise<{
+  attempted: number;
+  sent: number;
+  failed: number;
+  addedCost: number;
+}> {
+  const { supabase, pending, adapter, finalBody, subject, type, fromNumber, campaignId } =
+    args;
+
+  const nowIso = new Date().toISOString();
   const updates: Array<{ id: string; patch: Record<string, unknown> }> = [];
   let sent = 0;
   let failed = 0;
   let addedCost = 0;
-  const type = campaign.type as TemplateType;
-  const nowIso = new Date().toISOString();
 
   const batchResult = await adapter.sendBatch({
     to: pending.map((p) => p.phone),
     body: finalBody,
-    subject: campaign.subject,
+    subject,
     type,
     fromNumber,
   });
 
   if (batchResult.status === "queued") {
-    // 모든 수신자가 같은 groupId 를 공유. 상태 polling 시 groupId 단위 조회.
     sent = pending.length;
     const totalCost = calculateCost(type, pending.length).totalCost;
     addedCost = totalCost;
@@ -133,8 +203,6 @@ export async function drainCampaignChunk(
       });
     }
   } else {
-    // batch 전체 실패 — 모든 수신자에 동일 사유 기록.
-    // 부분 실패 식별이 필요하면 sendon `find` API 로 groupId 조회 (Phase 2).
     failed = pending.length;
     const failedReason = batchResult.reason;
     for (const row of pending) {
@@ -149,36 +217,17 @@ export async function drainCampaignChunk(
     }
   }
 
-  // 6) UPDATE 병렬 적용 (50건씩 묶어 라운드트립 단축)
+  // UPDATE 병렬 적용
   for (let i = 0; i < updates.length; i += UPDATE_PARALLELISM) {
     const wave = updates.slice(i, i + UPDATE_PARALLELISM);
     await Promise.all(wave.map((u) => updateMessage(supabase, u.id, u.patch)));
   }
 
-  // 7) 캠페인 누적 비용 갱신
   if (addedCost > 0) {
     await incrementCampaignCost(supabase, campaignId, addedCost);
   }
 
-  // 8) 남은 '대기' 있는지 확인 → hasMore 결정
-  const hasMore = await hasPending(supabase, campaignId);
-
-  let campaignDone = false;
-  if (!hasMore) {
-    const finalStatus = await determineFinalStatus(supabase, campaignId);
-    await updateCampaignStatus(supabase, campaignId, finalStatus);
-    campaignDone = true;
-  }
-
-  return {
-    campaignId,
-    attempted: pending.length,
-    sent,
-    failed,
-    hasMore,
-    addedCost,
-    campaignDone,
-  };
+  return { attempted: pending.length, sent, failed, addedCost };
 }
 
 // ─── 헬퍼 ──────────────────────────────────────────────────
