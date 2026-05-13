@@ -46,11 +46,14 @@ import type {
 /** PostgREST max_rows cap. 한 fetchPending 가 가져오는 '대기' 메시지 수 = 한 batch
  *  sendon 호출의 수신자 수. */
 export const DRAIN_CHUNK_SIZE = 1_000;
-/** 한 drain 호출에서 처리할 최대 청크 수. 50청크 × 1,000건 = 50,000건. */
-const MAX_BATCHES_PER_INVOCATION = 50;
-/** 한 drain 호출의 sendon 발송 작업 time budget. Vercel maxDuration=300s 의 80%.
- *  남은 시간은 응답 송출 + waitUntil 안전 마진. */
-const TIME_BUDGET_MS = 240_000;
+/** 한 drain 호출에서 처리할 최대 청크 수. 25청크 × 1,000건 = 25,000건. */
+const MAX_BATCHES_PER_INVOCATION = 25;
+/** 한 drain 호출의 sendon 발송 작업 time budget. Vercel maxDuration=300s 의 60%.
+ *  실 운영에서 청크당 평균 ~8초 (sendon batch + RPC UPDATE) × 25청크 = 200초.
+ *  240s 로 두면 마지막 청크 처리 중 300s timeout 에 정확히 걸려 chain kick
+ *  자체가 발사되지 않는 회귀(2026-05-13 31K 처리 후 timeout) 가 발생함.
+ *  남은 120s 는 응답 송출 / waitUntil(fetch) / Vercel 내부 cleanup 마진. */
+const TIME_BUDGET_MS = 180_000;
 
 type SrvClient = SupabaseClient;
 
