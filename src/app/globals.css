@@ -30,13 +30,13 @@
   --text-dim: #adb5bd;        /* 플레이스홀더 · 연한 회색 */
 
   /* 경계·구분선
-   * 사용자 피드백(2026-05-13): 카드/테이블/사이드바/필터 등 시각적 보더가
-   * 답답해서 --border, --border-strong 모두 transparent 로 통일.
-   * input/select 의 focus 피드백은 `:focus-visible { outline: 2px solid var(--text); }`
-   * (아래 @layer base) 로 처리되므로 보더가 사라져도 접근성 유지.
+   * --border         : 카드/테이블/사이드바 등 장식적 보더. transparent 로 비활성.
+   * --border-strong  : input/textarea/select 의 focus 보더. 클릭 시 입력 위치를
+   *                    명확히 보여주기 위해 #ced4da 유지 (사용성 ≥ 미니멀).
+   * 학생 필터의 hover 보더 같은 일부 잔존 노이즈는 컴포넌트별로 처리.
    */
   --border: transparent;      /* 기본 보더 (시각적 제거) */
-  --border-strong: transparent; /* 강조 보더 (시각적 제거 — focus 는 outline 으로) */
+  --border-strong: #ced4da;   /* 강조 보더 (input focus 등 — 사용성 위해 유지) */
 
   /* 액션 */
   --action: #212529;          /* 주요 버튼 배경 · 검정 */
