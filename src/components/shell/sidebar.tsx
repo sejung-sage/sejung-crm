@@ -192,7 +192,7 @@ export async function Sidebar() {
                   text-[15px]
                   transition-colors
                 "
-                activeClassName="bg-[color:var(--bg-muted)] text-[color:var(--text)] font-semibold border-l-2 border-[color:var(--border-strong)] pl-[10px]"
+                activeClassName="bg-[color:var(--bg-muted)] text-[color:var(--text)] font-semibold border-l-2 border-[color:var(--action)] pl-[10px]"
                 inactiveClassName="text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
               >
                 <item.icon
