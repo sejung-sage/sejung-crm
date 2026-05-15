@@ -91,7 +91,7 @@ export default async function RegionsPage({
         </h1>
         <p className="text-[14px] text-[color:var(--text-muted)] leading-relaxed">
           학생 명단의 지역 필터에서 사용됩니다. 학교를 적절한 지역으로 분류해
-          두면 강남구·서초구·송파구·용산구·동작구·인천 송도 별로 빠르게 학생을
+          두면 강남구·서초구·송파구·동작구·용산구·인천 송도 별로 빠르게 학생을
           추릴 수 있습니다. 매핑되지 않은 학교의 학생은 자동으로
           &lsquo;기타&rsquo; 에 포함됩니다.
         </p>

@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Trash2, Check, X } from "lucide-react";
+import { Pencil, Trash2, Check, X, ChevronDown } from "lucide-react";
 import type { SchoolRegionRow } from "@/types/database";
 import {
   upsertSchoolRegionAction,
   deleteSchoolRegionAction,
 } from "@/app/(features)/regions/actions";
+import { REGION_OPTIONS } from "@/config/regions";
 
 interface Props {
   rows: SchoolRegionRow[];
@@ -19,17 +20,15 @@ type PendingDelete = { school: string; region: string };
 /**
  * 학교 → 지역 매핑 표 (Client Component).
  *
- * 컬럼: 학교명 | 지역 | 수정 | 삭제
+ * 그룹화 (2026-05-15):
+ *   - 1차 그룹: 지역 (SSOT REGION_OPTIONS 순서 + 그 외 자유 지역은 한글 정렬로 뒤에).
+ *     각 지역은 접기/펼치기 가능 (기본 접힘).
+ *   - 2차 그룹: 학교급 (고등학교 / 중학교 / 기타) — 학교명 끝 패턴 자동 판별.
+ *     사용자 요청대로 한 지역 안에서 고→중→기타 순으로 sub-section 분리.
  *
- * 인라인 편집:
- *  - "수정" 버튼 클릭 → 그 행의 지역 셀이 dropdown 으로 토글.
- *  - 드롭다운 변경 즉시 upsertSchoolRegionAction.
- *  - 성공 시 "저장됨" 체크 아이콘 fade 700ms → router.refresh().
- *  - 취소(X) 버튼으로 편집 모드만 빠져나올 수 있음.
- *
- * 삭제:
- *  - 확인 모달 → deleteSchoolRegionAction.
- *  - 안내 문구: "삭제하면 이 학교 학생은 '기타' 로 분류됩니다."
+ * 인라인 편집/삭제 로직은 그대로:
+ *   - "수정" 버튼 → 지역 셀이 dropdown 으로 토글 → 변경 즉시 upsert.
+ *   - 삭제 버튼 → 확인 모달 → delete. "기타 로 분류됩니다" 안내.
  */
 export function RegionsTable({ rows, knownRegions }: Props) {
   const router = useRouter();
@@ -41,6 +40,19 @@ export function RegionsTable({ rows, knownRegions }: Props) {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, startDelete] = useTransition();
   const [, startSave] = useTransition();
+  // 지역별 펼침 상태. 기본: 모두 접힘.
+  const [openRegions, setOpenRegions] = useState<Set<string>>(new Set());
+
+  const grouped = useMemo(() => groupByRegionAndLevel(rows), [rows]);
+
+  const toggleRegion = (region: string) => {
+    setOpenRegions((prev) => {
+      const next = new Set(prev);
+      if (next.has(region)) next.delete(region);
+      else next.add(region);
+      return next;
+    });
+  };
 
   const handleSave = (school: string, region: string) => {
     setRowState((s) => ({ ...s, [school]: "saving" }));
@@ -100,146 +112,95 @@ export function RegionsTable({ rows, knownRegions }: Props) {
 
   return (
     <>
-      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-visible">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
-              <Th>학교명</Th>
-              <Th className="w-56">지역</Th>
-              <Th className="w-20 text-center">수정</Th>
-              <Th className="w-20 text-center">삭제</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => {
-              const isEditing = editing === r.school;
-              const state = rowState[r.school];
-              const saving = state === "saving";
-              const ok = state === "ok";
-              const errorMsg =
-                typeof state === "string" && state !== "saving" && state !== "ok"
-                  ? state
-                  : null;
+      <div className="space-y-3">
+        {grouped.map(({ region, total, byLevel }) => {
+          const isOpen = openRegions.has(region);
+          return (
+            <section
+              key={region}
+              aria-label={`${region} 매핑`}
+              className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden"
+            >
+              <button
+                type="button"
+                onClick={() => toggleRegion(region)}
+                aria-expanded={isOpen}
+                className="
+                  w-full flex items-center justify-between gap-3
+                  px-4 md:px-5 py-3.5
+                  text-left
+                  hover:bg-[color:var(--bg-hover)]
+                  transition-colors
+                "
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <h3 className="text-[16px] font-semibold text-[color:var(--text)]">
+                    {region}
+                  </h3>
+                  <span className="text-[14px] text-[color:var(--text-muted)] tabular-nums">
+                    {total.toLocaleString()}개 매핑
+                  </span>
+                </div>
+                <ChevronDown
+                  className={`size-4 text-[color:var(--text-muted)] transition-transform ${
+                    isOpen ? "rotate-180" : ""
+                  }`}
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+              </button>
 
-              return (
-                <tr
-                  key={r.school}
-                  className="border-b border-[color:var(--border)] last:border-b-0 hover:bg-[color:var(--bg-hover)] transition-colors"
-                >
-                  <Td>
-                    <span className="font-medium text-[color:var(--text)]">
-                      {r.school}
-                    </span>
-                  </Td>
-                  <Td>
-                    {isEditing ? (
-                      <div className="flex items-center gap-2">
-                        <select
-                          aria-label={`${r.school} 의 지역 변경`}
-                          defaultValue={r.region}
-                          disabled={saving || ok}
-                          onChange={(e) => handleSave(r.school, e.target.value)}
-                          className="
-                            h-10 min-w-36 rounded-lg px-3
-                            bg-bg-card border border-[color:var(--border-strong)]
-                            text-[14px] text-[color:var(--text)]
-                            focus:outline-none
-                            disabled:bg-[color:var(--bg-muted)] disabled:opacity-60
-                            cursor-pointer
-                          "
-                        >
-                          {knownRegions.map((opt) => (
-                            <option key={opt} value={opt}>
-                              {opt}
-                            </option>
-                          ))}
-                        </select>
-                        {ok ? (
-                          <span
-                            role="status"
-                            className="inline-flex items-center gap-1 text-[13px] text-[color:var(--success)]"
-                          >
-                            <Check className="size-4" strokeWidth={2} aria-hidden />
-                            저장됨
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditing(null);
-                              setRowState((s) => {
-                                const next = { ...s };
-                                delete next[r.school];
-                                return next;
-                              });
-                            }}
-                            aria-label="편집 취소"
-                            className="
-                              inline-flex items-center justify-center
-                              size-8 rounded-md
-                              text-[color:var(--text-muted)]
-                              hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]
-                              transition-colors
-                            "
-                          >
-                            <X className="size-4" strokeWidth={1.75} aria-hidden />
-                          </button>
-                        )}
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-[color:var(--bg-muted)] text-[13px] font-medium text-[color:var(--text)]">
-                        {r.region}
-                      </span>
-                    )}
-                    {errorMsg && (
-                      <p className="mt-1 text-[12px] text-[color:var(--danger)]">
-                        {errorMsg}
-                      </p>
-                    )}
-                  </Td>
-                  <Td className="text-center">
-                    {!isEditing && (
-                      <button
-                        type="button"
-                        onClick={() => setEditing(r.school)}
-                        aria-label={`${r.school} 매핑 수정`}
-                        className="
-                          inline-flex items-center justify-center
-                          size-9 rounded-md
-                          text-[color:var(--text-muted)]
-                          hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]
-                          transition-colors
-                        "
+              {isOpen && (
+                <div className="border-t border-[color:var(--border)]">
+                  {LEVELS.map((level) => {
+                    const levelRows = byLevel[level];
+                    if (levelRows.length === 0) return null;
+                    return (
+                      <div
+                        key={level}
+                        className="border-b border-[color:var(--border)] last:border-b-0"
                       >
-                        <Pencil className="size-4" strokeWidth={1.75} aria-hidden />
-                      </button>
-                    )}
-                  </Td>
-                  <Td className="text-center">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setPendingDelete({ school: r.school, region: r.region })
-                      }
-                      aria-label={`${r.school} 매핑 삭제`}
-                      disabled={isEditing}
-                      className="
-                        inline-flex items-center justify-center
-                        size-9 rounded-md
-                        text-[color:var(--text-muted)]
-                        hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--danger)]
-                        disabled:opacity-30 disabled:cursor-not-allowed
-                        transition-colors
-                      "
-                    >
-                      <Trash2 className="size-4" strokeWidth={1.75} aria-hidden />
-                    </button>
-                  </Td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                        <h4 className="px-4 md:px-5 py-2 bg-[color:var(--bg-muted)] text-[13px] font-medium text-[color:var(--text-muted)]">
+                          {LEVEL_LABELS[level]}
+                          <span className="ml-1.5 tabular-nums">
+                            ({levelRows.length})
+                          </span>
+                        </h4>
+                        <ul className="divide-y divide-[color:var(--border)]">
+                          {levelRows.map((r) => (
+                            <SchoolRow
+                              key={r.school}
+                              row={r}
+                              isEditing={editing === r.school}
+                              state={rowState[r.school]}
+                              knownRegions={knownRegions}
+                              onEdit={() => setEditing(r.school)}
+                              onCancel={() => {
+                                setEditing(null);
+                                setRowState((s) => {
+                                  const next = { ...s };
+                                  delete next[r.school];
+                                  return next;
+                                });
+                              }}
+                              onSave={handleSave}
+                              onDelete={() =>
+                                setPendingDelete({
+                                  school: r.school,
+                                  region: r.region,
+                                })
+                              }
+                            />
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          );
+        })}
       </div>
 
       {pendingDelete && (
@@ -262,37 +223,205 @@ export function RegionsTable({ rows, knownRegions }: Props) {
   );
 }
 
-// ─── 내부 소 컴포넌트 ───────────────────────────────────────
+// ─── 학교 row ─────────────────────────────────────────────────
 
-function Th({
-  children,
-  className = "",
+function SchoolRow({
+  row,
+  isEditing,
+  state,
+  knownRegions,
+  onEdit,
+  onCancel,
+  onSave,
+  onDelete,
 }: {
-  children: React.ReactNode;
-  className?: string;
+  row: SchoolRegionRow;
+  isEditing: boolean;
+  state: "saving" | "ok" | string | undefined;
+  knownRegions: string[];
+  onEdit: () => void;
+  onCancel: () => void;
+  onSave: (school: string, region: string) => void;
+  onDelete: () => void;
 }) {
+  const saving = state === "saving";
+  const ok = state === "ok";
+  const errorMsg =
+    typeof state === "string" && state !== "saving" && state !== "ok"
+      ? state
+      : null;
+
   return (
-    <th
-      className={`
-        px-4 py-3 text-left text-[13px] font-medium
-        text-[color:var(--text-muted)] uppercase tracking-wide
-        ${className}
-      `}
-    >
-      {children}
-    </th>
+    <li className="flex items-center gap-3 px-4 md:px-5 py-2.5 hover:bg-[color:var(--bg-hover)] transition-colors">
+      <div className="flex-1 min-w-0">
+        <span className="text-[15px] font-medium text-[color:var(--text)] truncate">
+          {row.school}
+        </span>
+        {errorMsg && (
+          <p className="mt-1 text-[12px] text-[color:var(--danger)]">
+            {errorMsg}
+          </p>
+        )}
+      </div>
+
+      {isEditing ? (
+        <div className="flex items-center gap-2">
+          <select
+            aria-label={`${row.school} 의 지역 변경`}
+            defaultValue={row.region}
+            disabled={saving || ok}
+            onChange={(e) => onSave(row.school, e.target.value)}
+            className="
+              h-10 min-w-36 rounded-lg px-3
+              bg-bg-card border border-[color:var(--border-strong)]
+              text-[14px] text-[color:var(--text)]
+              focus:outline-none
+              disabled:bg-[color:var(--bg-muted)] disabled:opacity-60
+              cursor-pointer
+            "
+          >
+            {knownRegions.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+          {ok ? (
+            <span
+              role="status"
+              className="inline-flex items-center gap-1 text-[13px] text-[color:var(--success)]"
+            >
+              <Check className="size-4" strokeWidth={2} aria-hidden />
+              저장됨
+            </span>
+          ) : (
+            <button
+              type="button"
+              onClick={onCancel}
+              aria-label="편집 취소"
+              className="
+                inline-flex items-center justify-center
+                size-8 rounded-md
+                text-[color:var(--text-muted)]
+                hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]
+                transition-colors
+              "
+            >
+              <X className="size-4" strokeWidth={1.75} aria-hidden />
+            </button>
+          )}
+        </div>
+      ) : (
+        <>
+          <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-[color:var(--bg-muted)] text-[13px] font-medium text-[color:var(--text)]">
+            {row.region}
+          </span>
+          <button
+            type="button"
+            onClick={onEdit}
+            aria-label={`${row.school} 매핑 수정`}
+            className="
+              inline-flex items-center justify-center
+              size-9 rounded-md
+              text-[color:var(--text-muted)]
+              hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text)]
+              transition-colors
+            "
+          >
+            <Pencil className="size-4" strokeWidth={1.75} aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            aria-label={`${row.school} 매핑 삭제`}
+            className="
+              inline-flex items-center justify-center
+              size-9 rounded-md
+              text-[color:var(--text-muted)]
+              hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--danger)]
+              transition-colors
+            "
+          >
+            <Trash2 className="size-4" strokeWidth={1.75} aria-hidden />
+          </button>
+        </>
+      )}
+    </li>
   );
 }
 
-function Td({
-  children,
-  className = "",
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return <td className={`px-4 py-3 text-[15px] ${className}`}>{children}</td>;
+// ─── 그룹화 헬퍼 ───────────────────────────────────────────────
+
+type SchoolLevel = "고" | "중" | "기타";
+const LEVELS: ReadonlyArray<SchoolLevel> = ["고", "중", "기타"];
+const LEVEL_LABELS: Record<SchoolLevel, string> = {
+  고: "고등학교",
+  중: "중학교",
+  기타: "기타 (초·대 등)",
+};
+
+/** 학교명 끝 패턴으로 학교급 자동 판별. */
+function detectSchoolLevel(school: string): SchoolLevel {
+  const s = school.trim();
+  // "○○고등학교" / "○○고" — 단 "고등학교" 가 우선 매치되므로 endsWith 순서 주의.
+  if (s.endsWith("초등학교") || s.endsWith("대학교")) return "기타";
+  if (s.endsWith("고등학교") || s.endsWith("고")) return "고";
+  if (s.endsWith("중학교") || s.endsWith("중")) return "중";
+  return "기타";
 }
+
+interface RegionGroup {
+  region: string;
+  total: number;
+  byLevel: Record<SchoolLevel, SchoolRegionRow[]>;
+}
+
+/**
+ * 매핑 row 들을 지역 → 학교급으로 2단 그룹화.
+ *
+ * 지역 순서: SSOT REGION_OPTIONS 가 먼저, 그 외 자유 지역은 한글 정렬로 뒤에.
+ * 빈 지역(매핑 0개) 은 결과에서 제외.
+ * 학교급 내 정렬: 학교명 한글 가나다순.
+ */
+function groupByRegionAndLevel(rows: SchoolRegionRow[]): RegionGroup[] {
+  const byRegion = new Map<string, SchoolRegionRow[]>();
+  for (const r of rows) {
+    const list = byRegion.get(r.region) ?? [];
+    list.push(r);
+    byRegion.set(r.region, list);
+  }
+
+  // 정렬: SSOT 순서 → 그 외 한글 정렬.
+  const ssotOrder = new Map<string, number>(
+    REGION_OPTIONS.map((r, i) => [r, i]),
+  );
+  const sortedRegions = [...byRegion.keys()].sort((a, b) => {
+    const ai = ssotOrder.get(a);
+    const bi = ssotOrder.get(b);
+    if (ai !== undefined && bi !== undefined) return ai - bi;
+    if (ai !== undefined) return -1;
+    if (bi !== undefined) return 1;
+    return a.localeCompare(b, "ko");
+  });
+
+  return sortedRegions.map((region) => {
+    const regionRows = byRegion.get(region)!;
+    const byLevel: Record<SchoolLevel, SchoolRegionRow[]> = {
+      고: [],
+      중: [],
+      기타: [],
+    };
+    for (const r of regionRows) {
+      byLevel[detectSchoolLevel(r.school)].push(r);
+    }
+    for (const level of LEVELS) {
+      byLevel[level].sort((a, b) => a.school.localeCompare(b.school, "ko"));
+    }
+    return { region, total: regionRows.length, byLevel };
+  });
+}
+
+// ─── 확인 모달 ────────────────────────────────────────────────
 
 function ConfirmDialog({
   title,

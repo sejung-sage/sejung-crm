@@ -28,8 +28,8 @@ export const REGION_OPTIONS = [
   "강남구",
   "서초구",
   "송파구",
-  "용산구",
   "동작구",
+  "용산구",
   "인천 송도",
   "기타",
 ] as const;
