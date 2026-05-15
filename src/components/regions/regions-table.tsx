@@ -371,21 +371,30 @@ function SchoolRow({
 
 // ─── 그룹화 헬퍼 ───────────────────────────────────────────────
 
-type SchoolLevel = "고" | "중" | "기타";
-const LEVELS: ReadonlyArray<SchoolLevel> = ["고", "중", "기타"];
+type SchoolLevel = "고" | "중" | "초" | "기타";
+const LEVELS: ReadonlyArray<SchoolLevel> = ["고", "중", "초", "기타"];
 const LEVEL_LABELS: Record<SchoolLevel, string> = {
   고: "고등학교",
   중: "중학교",
-  기타: "기타 (초·대 등)",
+  초: "초등학교",
+  기타: "기타 (대학교 등)",
 };
 
-/** 학교명 끝 패턴으로 학교급 자동 판별. */
+/**
+ * 학교명 끝 패턴으로 학교급 자동 판별.
+ *
+ * 우선순위: 더 구체적인 패턴(○○고등학교)이 단순 끝글자(○○고)보다 먼저.
+ * 단순 끝글자 매칭은 줄임형(휘문고/대치중/대도초) 잡기 위함.
+ */
 function detectSchoolLevel(school: string): SchoolLevel {
   const s = school.trim();
-  // "○○고등학교" / "○○고" — 단 "고등학교" 가 우선 매치되므로 endsWith 순서 주의.
-  if (s.endsWith("초등학교") || s.endsWith("대학교")) return "기타";
-  if (s.endsWith("고등학교") || s.endsWith("고")) return "고";
-  if (s.endsWith("중학교") || s.endsWith("중")) return "중";
+  if (s.endsWith("대학교")) return "기타";
+  if (s.endsWith("고등학교")) return "고";
+  if (s.endsWith("중학교")) return "중";
+  if (s.endsWith("초등학교")) return "초";
+  if (s.endsWith("고")) return "고";
+  if (s.endsWith("중")) return "중";
+  if (s.endsWith("초")) return "초";
   return "기타";
 }
 
@@ -432,6 +441,7 @@ function groupByRegionAndLevel(rows: SchoolRegionRow[]): RegionGroup[] {
     const byLevel: Record<SchoolLevel, SchoolRegionRow[]> = {
       고: [],
       중: [],
+      초: [],
       기타: [],
     };
     for (const r of regionRows) {
