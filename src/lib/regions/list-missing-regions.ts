@@ -1,24 +1,24 @@
 /**
  * 매핑 누락 학교 리스트.
  *
- * "students 에 있지만 school_regions 에는 없는" 학교를 학생 수 내림차순으로
- * 반환. admin "지역 매핑" UI 의 미매핑 섹션 핵심 데이터 — 클릭 한 번에 매핑
- * 후보를 빠르게 처리할 수 있도록 한다.
+ * "students 에 있지만 school_regions 에는 entry 자체가 없는" 학교를 학생 수
+ * 내림차순으로 반환. admin "지역 매핑" UI 의 미매핑 섹션 핵심 데이터.
  *
- * 매칭 정책 (0026 student_profiles 뷰와 동일):
- *   - 학생의 region == '기타' 그룹화. 뷰가 LEFT JOIN + COALESCE('기타') 이므로
- *     "매핑 없음" 과 "school IS NULL" 양쪽이 모두 region='기타' 로 떨어진다.
- *   - 단, 학교명 NULL/빈 학생은 "매핑 대상" 이 아니므로 결과에서 제외 (학교가
- *     null 인 학생은 어차피 매핑할 키가 없음).
+ * 매칭 정책 (2026-05-15 재정의):
+ *   미매핑 = school_regions 테이블에 entry 가 존재하지 않는 학교.
+ *   '기타' 로 명시 분류된 학교도 entry 가 있으므로 "매핑된 것" 으로 취급되어
+ *   미매핑 패널에서 빠진다. (이전 로직: region='기타' 학생의 학교 → 사용자가
+ *   '기타'로 의도 분류한 학교도 계속 다시 잡혀 카운트가 줄지 않는 버그.)
+ *
+ *   학교명 NULL/빈 학생은 매핑 대상이 아니므로 결과에서 제외.
+ *   status='탈퇴' 학생도 제외.
  *
  * 정렬: student_count DESC. cap 50 (한 번에 처리할 양).
  *
- * 구현 노트:
- *   - student_profiles 뷰를 region='기타' 로 필터 + school NOT NULL 로 select
- *     후 JS 단에서 학교별 카운트 집계. 6만 학생 중 '기타' 만 좁히면 보통
- *     수백~수천 행이라 cap 1000 안에 들어감.
- *   - 풀스캔이 부담되면 향후 RPC 함수 (`list_missing_school_regions()`) 로
- *     이전 권장. MVP 는 단순 select 로 처리.
+ * 구현:
+ *   1) school_regions 전체 학교 set 조회 (수십~수백 행, 가벼움).
+ *   2) students 에서 학교 컬럼만 페이지네이션으로 수집 (cap 1만 row).
+ *   3) JS 단에서 mapped set 에 없는 학교만 학생 수 집계.
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -29,16 +29,15 @@ import {
 } from "@/lib/profile/students-dev-seed";
 
 const TOP_LIMIT = 50;
-/**
- * student_profiles 에서 region='기타' 학생 학교를 모을 때의 페치 cap.
- * 6만 명 중 매핑 누락이 이 수보다 많으면 admin 이 매핑을 너무 오래 안 한 신호.
- */
-const MISSING_FETCH_CAP = 5000;
+
+// students 페이지네이션 cap. 6만 학생 풀스캔 가능하도록 1만 행.
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 60;
 
 export interface MissingSchoolRegion {
   /** 학교명 (NOT NULL — NULL 학교는 결과에서 제외). */
   school: string;
-  /** 이 학교 소속이고 매핑 누락(region='기타') 인 학생 수. */
+  /** 이 학교 소속이고 school_regions 에 매핑이 없는 학생 수 (탈퇴 제외). */
   student_count: number;
 }
 
@@ -51,15 +50,21 @@ export async function listMissingSchoolRegions(): Promise<
   return collectFromSupabase();
 }
 
+function normalizeSchoolKey(s: string): string {
+  // NFC + trim — DB 0034/0035 마이그레이션 이후엔 보장되지만, ETL 일시 이탈 대비.
+  return s.trim().normalize("NFC");
+}
+
 function collectFromDevSeed(): MissingSchoolRegion[] {
   const mappedSchools = new Set<string>(
-    DEV_SCHOOL_REGIONS.map((r) => r.school.trim()),
+    DEV_SCHOOL_REGIONS.map((r) => normalizeSchoolKey(r.school)),
   );
   const counts = new Map<string, number>();
 
   for (const p of DEV_STUDENT_PROFILES) {
     if (typeof p.school !== "string") continue;
-    const s = p.school.trim();
+    if (p.status === "탈퇴") continue;
+    const s = normalizeSchoolKey(p.school);
     if (s.length === 0) continue;
     if (mappedSchools.has(s)) continue;
     counts.set(s, (counts.get(s) ?? 0) + 1);
@@ -71,30 +76,52 @@ function collectFromDevSeed(): MissingSchoolRegion[] {
 async function collectFromSupabase(): Promise<MissingSchoolRegion[]> {
   const supabase = await createSupabaseServerClient();
 
-  // student_profiles 뷰에서 region='기타' 이고 school NOT NULL 인 학생들의
-  // 학교명만 모은다. 페이로드는 학교명 1컬럼이라 가벼움.
-  const { data, error } = await supabase
-    .from("student_profiles")
-    .select("school")
-    .eq("region", "기타")
-    .not("school", "is", null)
-    .neq("status", "탈퇴")
-    .limit(MISSING_FETCH_CAP);
-
-  if (error) {
-    throw new Error(`매핑 누락 학교 조회에 실패했습니다: ${error.message}`);
+  // 1) school_regions 전체 매핑 학교 set.
+  const { data: mappingRows, error: mappingError } = await supabase
+    .from("school_regions")
+    .select("school");
+  if (mappingError) {
+    throw new Error(
+      `매핑 누락 학교 조회에 실패했습니다: ${mappingError.message}`,
+    );
   }
+  const mappedSchools = new Set<string>(
+    ((mappingRows ?? []) as Array<{ school: string }>).map((r) =>
+      normalizeSchoolKey(r.school),
+    ),
+  );
 
-  const rows = (data ?? []) as Array<{ school: string | null }>;
+  // 2) students 에서 학교명 페이지네이션 수집.
+  //    student_profiles 뷰가 아닌 students 테이블 직접 — JOIN/집계 없이 가볍게.
   const counts = new Map<string, number>();
-  for (const r of rows) {
-    if (typeof r.school !== "string") continue;
-    // 학교명 정규화: 공백/제어문자가 섞인 변형을 한 항목으로 합쳐 카운트.
-    // 0034 마이그레이션 이후엔 DB 단에서 보장되지만, 백필 이전·ETL 일시적
-    // 이탈 대비 클라이언트 단 정규화도 함께 유지.
-    const s = r.school.trim();
-    if (s.length === 0) continue;
-    counts.set(s, (counts.get(s) ?? 0) + 1);
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+    const { data, error } = await supabase
+      .from("students")
+      .select("school")
+      .not("school", "is", null)
+      .neq("status", "탈퇴")
+      .range(from, to);
+
+    if (error) {
+      throw new Error(
+        `매핑 누락 학교 조회에 실패했습니다: ${error.message}`,
+      );
+    }
+
+    const rows = (data ?? []) as Array<{ school: string | null }>;
+    if (rows.length === 0) break;
+
+    for (const r of rows) {
+      if (typeof r.school !== "string") continue;
+      const s = normalizeSchoolKey(r.school);
+      if (s.length === 0) continue;
+      if (mappedSchools.has(s)) continue;
+      counts.set(s, (counts.get(s) ?? 0) + 1);
+    }
+
+    if (rows.length < PAGE_SIZE) break;
   }
 
   return aggregateAndSort(counts);
