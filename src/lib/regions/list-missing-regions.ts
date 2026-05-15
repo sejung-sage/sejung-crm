@@ -1,5 +1,5 @@
 /**
- * 매핑 누락 학교 리스트.
+ * 매핑 누락 학교 리스트 + 전체 개수.
  *
  * "students 에 있지만 school_regions 에는 entry 자체가 없는" 학교를 학생 수
  * 내림차순으로 반환. admin "지역 매핑" UI 의 미매핑 섹션 핵심 데이터.
@@ -7,18 +7,20 @@
  * 매칭 정책 (2026-05-15 재정의):
  *   미매핑 = school_regions 테이블에 entry 가 존재하지 않는 학교.
  *   '기타' 로 명시 분류된 학교도 entry 가 있으므로 "매핑된 것" 으로 취급되어
- *   미매핑 패널에서 빠진다. (이전 로직: region='기타' 학생의 학교 → 사용자가
- *   '기타'로 의도 분류한 학교도 계속 다시 잡혀 카운트가 줄지 않는 버그.)
+ *   미매핑 패널에서 빠진다.
  *
- *   학교명 NULL/빈 학생은 매핑 대상이 아니므로 결과에서 제외.
- *   status='탈퇴' 학생도 제외.
+ *   status='재원생' 학생만 카운트 (학생 명단 default 와 일치, 0037).
+ *   학교명 NULL 학생 제외.
  *
- * 정렬: student_count DESC. cap 50 (한 번에 처리할 양).
+ * 반환:
+ *   - items: 학생 수 많은 순 cap TOP_LIMIT 개. UI 본문 표시용.
+ *   - total: 미매핑 학교 distinct 전체 개수. UI 헤더 표시용. cap 이상이면
+ *     사용자가 매핑 추가해도 items 길이는 그대로지만 total 은 감소 → 진척이
+ *     보이게 한다.
  *
  * 구현:
- *   1) school_regions 전체 학교 set 조회 (수십~수백 행, 가벼움).
- *   2) students 에서 학교 컬럼만 페이지네이션으로 수집 (cap 1만 row).
- *   3) JS 단에서 mapped set 에 없는 학교만 학생 수 집계.
+ *   Supabase: list / count 두 RPC 병렬 호출 (0036/0037 + 0038).
+ *   Dev seed: JS Set 으로 양쪽 동시 계산.
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -33,13 +35,24 @@ const TOP_LIMIT = 50;
 export interface MissingSchoolRegion {
   /** 학교명 (NOT NULL — NULL 학교는 결과에서 제외). */
   school: string;
-  /** 이 학교 소속이고 school_regions 에 매핑이 없는 학생 수 (탈퇴 제외). */
+  /** 이 학교 소속이고 school_regions 에 매핑이 없는 재원생 수. */
   student_count: number;
 }
 
-export async function listMissingSchoolRegions(): Promise<
-  MissingSchoolRegion[]
-> {
+export interface MissingSchoolsResult {
+  /** 학생 수 많은 순 cap TOP_LIMIT 개. */
+  items: MissingSchoolRegion[];
+  /** 미매핑 학교 distinct 전체 개수 (cap 이전). */
+  total: number;
+  /** UI 가 cap 이상 안내 메시지를 띄울 때 참고. */
+  limit: number;
+}
+
+/**
+ * 미매핑 학교 list + total 반환.
+ * (구 시그니처 호환을 위한 별도 export 는 두지 않음 — 호출부 1곳뿐이라 안전.)
+ */
+export async function listMissingSchoolRegions(): Promise<MissingSchoolsResult> {
   if (isDevSeedMode()) {
     return collectFromDevSeed();
   }
@@ -51,7 +64,7 @@ function normalizeSchoolKey(s: string): string {
   return s.trim().normalize("NFC");
 }
 
-function collectFromDevSeed(): MissingSchoolRegion[] {
+function collectFromDevSeed(): MissingSchoolsResult {
   const mappedSchools = new Set<string>(
     DEV_SCHOOL_REGIONS.map((r) => normalizeSchoolKey(r.school)),
   );
@@ -59,7 +72,6 @@ function collectFromDevSeed(): MissingSchoolRegion[] {
 
   for (const p of DEV_STUDENT_PROFILES) {
     if (typeof p.school !== "string") continue;
-    // 학생 명단(/students) 기본 필터와 일치 — 재원생만 카운트 (0037 RPC 와 동일).
     if (p.status !== "재원생") continue;
     const s = normalizeSchoolKey(p.school);
     if (s.length === 0) continue;
@@ -67,51 +79,6 @@ function collectFromDevSeed(): MissingSchoolRegion[] {
     counts.set(s, (counts.get(s) ?? 0) + 1);
   }
 
-  return aggregateAndSort(counts);
-}
-
-/**
- * RPC 좁힌 인터페이스 — Database 타입에 list_unmapped_school_counts 가 아직
- * 생성되지 않아 캐스팅. supabase gen types 재실행 시 제거 가능.
- */
-interface RpcCaller {
-  rpc(
-    fn: string,
-    args?: Record<string, unknown>,
-  ): Promise<{
-    data: Array<{ school: string; student_count: number | string }> | null;
-    error: { message: string } | null;
-  }>;
-}
-
-async function collectFromSupabase(): Promise<MissingSchoolRegion[]> {
-  const supabase = await createSupabaseServerClient();
-
-  // PG RPC 한 번으로 집계 (0036 마이그레이션). 60번 round-trip → 1번.
-  // 함수 정의: students LEFT JOIN school_regions, sr.school IS NULL 만, GROUP BY,
-  //            ORDER BY student_count DESC LIMIT p_limit.
-  const { data, error } = await (supabase as unknown as RpcCaller).rpc(
-    "list_unmapped_school_counts",
-    { p_limit: TOP_LIMIT },
-  );
-
-  if (error) {
-    throw new Error(`매핑 누락 학교 조회에 실패했습니다: ${error.message}`);
-  }
-
-  return (data ?? []).map((r) => ({
-    school: r.school,
-    // PG bigint → JS number 변환. 6만 row 이하 가정에서 안전.
-    student_count:
-      typeof r.student_count === "string"
-        ? Number.parseInt(r.student_count, 10)
-        : r.student_count,
-  }));
-}
-
-function aggregateAndSort(
-  counts: Map<string, number>,
-): MissingSchoolRegion[] {
   const items: MissingSchoolRegion[] = [];
   for (const [school, n] of counts) {
     items.push({ school, student_count: n });
@@ -122,5 +89,68 @@ function aggregateAndSort(
     }
     return a.school.localeCompare(b.school, "ko");
   });
-  return items.slice(0, TOP_LIMIT);
+  return {
+    items: items.slice(0, TOP_LIMIT),
+    total: items.length,
+    limit: TOP_LIMIT,
+  };
+}
+
+/**
+ * RPC 좁힌 인터페이스 — Database 타입에 list/count_unmapped_school_counts 가 아직
+ * 생성되지 않아 캐스팅. supabase gen types 재실행 시 제거 가능.
+ */
+interface RpcCaller {
+  rpc(
+    fn: string,
+    args?: Record<string, unknown>,
+  ): Promise<{
+    data: unknown;
+    error: { message: string } | null;
+  }>;
+}
+
+async function collectFromSupabase(): Promise<MissingSchoolsResult> {
+  const supabase = await createSupabaseServerClient();
+  const rpc = supabase as unknown as RpcCaller;
+
+  // list 와 count 두 RPC 병렬 호출.
+  const [listResult, countResult] = await Promise.all([
+    rpc.rpc("list_unmapped_school_counts", { p_limit: TOP_LIMIT }),
+    rpc.rpc("count_unmapped_schools"),
+  ]);
+
+  if (listResult.error) {
+    throw new Error(
+      `매핑 누락 학교 조회에 실패했습니다: ${listResult.error.message}`,
+    );
+  }
+
+  const listRows =
+    (listResult.data ?? []) as Array<{
+      school: string;
+      student_count: number | string;
+    }>;
+  const items: MissingSchoolRegion[] = listRows.map((r) => ({
+    school: r.school,
+    student_count:
+      typeof r.student_count === "string"
+        ? Number.parseInt(r.student_count, 10)
+        : r.student_count,
+  }));
+
+  // count 함수가 실패해도 list 는 살린다 — total fallback 으로 items.length.
+  let total = items.length;
+  if (!countResult.error && countResult.data != null) {
+    const raw = countResult.data;
+    if (typeof raw === "number") {
+      total = raw;
+    } else if (typeof raw === "string") {
+      total = Number.parseInt(raw, 10);
+    } else if (typeof raw === "bigint") {
+      total = Number(raw);
+    }
+  }
+
+  return { items, total, limit: TOP_LIMIT };
 }

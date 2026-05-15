@@ -76,14 +76,16 @@ describe("regions Server Actions · dev-seed 조기 반환", () => {
   });
 
   describe("listMissingSchoolRegionsAction · 읽기 전용 액션", () => {
-    it("dev-seed 에서도 매핑 누락 학교 3건을 success 로 반환", async () => {
+    it("dev-seed 에서도 매핑 누락 재원생 학교를 success 로 반환", async () => {
       const r = await listMissingSchoolRegionsAction();
       expect(r.status).toBe("success");
       if (r.status === "success") {
-        // 인천포스코고/송도국제고/대왕중 (각 1명).
-        expect(r.data.length).toBe(3);
-        const schools = r.data.map((row) => row.school).sort();
-        expect(schools).toEqual(["대왕중", "송도국제고", "인천포스코고"]);
+        // 0037 이후 재원생만 카운트 — 인천포스코고/대왕중 (각 1명).
+        // 송도국제고는 비재원생이라 제외.
+        expect(r.data.items.length).toBe(2);
+        expect(r.data.total).toBe(2);
+        const schools = r.data.items.map((row) => row.school).sort();
+        expect(schools).toEqual(["대왕중", "인천포스코고"]);
       }
     });
   });

@@ -35,7 +35,7 @@ import {
 import { deleteSchoolRegion } from "@/lib/regions/delete-school-region";
 import {
   listMissingSchoolRegions,
-  type MissingSchoolRegion,
+  type MissingSchoolsResult,
 } from "@/lib/regions/list-missing-regions";
 import type { SchoolRegionRow } from "@/types/database";
 
@@ -56,7 +56,7 @@ export type DeleteSchoolRegionActionResult =
   | { status: "dev_seed_mode" };
 
 export type ListMissingSchoolRegionsActionResult =
-  | { status: "success"; data: MissingSchoolRegion[] }
+  | { status: "success"; data: MissingSchoolsResult }
   | { status: "failed"; reason: string };
 
 // ─── 권한 가드 ─────────────────────────────────────────────

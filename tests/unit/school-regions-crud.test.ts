@@ -121,29 +121,31 @@ describe("listMissingSchoolRegions · dev-seed", () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
   });
 
-  it("매핑 없는 3개 학교만 반환 · 각 1명", async () => {
+  it("매핑 없는 재원생 학교만 반환", async () => {
     const r = await listMissingSchoolRegions();
-    // dev-seed 분기는 status 무관 카운트 → 3개 학교.
-    expect(r.length).toBe(3);
-    const map = new Map(r.map((row) => [row.school, row.student_count]));
+    // 0037 이후 status='재원생' 만 카운트. 시드 중 인천포스코고/대왕중 재원생만
+    // 결과에 포함 (송도국제고 학생은 비재원생 상태로 시드되어 있어 제외).
+    expect(r.items.length).toBe(2);
+    expect(r.total).toBe(2);
+    const map = new Map(r.items.map((row) => [row.school, row.student_count]));
     expect(map.get("인천포스코고")).toBe(1);
-    expect(map.get("송도국제고")).toBe(1);
     expect(map.get("대왕중")).toBe(1);
+    expect(map.get("송도국제고")).toBeUndefined();
   });
 
   it("동률(1명씩) 시 학교명 한글 가나다 정렬", async () => {
     const r = await listMissingSchoolRegions();
-    // 모두 student_count=1 동률 → 한글 정렬: 대왕중 < 송도국제고 < 인천포스코고.
-    const names = r.map((row) => row.school);
-    expect(names).toEqual(["대왕중", "송도국제고", "인천포스코고"]);
+    // 동률 student_count=1 → 한글 정렬. 송도국제고는 비재원생이라 제외.
+    const names = r.items.map((row) => row.school);
+    expect(names).toEqual(["대왕중", "인천포스코고"]);
   });
 
   it("school=null 학생(DC0008)은 결과에서 제외", async () => {
     const r = await listMissingSchoolRegions();
     // DC0008 은 school=null 이라 매핑 키 자체가 없음 → 결과 미포함.
-    expect(r.find((row) => row.school === null)).toBeUndefined();
+    expect(r.items.find((row) => row.school === null)).toBeUndefined();
     // 또한 빈 학교명도 없음.
-    expect(r.every((row) => row.school.length > 0)).toBe(true);
+    expect(r.items.every((row) => row.school.length > 0)).toBe(true);
   });
 });
 

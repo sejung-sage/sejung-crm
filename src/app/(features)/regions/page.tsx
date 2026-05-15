@@ -58,7 +58,9 @@ export default async function RegionsPage({
 
   const rows = mappingsResult.status === "success" ? mappingsResult.data : [];
   const missing =
-    missingResult.status === "success" ? missingResult.data : [];
+    missingResult.status === "success"
+      ? missingResult.data
+      : { items: [], total: 0, limit: 50 };
 
   // 매핑 표에서 이미 등장하는 region 들 + 칩 5종을 합쳐 dropdown 옵션으로.
   // 운영자가 자유 추가한 지역도 자연스럽게 노출.
@@ -130,7 +132,9 @@ export default async function RegionsPage({
 
       {/* 미매핑 학교 패널 */}
       <MissingSchoolsPanel
-        items={missing}
+        items={missing.items}
+        total={missing.total}
+        limit={missing.limit}
         knownRegions={knownRegions}
       />
 

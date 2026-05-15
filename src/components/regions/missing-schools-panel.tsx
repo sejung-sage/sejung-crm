@@ -7,7 +7,12 @@ import type { MissingSchoolRegion } from "@/lib/regions/list-missing-regions";
 import { upsertSchoolRegionAction } from "@/app/(features)/regions/actions";
 
 interface Props {
+  /** 학생 수 많은 순 cap N 개. */
   items: MissingSchoolRegion[];
+  /** 미매핑 학교 distinct 전체 개수 (cap 이전). */
+  total: number;
+  /** 표시 cap — 사용자에게 "N개 표시 중" 안내용. */
+  limit: number;
   knownRegions: string[];
 }
 
@@ -29,7 +34,12 @@ type RowState = "idle" | "saving" | "ok" | { error: string };
  *  3) 성공 시 "저장됨" 체크 700ms 후 router.refresh() → 행이 목록에서 사라짐.
  *  4) 실패 시 빨간 에러 박스 표시, 드롭다운/버튼 재활성.
  */
-export function MissingSchoolsPanel({ items, knownRegions }: Props) {
+export function MissingSchoolsPanel({
+  items,
+  total,
+  limit,
+  knownRegions,
+}: Props) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   // 행 단위 선택 상태: school 키 → 선택된 region 문자열.
@@ -78,7 +88,10 @@ export function MissingSchoolsPanel({ items, knownRegions }: Props) {
     });
   };
 
-  const totalMissing = items.length;
+  // 헤더의 "N건" 은 전체 미매핑 학교 distinct 개수 (cap 이전).
+  // items.length 는 cap 이 적용된 화면 표시 개수 — 둘은 다를 수 있다.
+  const totalMissing = total;
+  const isCapped = items.length >= limit && total > items.length;
 
   return (
     <section
@@ -131,7 +144,19 @@ export function MissingSchoolsPanel({ items, knownRegions }: Props) {
           <p className="px-4 md:px-5 py-3 text-[13px] text-[color:var(--text-muted)] leading-relaxed">
             아직 지역이 지정되지 않은 학교 {totalMissing.toLocaleString()}건입니다.
             재원생 수가 많은 학교부터 지역을 선택하고 &lsquo;저장&rsquo; 버튼을
-            눌러 주세요. (재원생 기준 — 학생 명단의 기본 필터와 동일)
+            눌러 주세요.
+            {isCapped && (
+              <>
+                {" "}
+                <span className="text-[color:var(--text)] font-medium">
+                  (학생 수 많은 순으로 {limit}개 표시 중 — 매핑을 진행하면 다음
+                  학교가 올라옵니다)
+                </span>
+              </>
+            )}
+            <span className="block mt-1 text-[12px] text-[color:var(--text-dim)]">
+              재원생 기준 · 학생 명단의 기본 필터와 동일
+            </span>
           </p>
 
           {totalMissing === 0 ? (
