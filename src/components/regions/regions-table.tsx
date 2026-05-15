@@ -60,6 +60,13 @@ export function RegionsTable({ rows, knownRegions }: Props) {
       const result = await upsertSchoolRegionAction({ school, region });
       if (result.status === "success") {
         setRowState((s) => ({ ...s, [school]: "ok" }));
+        // 새 region 그룹을 자동으로 펼친다 — 학교가 다른 그룹으로 이동한 경우
+        // 사용자가 같은 자리에서 보이는 변화가 없어 "안 됐다" 고 오해하던 UX 버그 해결.
+        setOpenRegions((prev) => {
+          const next = new Set(prev);
+          next.add(region);
+          return next;
+        });
         setTimeout(() => {
           setEditing(null);
           setRowState((s) => {
@@ -150,7 +157,19 @@ export function RegionsTable({ rows, knownRegions }: Props) {
                 />
               </button>
 
-              {isOpen && (
+              {isOpen && total === 0 && (
+                <div className="border-t border-[color:var(--border)] px-4 md:px-5 py-6 text-center">
+                  <p className="text-[14px] text-[color:var(--text-muted)]">
+                    이 지역으로 매핑된 학교가 없습니다.
+                  </p>
+                  <p className="mt-1 text-[13px] text-[color:var(--text-dim)]">
+                    위의 &lsquo;새 학교 추가&rsquo; 또는 미매핑 학교 패널, 또는
+                    다른 그룹에서 학교 &lsquo;수정&rsquo; 으로 옮겨올 수 있습니다.
+                  </p>
+                </div>
+              )}
+
+              {isOpen && total > 0 && (
                 <div className="border-t border-[color:var(--border)]">
                   {LEVELS.map((level) => {
                     const levelRows = byLevel[level];
@@ -380,11 +399,15 @@ interface RegionGroup {
  * 매핑 row 들을 지역 → 학교급으로 2단 그룹화.
  *
  * 지역 순서: SSOT REGION_OPTIONS 가 먼저, 그 외 자유 지역은 한글 정렬로 뒤에.
- * 빈 지역(매핑 0개) 은 결과에서 제외.
+ * SSOT region 은 매핑 0개라도 그룹 표시 — 사용자가 "왜 안 보이지" 헷갈리지
+ * 않게. 자유 지역(예: '분당구') 은 매핑 있을 때만 표시.
  * 학교급 내 정렬: 학교명 한글 가나다순.
  */
 function groupByRegionAndLevel(rows: SchoolRegionRow[]): RegionGroup[] {
   const byRegion = new Map<string, SchoolRegionRow[]>();
+  // SSOT 모든 region 을 빈 list 로 미리 채움 — 0개라도 그룹 표시 보장.
+  for (const r of REGION_OPTIONS) byRegion.set(r, []);
+
   for (const r of rows) {
     const list = byRegion.get(r.region) ?? [];
     list.push(r);
@@ -405,7 +428,7 @@ function groupByRegionAndLevel(rows: SchoolRegionRow[]): RegionGroup[] {
   });
 
   return sortedRegions.map((region) => {
-    const regionRows = byRegion.get(region)!;
+    const regionRows = byRegion.get(region) ?? [];
     const byLevel: Record<SchoolLevel, SchoolRegionRow[]> = {
       고: [],
       중: [],
