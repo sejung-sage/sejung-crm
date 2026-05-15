@@ -1,7 +1,8 @@
 "use client";
 
-import Link from "next/link";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
+import { Loader2 } from "lucide-react";
 
 /**
  * 사이드바 네비게이션 링크 (Client Component).
@@ -14,6 +15,11 @@ import { usePathname } from "next/navigation";
  * 동시에 부모 /campaigns 도 매칭) 가 있어, 부모는 `matchPrefix` 플래그로
  * 자기 경로와 정확히 같거나 슬래시로 시작하는 경우만 매칭하고, 자식은 정확히
  * 일치할 때만 매칭한다.
+ *
+ * UX 보강 (2026-05-15):
+ *   `useLinkStatus()` 로 클릭 직후 server fetch 가 끝날 때까지의 pending 구간
+ *   동안 우측에 작은 스피너 노출. 사용자가 "지금 이동 중" 임을 즉시 인지 가능.
+ *   페이지 자체의 큰 loading.tsx 와 짝.
  */
 export function SidebarNavLink({
   href,
@@ -43,6 +49,23 @@ export function SidebarNavLink({
       className={`${className} ${isActive ? activeClassName : inactiveClassName}`}
     >
       {children}
+      <PendingSpinner />
     </Link>
+  );
+}
+
+/**
+ * 부모 Link 의 pending 상태에 반응하는 스피너.
+ * `useLinkStatus()` 가 Link 의 children 트리에서만 작동하므로 별도 컴포넌트로 분리.
+ */
+function PendingSpinner() {
+  const { pending } = useLinkStatus();
+  if (!pending) return null;
+  return (
+    <Loader2
+      className="ml-auto size-3.5 animate-spin text-[color:var(--text-muted)]"
+      strokeWidth={1.75}
+      aria-hidden
+    />
   );
 }
