@@ -10,6 +10,7 @@ import {
 import { Search, X, Eye, ChevronDown } from "lucide-react";
 import type { Grade, SchoolLevel } from "@/types/database";
 import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
+import { REGION_OPTIONS } from "@/config/regions";
 import { STUDENT_SORT_VALUES, type StudentSort } from "@/lib/schemas/student";
 import type { SchoolGroup } from "@/lib/profile/list-filter-options";
 
@@ -38,20 +39,7 @@ const GRADE_OPTIONS_ALL: ReadonlyArray<Grade> = [
 ];
 
 const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드", "탈퇴"] as const;
-/**
- * 지역 칩 (학생 명단 필터 전용).
- *
- * 운영자는 /regions admin 페이지에서 학교 → 지역 매핑을 자유 추가/수정.
- * 다만 학생 명단 필터에서는 자주 쓰는 5종을 칩으로 고정 노출 — 빠른 토글이 목적.
- * 추가 지역(예: "분당")이 매핑되어 있어도 매핑은 정상 동작하지만 칩에는 노출하지 않는다.
- */
-const REGION_OPTIONS = [
-  "강남구",
-  "서초구",
-  "송파구",
-  "인천 송도",
-  "기타",
-] as const;
+// 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용.
 
 /**
  * 정렬 enum → 한글 라벨 매핑.

@@ -14,6 +14,7 @@ import {
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
 import { BRANCHES } from "@/config/branches";
+import { REGION_OPTIONS } from "@/config/regions";
 
 interface DirectStudent {
   id: string;
@@ -71,19 +72,8 @@ const SUBJECT_OPTIONS: Subject[] = [
   "기타",
 ];
 
-/**
- * 지역 칩 — 학생 명단 필터(`students-filters.tsx`)와 동일한 5종 고정.
- * /regions admin 에서 추가 매핑이 가능하지만 그룹 빌더에서는 운영 빈도 높은 5종만
- * 노출 — 실수 발송 방지 + UI 단순화. 다른 지역으로 보낼 일이 생기면 학생 직접 선택
- * 또는 향후 expand 영역으로 보강.
- */
-const REGION_OPTIONS = [
-  "강남구",
-  "서초구",
-  "송파구",
-  "인천 송도",
-  "기타",
-] as const;
+// 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용 —
+// 학생 명단·그룹 빌더·매핑 admin 모두 동일 출처.
 const LEVEL_SEGMENTS: ReadonlyArray<{
   value: "전체" | "중" | "고";
   label: string;

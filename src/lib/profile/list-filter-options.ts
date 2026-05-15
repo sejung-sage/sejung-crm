@@ -28,18 +28,20 @@ const PAGE_SIZE = 1000;
 const MAX_PAGES = 10; // 안전상한 — 1만 행까지. branch 필터 적용 시 충분.
 const CACHE_SECONDS = 60;
 
-/** 학교 필터 그룹 5종 — 학생 명단 칩과 동일 순서. */
-export const SCHOOL_REGION_BUCKETS = [
-  "강남구",
-  "서초구",
-  "송파구",
-  "인천 송도",
-  "기타",
-] as const;
-export type SchoolRegionBucket = (typeof SCHOOL_REGION_BUCKETS)[number];
+// 지역 옵션 SSOT 사용 — UI 칩과 동일 순서/내용 보장.
+import {
+  REGION_OPTIONS,
+  type RegionOption,
+  isKnownRegion,
+} from "@/config/regions";
+
+/** @deprecated REGION_OPTIONS 를 직접 import 하세요. 호환 유지용 alias. */
+export const SCHOOL_REGION_BUCKETS = REGION_OPTIONS;
+/** @deprecated RegionOption 을 직접 import 하세요. 호환 유지용 alias. */
+export type SchoolRegionBucket = RegionOption;
 
 export interface SchoolGroup {
-  region: SchoolRegionBucket;
+  region: RegionOption;
   schools: string[];
 }
 
@@ -157,12 +159,12 @@ function buildOptions(
   schoolSet: Set<string>,
   schoolToRegion: Map<string, string>,
 ): StudentFilterOptions {
-  const buckets = new Map<SchoolRegionBucket, Set<string>>();
+  const buckets = new Map<RegionOption, Set<string>>();
   for (const b of SCHOOL_REGION_BUCKETS) buckets.set(b, new Set());
 
   for (const school of schoolSet) {
     const mapped = schoolToRegion.get(school);
-    const bucket: SchoolRegionBucket =
+    const bucket: RegionOption =
       mapped && isKnownBucket(mapped) ? mapped : "기타";
     buckets.get(bucket)!.add(school);
   }
@@ -179,8 +181,8 @@ function buildOptions(
   };
 }
 
-function isKnownBucket(v: string): v is SchoolRegionBucket {
-  return (SCHOOL_REGION_BUCKETS as readonly string[]).includes(v);
+function isKnownBucket(v: string): v is RegionOption {
+  return isKnownRegion(v);
 }
 
 function emptyGroups(): SchoolGroup[] {

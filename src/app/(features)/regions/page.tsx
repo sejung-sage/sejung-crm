@@ -6,6 +6,7 @@ import {
   listMissingSchoolRegionsAction,
 } from "./actions";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
+import { REGION_OPTIONS } from "@/config/regions";
 import { RegionAddForm } from "@/components/regions/region-add-form";
 import { RegionsTable } from "@/components/regions/regions-table";
 import { MissingSchoolsPanel } from "@/components/regions/missing-schools-panel";
@@ -90,9 +91,9 @@ export default async function RegionsPage({
         </h1>
         <p className="text-[14px] text-[color:var(--text-muted)] leading-relaxed">
           학생 명단의 지역 필터에서 사용됩니다. 학교를 적절한 지역으로 분류해
-          두면 강남구·서초구·송파구·인천 송도 별로 빠르게 학생을 추릴 수
-          있습니다. 매핑되지 않은 학교의 학생은 자동으로 &lsquo;기타&rsquo; 에
-          포함됩니다.
+          두면 강남구·서초구·송파구·용산구·동작구·인천 송도 별로 빠르게 학생을
+          추릴 수 있습니다. 매핑되지 않은 학교의 학생은 자동으로
+          &lsquo;기타&rsquo; 에 포함됩니다.
         </p>
       </header>
 
@@ -148,14 +149,13 @@ export default async function RegionsPage({
 
 /**
  * dropdown 옵션 풀.
- * 학생 명단 칩 5종(고정) + 매핑 표에 실제로 등장한 region 들의 합집합.
- * 한국어 정렬, 중복 제거.
+ * SSOT(src/config/regions.ts) 의 REGION_OPTIONS + 매핑 표에 실제로 등장한
+ * region 들의 합집합. 한국어 정렬, 중복 제거.
  */
 function collectKnownRegions(
   rows: ReadonlyArray<{ region: string }>,
 ): string[] {
-  const fixed = ["강남구", "서초구", "송파구", "인천 송도", "기타"];
-  const set = new Set<string>(fixed);
+  const set = new Set<string>(REGION_OPTIONS);
   for (const r of rows) {
     if (typeof r.region === "string" && r.region.trim().length > 0) {
       set.add(r.region.trim());
