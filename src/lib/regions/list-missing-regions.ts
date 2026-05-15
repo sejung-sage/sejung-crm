@@ -30,10 +30,6 @@ import {
 
 const TOP_LIMIT = 50;
 
-// students 페이지네이션 cap. 6만 학생 풀스캔 가능하도록 1만 행.
-const PAGE_SIZE = 1000;
-const MAX_PAGES = 60;
-
 export interface MissingSchoolRegion {
   /** 학교명 (NOT NULL — NULL 학교는 결과에서 제외). */
   school: string;
@@ -73,58 +69,43 @@ function collectFromDevSeed(): MissingSchoolRegion[] {
   return aggregateAndSort(counts);
 }
 
+/**
+ * RPC 좁힌 인터페이스 — Database 타입에 list_unmapped_school_counts 가 아직
+ * 생성되지 않아 캐스팅. supabase gen types 재실행 시 제거 가능.
+ */
+interface RpcCaller {
+  rpc(
+    fn: string,
+    args?: Record<string, unknown>,
+  ): Promise<{
+    data: Array<{ school: string; student_count: number | string }> | null;
+    error: { message: string } | null;
+  }>;
+}
+
 async function collectFromSupabase(): Promise<MissingSchoolRegion[]> {
   const supabase = await createSupabaseServerClient();
 
-  // 1) school_regions 전체 매핑 학교 set.
-  const { data: mappingRows, error: mappingError } = await supabase
-    .from("school_regions")
-    .select("school");
-  if (mappingError) {
-    throw new Error(
-      `매핑 누락 학교 조회에 실패했습니다: ${mappingError.message}`,
-    );
-  }
-  const mappedSchools = new Set<string>(
-    ((mappingRows ?? []) as Array<{ school: string }>).map((r) =>
-      normalizeSchoolKey(r.school),
-    ),
+  // PG RPC 한 번으로 집계 (0036 마이그레이션). 60번 round-trip → 1번.
+  // 함수 정의: students LEFT JOIN school_regions, sr.school IS NULL 만, GROUP BY,
+  //            ORDER BY student_count DESC LIMIT p_limit.
+  const { data, error } = await (supabase as unknown as RpcCaller).rpc(
+    "list_unmapped_school_counts",
+    { p_limit: TOP_LIMIT },
   );
 
-  // 2) students 에서 학교명 페이지네이션 수집.
-  //    student_profiles 뷰가 아닌 students 테이블 직접 — JOIN/집계 없이 가볍게.
-  const counts = new Map<string, number>();
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-    const { data, error } = await supabase
-      .from("students")
-      .select("school")
-      .not("school", "is", null)
-      .neq("status", "탈퇴")
-      .range(from, to);
-
-    if (error) {
-      throw new Error(
-        `매핑 누락 학교 조회에 실패했습니다: ${error.message}`,
-      );
-    }
-
-    const rows = (data ?? []) as Array<{ school: string | null }>;
-    if (rows.length === 0) break;
-
-    for (const r of rows) {
-      if (typeof r.school !== "string") continue;
-      const s = normalizeSchoolKey(r.school);
-      if (s.length === 0) continue;
-      if (mappedSchools.has(s)) continue;
-      counts.set(s, (counts.get(s) ?? 0) + 1);
-    }
-
-    if (rows.length < PAGE_SIZE) break;
+  if (error) {
+    throw new Error(`매핑 누락 학교 조회에 실패했습니다: ${error.message}`);
   }
 
-  return aggregateAndSort(counts);
+  return (data ?? []).map((r) => ({
+    school: r.school,
+    // PG bigint → JS number 변환. 6만 row 이하 가정에서 안전.
+    student_count:
+      typeof r.student_count === "string"
+        ? Number.parseInt(r.student_count, 10)
+        : r.student_count,
+  }));
 }
 
 function aggregateAndSort(
