@@ -74,7 +74,7 @@ export default async function StudentsPage({
         <StudentsFilters
           totalCount={result.total}
           source={result.source}
-          schoolOptions={filterOptions.schools}
+          schoolGroups={filterOptions.schoolGroups}
           canPickBranch={canPickBranch}
         />
 

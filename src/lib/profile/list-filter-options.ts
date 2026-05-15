@@ -1,36 +1,55 @@
 import { unstable_cache } from "next/cache";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
-import { DEV_STUDENT_PROFILES, isDevSeedMode } from "./students-dev-seed";
+import {
+  DEV_SCHOOL_REGIONS,
+  DEV_STUDENT_PROFILES,
+  isDevSeedMode,
+} from "./students-dev-seed";
 
 /**
  * 학생 리스트 필터의 학교 옵션을 prefetch 한다.
  *
  * 사용처: `/students` Server Component 가 호출 → 결과를 `StudentsFilters` 에
- * `schoolOptions` prop 으로 전달. (강사 옵션은 학생 명단에서 제거 — 그룹 빌더 전용.)
+ * `schoolGroups` prop 으로 전달.
  *
- * 성능 핫픽스 (2026-05-13):
- *  - 기존: student_profiles 뷰에서 teachers/school 컬럼을 최대 1만 행 페이지네이션.
- *    뷰가 LEFT JOIN enrollments + attendances + COUNT(DISTINCT) 카테시안이라
- *    매 페이지 로드마다 Supabase statement_timeout(기본 8s) 을 초과해 `/students`
- *    가 통째로 깨졌음.
- *  - 변경: 학교 옵션만 필요하므로 students 테이블에서 school 컬럼만 직접 조회.
- *    뷰의 JOIN/집계 비용 없음. 또한 service client 로 호출하여 RLS 우회 →
- *    `unstable_cache` 로 60초 캐시 (branch 별 키). 학교가 추가/삭제되어도
- *    UI 반영은 최대 60초 지연.
- *  - branch 필터는 코드에서 직접 적용하므로 RLS 우회의 의미 노출 없음.
+ * 출력 구조 (2026-05-15):
+ *  - 학교를 5개 지역 그룹으로 묶어 반환. UI 는 펼치기 토글 패널 안에
+ *    그룹별 칩으로 노출한다.
+ *  - 매핑(school_regions) 에 없거나 5종 외 지역이면 '기타' 그룹으로.
+ *  - `schools` 평탄 배열은 호환 유지(콤보박스 등 다른 잠재 소비처 대비).
  *
- * dev-seed 모드에서는 인메모리 시드에서 학교만 수집.
+ * 성능 (2026-05-13 핫픽스 유지):
+ *  - students 테이블에서 school 컬럼만 직접 조회 (무거운 student_profiles 뷰 회피).
+ *  - service client + `unstable_cache(60s)`. branch 별 키.
+ *  - school_regions 매핑은 한 번 조회 (매핑 수 수십~수백 행, 가벼움).
  */
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 10; // 안전상한 — 1만 행까지. branch 필터 적용 시 충분.
 const CACHE_SECONDS = 60;
 
+/** 학교 필터 그룹 5종 — 학생 명단 칩과 동일 순서. */
+export const SCHOOL_REGION_BUCKETS = [
+  "강남구",
+  "서초구",
+  "송파구",
+  "인천 송도",
+  "기타",
+] as const;
+export type SchoolRegionBucket = (typeof SCHOOL_REGION_BUCKETS)[number];
+
+export interface SchoolGroup {
+  region: SchoolRegionBucket;
+  schools: string[];
+}
+
 export interface StudentFilterOptions {
   /** 강사명 — 학생 명단에서는 사용 안 함. 그룹 빌더 전용. 항상 빈 배열. */
   teachers: string[];
-  /** 학교명 (오름차순). 빈 문자열·null 제외. */
+  /** 학교명 평탄 배열 (오름차순). 호환 유지용. */
   schools: string[];
+  /** 학교를 5개 지역 그룹으로 묶은 결과. UI 칩 패널의 단일 소스. */
+  schoolGroups: SchoolGroup[];
 }
 
 export async function listStudentFilterOptions(
@@ -47,11 +66,11 @@ async function collectFromSupabase(
   branch: string | undefined,
 ): Promise<StudentFilterOptions> {
   // service client — 쿠키 의존 없음. unstable_cache 와 호환.
-  // students.school 만 노출하므로 RLS 우회 영향 없음 (이미 학생 명단에 표출되는 정보).
+  // students.school / school_regions 만 노출하므로 RLS 우회 영향 없음.
   const supabase = createSupabaseServiceClient();
 
+  // 1) 학생 테이블에서 학교명 distinct (1만 행 cap 페이지네이션).
   const schoolSet = new Set<string>();
-
   for (let page = 0; page < MAX_PAGES; page++) {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
@@ -69,7 +88,7 @@ async function collectFromSupabase(
     const { data, error } = await query;
     if (error) {
       // 옵션 prefetch 실패는 페이지를 깨면 안 된다 — 빈 옵션 fallback.
-      return { teachers: [], schools: [] };
+      return { teachers: [], schools: [], schoolGroups: emptyGroups() };
     }
 
     const rows = (data ?? []) as unknown as { school: string | null }[];
@@ -84,10 +103,18 @@ async function collectFromSupabase(
     if (rows.length < PAGE_SIZE) break;
   }
 
-  return {
-    teachers: [],
-    schools: [...schoolSet].sort((a, b) => a.localeCompare(b)),
-  };
+  // 2) school_regions 매핑 전체 조회 (수십~수백 행, 가벼움).
+  const { data: mappingRows } = await supabase
+    .from("school_regions")
+    .select("school, region");
+  const schoolToRegion = new Map<string, string>();
+  for (const m of (mappingRows ?? []) as { school: string; region: string }[]) {
+    if (typeof m.school === "string" && typeof m.region === "string") {
+      schoolToRegion.set(m.school.trim(), m.region.trim());
+    }
+  }
+
+  return buildOptions(schoolSet, schoolToRegion);
 }
 
 const cachedCollectFromSupabase = unstable_cache(
@@ -103,7 +130,6 @@ function collectFromDevSeed(
   branch: string | undefined,
 ): StudentFilterOptions {
   const schoolSet = new Set<string>();
-
   const profiles =
     branch && branch !== "전체"
       ? DEV_STUDENT_PROFILES.filter((r) => r.branch === branch)
@@ -115,8 +141,48 @@ function collectFromDevSeed(
     }
   }
 
+  const schoolToRegion = new Map<string, string>();
+  for (const m of DEV_SCHOOL_REGIONS) {
+    schoolToRegion.set(m.school.trim(), m.region.trim());
+  }
+
+  return buildOptions(schoolSet, schoolToRegion);
+}
+
+/**
+ * 학교 set + 매핑 map → 평탄 배열 + 그룹 배열.
+ * Supabase / dev seed 양쪽 동일 형태로 가공.
+ */
+function buildOptions(
+  schoolSet: Set<string>,
+  schoolToRegion: Map<string, string>,
+): StudentFilterOptions {
+  const buckets = new Map<SchoolRegionBucket, Set<string>>();
+  for (const b of SCHOOL_REGION_BUCKETS) buckets.set(b, new Set());
+
+  for (const school of schoolSet) {
+    const mapped = schoolToRegion.get(school);
+    const bucket: SchoolRegionBucket =
+      mapped && isKnownBucket(mapped) ? mapped : "기타";
+    buckets.get(bucket)!.add(school);
+  }
+
+  const schoolGroups: SchoolGroup[] = SCHOOL_REGION_BUCKETS.map((region) => ({
+    region,
+    schools: [...buckets.get(region)!].sort((a, b) => a.localeCompare(b, "ko")),
+  }));
+
   return {
     teachers: [],
-    schools: [...schoolSet].sort((a, b) => a.localeCompare(b)),
+    schools: [...schoolSet].sort((a, b) => a.localeCompare(b, "ko")),
+    schoolGroups,
   };
+}
+
+function isKnownBucket(v: string): v is SchoolRegionBucket {
+  return (SCHOOL_REGION_BUCKETS as readonly string[]).includes(v);
+}
+
+function emptyGroups(): SchoolGroup[] {
+  return SCHOOL_REGION_BUCKETS.map((region) => ({ region, schools: [] }));
 }

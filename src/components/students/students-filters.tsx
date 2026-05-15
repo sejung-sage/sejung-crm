@@ -3,16 +3,15 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
-  useEffect,
   useMemo,
-  useRef,
   useState,
   useTransition,
 } from "react";
-import { Search, X, Eye, Check } from "lucide-react";
+import { Search, X, Eye, ChevronDown } from "lucide-react";
 import type { Grade, SchoolLevel } from "@/types/database";
 import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 import { STUDENT_SORT_VALUES, type StudentSort } from "@/lib/schemas/student";
+import type { SchoolGroup } from "@/lib/profile/list-filter-options";
 
 /**
  * 학년·학교급 필터 옵션 (0012 정규화 enum 9종 대응).
@@ -91,13 +90,16 @@ const SORT_WHITELIST: ReadonlySet<string> = new Set(STUDENT_SORT_VALUES);
 export function StudentsFilters({
   totalCount,
   source,
-  schoolOptions,
+  schoolGroups,
   canPickBranch,
 }: {
   totalCount: number;
   source: "supabase" | "dev-seed";
-  /** 부모(Server Component) 가 prefetch 해서 넘겨주는 학교 후보. */
-  schoolOptions: string[];
+  /**
+   * 부모(Server Component) 가 prefetch 한 학교 후보를 5개 지역 그룹으로 묶은 결과.
+   * 빈 그룹(해당 지역 학교 0개)도 포함될 수 있어 UI 에서 필터링.
+   */
+  schoolGroups: SchoolGroup[];
   /** master 만 분원 select 노출. 그 외는 사이드바 표시(분원: X)로 충분. */
   canPickBranch: boolean;
 }) {
@@ -105,6 +107,8 @@ export function StudentsFilters({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  // 학교 필터 패널의 펼침/접힘 (기본 접힘). 선택된 학교가 있으면 처음부터 펼침.
+  const [schoolPanelOpen, setSchoolPanelOpen] = useState(false);
 
   const q = searchParams.get("q") ?? "";
   const branch = searchParams.get("branch") ?? "전체";
@@ -384,39 +388,119 @@ export function StudentsFilters({
         </FilterGroup>
       </div>
 
-      {/* 학교 (콤보박스 + 선택 칩) */}
-      <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
-        <FilterGroup label="학교">
-          <ComboboxMulti
-            placeholder="학교 검색"
-            options={schoolOptions}
-            selected={schools}
-            onToggle={(v) => toggleMulti("school", v)}
-          />
-          {schools.map((s) => (
-            <SelectedChip
-              key={s}
-              label={s}
-              onRemove={() => toggleMulti("school", s)}
-            />
-          ))}
-        </FilterGroup>
-
-        {hasActiveFilters && (
+      {/* 학교 (펼치기 토글 + 지역별 그룹 칩 패널) */}
+      <div className="pt-1">
+        <div className="flex items-center gap-3">
           <button
             type="button"
-            onClick={clearAll}
+            onClick={() => setSchoolPanelOpen((o) => !o)}
+            aria-expanded={schoolPanelOpen}
+            aria-controls="student-school-panel"
             className="
-              inline-flex items-center gap-1 h-8 px-2 rounded-md
-              text-[13px] text-[color:var(--text-muted)]
-              hover:text-[color:var(--text)]
-              hover:bg-[color:var(--bg-hover)]
-              transition-colors ml-auto
+              inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md
+              text-[13px] font-medium text-[color:var(--text-muted)]
+              hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]
+              transition-colors
             "
           >
-            <X className="size-3.5" strokeWidth={1.75} aria-hidden />
-            필터 초기화
+            <span>학교</span>
+            {schools.length > 0 && (
+              <span
+                className="
+                  inline-flex items-center justify-center
+                  h-5 min-w-5 px-1.5 rounded-full
+                  bg-[color:var(--action)] text-[color:var(--action-text)]
+                  text-[12px] font-semibold tabular-nums
+                "
+              >
+                {schools.length}
+              </span>
+            )}
+            <ChevronDown
+              className={`size-3.5 transition-transform ${
+                schoolPanelOpen ? "rotate-180" : ""
+              }`}
+              strokeWidth={1.75}
+              aria-hidden
+            />
           </button>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearAll}
+              className="
+                inline-flex items-center gap-1 h-8 px-2 rounded-md
+                text-[13px] text-[color:var(--text-muted)]
+                hover:text-[color:var(--text)]
+                hover:bg-[color:var(--bg-hover)]
+                transition-colors ml-auto
+              "
+            >
+              <X className="size-3.5" strokeWidth={1.75} aria-hidden />
+              필터 초기화
+            </button>
+          )}
+        </div>
+
+        {/* 접혀 있을 때: 선택된 학교가 있으면 요약 칩으로 노출 */}
+        {!schoolPanelOpen && schools.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {schools.map((s) => (
+              <SelectedChip
+                key={s}
+                label={s}
+                onRemove={() => toggleMulti("school", s)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* 펼쳐졌을 때: 5개 지역 그룹별 학교 칩 */}
+        {schoolPanelOpen && (
+          <div
+            id="student-school-panel"
+            className="
+              mt-3 rounded-xl
+              bg-[color:var(--bg-muted)]
+              p-4 space-y-4
+            "
+          >
+            {schoolGroups.every((g) => g.schools.length === 0) ? (
+              <p className="text-[13px] text-[color:var(--text-muted)]">
+                표시할 학교가 없습니다.
+              </p>
+            ) : (
+              schoolGroups.map((group) => {
+                if (group.schools.length === 0) return null;
+                const selectedInGroup = group.schools.filter((s) =>
+                  schools.includes(s),
+                ).length;
+                return (
+                  <div key={group.region}>
+                    <h4 className="mb-1.5 flex items-baseline gap-1.5 text-[13px] font-semibold text-[color:var(--text)]">
+                      {group.region}
+                      <span className="text-[12px] font-normal text-[color:var(--text-muted)] tabular-nums">
+                        {selectedInGroup > 0
+                          ? `${selectedInGroup}/${group.schools.length}`
+                          : `${group.schools.length}`}
+                      </span>
+                    </h4>
+                    <div className="flex flex-wrap gap-1.5">
+                      {group.schools.map((s) => (
+                        <Chip
+                          key={s}
+                          label={s}
+                          active={schools.includes(s)}
+                          onClick={() => toggleMulti("school", s)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         )}
       </div>
 
@@ -572,209 +656,3 @@ function SegmentedControl<T extends string>({
   );
 }
 
-/**
- * 검색 가능한 멀티 선택 콤보박스.
- * 학교 필터용. 옵션이 100개+ 가능하므로 키워드 필터 필수.
- *
- * - 인풋에 키워드 입력 → 옵션 필터 (대소문자 무관, 부분 일치)
- * - Enter: 첫 후보를 토글
- * - 외부 클릭 / Esc 닫힘
- * - 선택은 즉시 URL 반영, 드롭다운은 열린 상태 유지 (연속 선택 편의)
- */
-function ComboboxMulti({
-  placeholder,
-  options,
-  selected,
-  onToggle,
-}: {
-  placeholder: string;
-  options: string[];
-  selected: string[];
-  onToggle: (value: string) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [keyword, setKeyword] = useState("");
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onDoc = (e: MouseEvent) => {
-      if (!wrapperRef.current) return;
-      if (!wrapperRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setKeyword("");
-      }
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        setOpen(false);
-        setKeyword("");
-      }
-    };
-    document.addEventListener("mousedown", onDoc);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDoc);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-
-  const filtered = useMemo(() => {
-    const q = keyword.trim().toLowerCase();
-    if (!q) return options.slice(0, 200); // 너무 긴 목록은 위에서 자름
-    return options
-      .filter((o) => o.toLowerCase().includes(q))
-      .slice(0, 200);
-  }, [keyword, options]);
-
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-
-  const onInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const first = filtered[0];
-      if (first) onToggle(first);
-    }
-  };
-
-  return (
-    <div ref={wrapperRef} className="relative">
-      {!open ? (
-        <button
-          type="button"
-          onClick={() => {
-            setOpen(true);
-            // 다음 틱에 포커스 (요소 마운트 후)
-            setTimeout(() => inputRef.current?.focus(), 0);
-          }}
-          aria-haspopup="listbox"
-          aria-expanded={open}
-          className="
-            inline-flex items-center gap-1.5 h-8 px-3 rounded-full
-            text-[14px] font-medium
-            bg-bg-card text-[color:var(--text)]
-            border border-dashed border-[color:var(--border-strong)]
-            hover:bg-[color:var(--bg-hover)]
-            transition-colors
-          "
-        >
-          <Search className="size-3.5" strokeWidth={1.75} aria-hidden />
-          <span>+ {placeholder}</span>
-        </button>
-      ) : (
-        <div
-          className="
-            inline-flex items-center gap-1.5 h-8 pl-3 pr-1 rounded-full
-            bg-bg-card
-            border border-[color:var(--border-strong)]
-          "
-        >
-          <Search
-            className="size-3.5 text-[color:var(--text-dim)]"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-          <input
-            ref={inputRef}
-            value={keyword}
-            onChange={(e) => setKeyword(e.target.value)}
-            onKeyDown={onInputKeyDown}
-            placeholder={placeholder}
-            className="
-              w-40 bg-transparent
-              text-[14px] text-[color:var(--text)]
-              placeholder:text-[color:var(--text-dim)]
-              focus:outline-none
-            "
-            aria-label={placeholder}
-          />
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              setKeyword("");
-            }}
-            aria-label="검색 닫기"
-            className="
-              inline-flex items-center justify-center
-              size-6 rounded-full
-              text-[color:var(--text-muted)]
-              hover:text-[color:var(--text)]
-              hover:bg-[color:var(--bg-hover)]
-              transition-colors
-            "
-          >
-            <X className="size-3.5" strokeWidth={1.75} aria-hidden />
-          </button>
-        </div>
-      )}
-
-      {open && (
-        <div
-          role="listbox"
-          aria-multiselectable="true"
-          className="
-            absolute left-0 top-full mt-2 z-30
-            min-w-64 max-w-80
-            max-h-72 overflow-y-auto
-            rounded-lg
-            bg-bg-card border border-[color:var(--border)]
-            shadow-md
-            p-1
-          "
-        >
-          {options.length === 0 ? (
-            <p className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
-              선택 가능한 학교가 없습니다
-            </p>
-          ) : filtered.length === 0 ? (
-            <p className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
-              일치하는 학교가 없습니다
-            </p>
-          ) : (
-            filtered.map((opt) => {
-              const active = selectedSet.has(opt);
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onClick={() => onToggle(opt)}
-                  className="
-                    w-full flex items-center gap-2
-                    px-2 py-2 rounded-md
-                    text-left text-[14px]
-                    text-[color:var(--text)]
-                    hover:bg-[color:var(--bg-hover)]
-                    transition-colors
-                  "
-                >
-                  <span
-                    className={`
-                      inline-flex items-center justify-center
-                      size-4 rounded
-                      border
-                      ${
-                        active
-                          ? "bg-[color:var(--action)] border-[color:var(--action)] text-[color:var(--action-text)]"
-                          : "bg-bg-card border-[color:var(--border-strong)]"
-                      }
-                    `}
-                    aria-hidden
-                  >
-                    {active && (
-                      <Check className="size-3" strokeWidth={2.5} />
-                    )}
-                  </span>
-                  <span className="truncate">{opt}</span>
-                </button>
-              );
-            })
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
