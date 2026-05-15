@@ -1,4 +1,7 @@
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  createSupabaseServiceClient,
+} from "@/lib/supabase/server";
 import type { StudentProfileRow } from "@/types/database";
 import type { ListStudentsInput, StudentSort } from "@/lib/schemas/student";
 import { HIDDEN_GRADES_BY_DEFAULT } from "@/lib/schemas/common";
@@ -38,16 +41,66 @@ async function listFromSupabase(
   const from = (input.page - 1) * input.pageSize;
   const to = from + input.pageSize - 1;
 
-  // count: "estimated" — student_profiles 뷰가 LEFT JOIN enrollments + attendances
-  // 카테시안이라 풀 카운트가 Supabase statement_timeout(8s) 을 초과해 페이지가
-  // 통째로 깨졌다. 페이지네이션 표시용으로는 추정 카운트로 충분.
-  // (PostgREST: 행이 많으면 pg_class 통계 기반 추정, 적으면 자동 exact 로 fallback.)
-  let query = supabase
-    .from("student_profiles")
-    .select("*", { count: "estimated" });
+  // ─── region 필터 → 학교 list 변환 ──────────────────────────
+  // count 쿼리는 students 베이스라 sr.region 컬럼이 없다. school_regions 를
+  // 한 번 조회해서 student.school IN (...) 형태로 변환.
+  const regionPlan = await resolveRegionToSchools(input.regions);
+
+  // ─── count 쿼리 (students 베이스, head + exact) ───────────
+  // 핫픽스 (2026-05-15):
+  //   기존 count: "estimated" 가 student_profiles 뷰의 stale planner 통계 때문에
+  //   필터와 무관하게 항상 1001 같은 값으로 stuck 되었음. 사용자가 어떤 region/학교를
+  //   선택해도 "1,001명" 표시 → 카운트 무의미.
+  //   해결: count 만 가벼운 students 테이블에서 head + exact 로 분리. 본 select 는
+  //   student_profiles 뷰 유지 (출석률·수강 정보 등 집계 컬럼 필요).
+  //
+  //   subjects/teachers 필터는 학생 명단 UI 에서 노출 안 되지만 URL 직접 진입 시
+  //   적용될 수 있음. students 베이스로는 정확 count 불가 — 그 경우 count 는
+  //   "필터 적용 전 학생 수" 가 되어 보수적으로 과대. 대안은 enrollments JOIN 인데
+  //   학생 명단 메인 화면 케이스가 아니라 그냥 허용.
+  let countQuery = supabase
+    .from("students")
+    .select("id", { count: "exact", head: true });
 
   if (input.search) {
-    // 이름·학교·학부모 연락처 전체 검색
+    const like = `%${input.search}%`;
+    countQuery = countQuery.or(
+      `name.ilike.${like},school.ilike.${like},parent_phone.ilike.${like}`,
+    );
+  }
+  if (input.branch && input.branch !== "전체") {
+    countQuery = countQuery.eq("branch", input.branch);
+  }
+  if (input.grades.length > 0) {
+    countQuery = countQuery.in("grade", input.grades);
+  }
+  if (input.schoolLevels.length > 0) {
+    countQuery = countQuery.in("school_level", input.schoolLevels);
+  }
+  if (input.tracks.length > 0) {
+    countQuery = countQuery.in("track", input.tracks);
+  }
+  if (input.statuses.length > 0) {
+    countQuery = countQuery.in("status", input.statuses);
+  }
+  if (input.schools.length > 0) {
+    countQuery = countQuery.in("school", input.schools);
+  }
+  if (regionPlan) {
+    countQuery = applyRegionPlanToCount(countQuery, regionPlan);
+  }
+  if (!input.includeHidden && input.grades.length === 0) {
+    countQuery = countQuery.not(
+      "grade",
+      "in",
+      `(${HIDDEN_GRADES_BY_DEFAULT.join(",")})`,
+    );
+  }
+
+  // ─── 본 select (student_profiles 뷰) ──────────────────────
+  let query = supabase.from("student_profiles").select("*");
+
+  if (input.search) {
     const like = `%${input.search}%`;
     query = query.or(
       `name.ilike.${like},school.ilike.${like},parent_phone.ilike.${like}`,
@@ -75,7 +128,6 @@ async function listFromSupabase(
   }
 
   // 수강 과목 필터 — student_profiles.subjects (text[]) 와 교집합.
-  // .overlaps() 는 PostgreSQL && 연산자로 매핑.
   if (input.subjects.length > 0) {
     query = query.overlaps("subjects", input.subjects);
   }
@@ -97,14 +149,8 @@ async function listFromSupabase(
     query = query.in("region", input.regions);
   }
 
-  // 기본 숨김: includeHidden=false 이고 사용자가 학년 칩으로 명시적으로
-  // 졸업·미정 을 선택하지 않은 경우에만 자동 숨김 적용.
-  // 사용자가 grades 에 '졸업'/'미정' 을 포함시켰으면 그 의도를 존중.
+  // 기본 숨김
   if (!input.includeHidden && input.grades.length === 0) {
-    // PostgREST: grade NOT IN ('미정','졸업'). null grade 도 함께 보여주려면
-    // .or("grade.is.null,grade.not.in.(미정,졸업)") 가 정확하지만,
-    // 0012 마이그레이션 백필 후엔 grade 가 항상 9종 enum 중 하나이므로
-    // 단순 NOT IN 으로 충분.
     query = query.not(
       "grade",
       "in",
@@ -112,26 +158,133 @@ async function listFromSupabase(
     );
   }
 
-  // ── 정렬 분기 ──────────────────────────────────────────────
-  // NULLS 정책: 모든 정렬에서 NULL 은 항상 뒤(NULLS LAST). Supabase JS 의
-  // `nullsFirst: false` 옵션이 SQL `NULLS LAST` 로 매핑됨.
-  // 안정 정렬: 동률 시 registered_at DESC 를 보조 키로 추가.
   query = applySupabaseSort(query, input.sort);
 
-  const { data, count, error } = await query.range(from, to);
+  // count·data 병렬 실행.
+  const [countResult, dataResult] = await Promise.all([
+    countQuery,
+    query.range(from, to),
+  ]);
 
-  if (error) {
-    throw new Error(`학생 목록 조회에 실패했습니다: ${error.message}`);
+  if (dataResult.error) {
+    throw new Error(`학생 목록 조회에 실패했습니다: ${dataResult.error.message}`);
   }
 
+  // count 쿼리가 실패해도 본 select 가 성공했으면 페이지는 살린다 (총 수 0 fallback).
+  const total = countResult.error ? 0 : (countResult.count ?? 0);
+
   return {
-    rows: (data ?? []) as StudentProfileRow[],
-    total: count ?? 0,
+    rows: (dataResult.data ?? []) as StudentProfileRow[],
+    total,
     page: input.page,
     pageSize: input.pageSize,
     source: "supabase",
   };
 }
+
+// ─── region 필터 변환 ───────────────────────────────────────
+
+interface RegionPlan {
+  /** 사용자가 명시 선택한 지역(기타 제외) 에 매핑된 학교들. */
+  explicitSchools: string[];
+  /** '기타' 가 선택되어 있는지. true 면 매핑 안 된 학교 + NULL school 도 포함. */
+  includeEtc: boolean;
+  /** 전체 매핑 학교 목록 — '기타' 정의를 위한 NOT IN 보조용. */
+  allMappedSchools: string[];
+}
+
+async function resolveRegionToSchools(
+  regions: string[],
+): Promise<RegionPlan | null> {
+  if (regions.length === 0) return null;
+
+  // service client — school_regions 조회 (RLS 없음, 학교명/지역만).
+  const serviceSupabase = createSupabaseServiceClient();
+
+  const includeEtc = regions.includes("기타");
+  const knownRegions = regions.filter((r) => r !== "기타");
+
+  let explicitSchools: string[] = [];
+  if (knownRegions.length > 0) {
+    const { data } = await serviceSupabase
+      .from("school_regions")
+      .select("school")
+      .in("region", knownRegions);
+    explicitSchools = ((data ?? []) as Array<{ school: string }>).map(
+      (r) => r.school,
+    );
+  }
+
+  let allMappedSchools: string[] = [];
+  if (includeEtc) {
+    const { data } = await serviceSupabase
+      .from("school_regions")
+      .select("school");
+    allMappedSchools = ((data ?? []) as Array<{ school: string }>).map(
+      (r) => r.school,
+    );
+  }
+
+  return { explicitSchools, includeEtc, allMappedSchools };
+}
+
+/**
+ * PostgREST count 쿼리에 region plan 을 학교 IN/NOT IN 절로 적용.
+ *
+ * 케이스:
+ *  - 명시 지역만 → school IN (explicit)
+ *  - '기타' 만   → school IS NULL OR school NOT IN (allMapped)
+ *  - 혼합        → school IN (explicit) OR school IS NULL OR school NOT IN (allMapped)
+ *
+ * 학교명에 쉼표·괄호·따옴표가 들어가면 PostgREST `.in.()` 문법이 깨질 수 있으나,
+ * 실제 운영 학교명에 그런 문자가 없다는 가정 하에 단순 join 처리.
+ */
+interface CountBuilder {
+  in(column: string, values: readonly string[]): CountBuilder;
+  or(filter: string): CountBuilder;
+  eq(column: string, value: string): CountBuilder;
+}
+
+function applyRegionPlanToCount<Q extends CountBuilder>(
+  query: Q,
+  plan: RegionPlan,
+): Q {
+  const { explicitSchools, includeEtc, allMappedSchools } = plan;
+
+  if (!includeEtc) {
+    if (explicitSchools.length === 0) {
+      // 명시 지역인데 매핑 학교 0개 → 매칭 학생 0명 강제.
+      return query.eq("school", "__never_match__") as Q;
+    }
+    return query.in("school", explicitSchools) as Q;
+  }
+
+  // includeEtc === true
+  if (explicitSchools.length === 0) {
+    // '기타' 만.
+    if (allMappedSchools.length === 0) {
+      // 매핑 0건이면 모든 학생이 사실상 기타 → 추가 필터 없음.
+      return query;
+    }
+    return query.or(
+      `school.is.null,school.not.in.(${allMappedSchools.join(",")})`,
+    ) as Q;
+  }
+
+  // 혼합. or() 안에 모든 조건 한 번에.
+  const orExpr = [
+    `school.in.(${explicitSchools.join(",")})`,
+    `school.is.null`,
+    allMappedSchools.length > 0
+      ? `school.not.in.(${allMappedSchools.join(",")})`
+      : null,
+  ]
+    .filter((v): v is string => v !== null)
+    .join(",");
+  return query.or(orExpr) as Q;
+}
+
+// ─── 정렬 ───────────────────────────────────────────────────
 
 /**
  * Supabase 쿼리에 정렬을 분기 적용한다.
@@ -142,9 +295,6 @@ async function listFromSupabase(
  *
  * 안정 정렬: 1차 키 동률 시 registered_at DESC 를 보조 키로 적용해
  * 동명이인·동일 출석률 학생의 순서를 일관되게 유지.
- *
- * 제네릭 제약은 우리가 호출하는 .order 시그니처만 노출하는 minimal 인터페이스
- * 로 좁혀, any 없이 호출부 빌더 타입을 보존한다.
  */
 interface ProfilesOrderBuilder {
   order(
@@ -157,8 +307,6 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
   query: Q,
   sort: StudentSort,
 ): Q {
-  // 보조 키: 모든 분기에서 동일한 안정 정렬을 보장하기 위해
-  // registered_at DESC, NULLS LAST 를 마지막에 한 번만 추가.
   const tieBreaker = (q: Q): Q =>
     q.order("registered_at", {
       ascending: false,
@@ -167,29 +315,20 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
 
   switch (sort) {
     case "registered_desc":
-      // 최근 등록순 (기본값) — registered_at 단일 키.
       return query.order("registered_at", {
         ascending: false,
         nullsFirst: false,
       }) as Q;
     case "registered_asc":
-      // 오래된 등록순.
       return query.order("registered_at", {
         ascending: true,
         nullsFirst: false,
       }) as Q;
     case "name_asc":
-      // 이름 가나다순 (오름차순) + 등록일 내림차순 보조.
-      return tieBreaker(
-        query.order("name", { ascending: true }) as Q,
-      );
+      return tieBreaker(query.order("name", { ascending: true }) as Q);
     case "name_desc":
-      // 이름 가나다 역순 + 등록일 내림차순 보조.
-      return tieBreaker(
-        query.order("name", { ascending: false }) as Q,
-      );
+      return tieBreaker(query.order("name", { ascending: false }) as Q);
     case "attendance_desc":
-      // 출석률 높은 순 + 등록일 내림차순 보조.
       return tieBreaker(
         query.order("attendance_rate", {
           ascending: false,
@@ -197,7 +336,6 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
         }) as Q,
       );
     case "attendance_asc":
-      // 출석률 낮은 순 + 등록일 내림차순 보조.
       return tieBreaker(
         query.order("attendance_rate", {
           ascending: true,
@@ -205,7 +343,6 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
         }) as Q,
       );
     case "enrollment_count_desc":
-      // 수강 강좌 수 많은 순 + 등록일 내림차순 보조.
       return tieBreaker(
         query.order("enrollment_count", {
           ascending: false,
@@ -213,7 +350,6 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
         }) as Q,
       );
     case "total_paid_desc":
-      // 누적 결제 금액 많은 순 + 등록일 내림차순 보조.
       return tieBreaker(
         query.order("total_paid", {
           ascending: false,
@@ -221,7 +357,6 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
         }) as Q,
       );
     default: {
-      // 미래 enum 추가 시 컴파일 타임 누락 방지.
       const _exhaustive: never = sort;
       void _exhaustive;
       return query.order("registered_at", {
@@ -231,6 +366,8 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
     }
   }
 }
+
+// ─── dev seed 경로 (기존 그대로) ────────────────────────────
 
 function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
   let rows = [...DEV_STUDENT_PROFILES];
@@ -274,15 +411,11 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
     rows = rows.filter((r) => input.statuses.includes(r.status));
   }
 
-  // 수강 과목 필터 — student_profiles.subjects 에는 view 단에서 enrollments
-  // 의 subject 가 집계되어 있다. dev seed 시드도 동일 형태(text[])로 채워져
-  // 있으나 일부 학생은 null 이므로 enrollments fallback 도 함께 적용.
   if (input.subjects.length > 0) {
     const wanted = new Set<string>(input.subjects);
     rows = rows.filter((r) => {
       const fromProfile = (r.subjects ?? []).some((s) => wanted.has(s));
       if (fromProfile) return true;
-      // profile.subjects 가 비어있어도 enrollments 에서 일치하면 통과.
       return DEV_ENROLLMENTS.some(
         (e) =>
           e.student_id === r.id &&
@@ -292,8 +425,6 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
     });
   }
 
-  // 강사명 필터 — profile.teachers 가 우선, 없으면 enrollments.teacher_name
-  // fallback 으로 매칭.
   if (input.teachers.length > 0) {
     const wanted = new Set<string>(input.teachers);
     rows = rows.filter((r) => {
@@ -308,20 +439,16 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
     });
   }
 
-  // 학교 필터 — students.school 정확 일치.
   if (input.schools.length > 0) {
     const wanted = new Set<string>(input.schools);
     rows = rows.filter((r) => r.school !== null && wanted.has(r.school));
   }
 
-  // 지역 필터 — student_profiles.region 정확 일치 (Supabase 경로와 동일).
-  // dev seed 의 region 은 NOT NULL (뷰가 COALESCE → '기타') 이므로 단순 includes.
   if (input.regions.length > 0) {
     const wanted = new Set<string>(input.regions);
     rows = rows.filter((r) => wanted.has(r.region));
   }
 
-  // 기본 숨김 (Supabase 경로와 동일 규칙).
   if (!input.includeHidden && input.grades.length === 0) {
     rows = rows.filter(
       (r) =>
@@ -330,14 +457,11 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
     );
   }
 
-  // ── 정렬 분기 ──────────────────────────────────────────────
-  // Supabase 경로와 동일 시맨틱: NULL 은 항상 뒤, 동률 시 registered_at DESC
-  // 보조 키.
   rows = sortDevRows(rows, input.sort);
 
   const total = rows.length;
-  const from = (input.page - 1) * input.pageSize;
-  const paged = rows.slice(from, from + input.pageSize);
+  const fromIdx = (input.page - 1) * input.pageSize;
+  const paged = rows.slice(fromIdx, fromIdx + input.pageSize);
 
   return {
     rows: paged,
@@ -348,15 +472,10 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
   };
 }
 
-/**
- * dev seed rows 정렬 — Supabase 경로의 NULLS LAST + registered_at DESC 보조 키
- * 시맨틱을 그대로 흉내낸다. UI 동작 확인용이므로 단순 비교로 구현.
- */
 function sortDevRows(
   rows: StudentProfileRow[],
   sort: StudentSort,
 ): StudentProfileRow[] {
-  // 등록일 DESC (NULL 은 뒤). 보조 키와 registered_desc 본 키 양쪽에 사용.
   const cmpRegisteredDesc = (
     a: StudentProfileRow,
     b: StudentProfileRow,
@@ -369,7 +488,6 @@ function sortDevRows(
     return bv.localeCompare(av);
   };
 
-  // 등록일 ASC (NULL 은 뒤).
   const cmpRegisteredAsc = (
     a: StudentProfileRow,
     b: StudentProfileRow,
@@ -382,7 +500,6 @@ function sortDevRows(
     return av.localeCompare(bv);
   };
 
-  // 숫자 필드 비교 (NULL 은 뒤).
   const cmpNumber = (
     av: number | null,
     bv: number | null,
@@ -394,7 +511,6 @@ function sortDevRows(
     return asc ? av - bv : bv - av;
   };
 
-  // 문자열 비교 (NULL 은 뒤).
   const cmpString = (
     av: string | null,
     bv: string | null,
@@ -451,7 +567,6 @@ function sortDevRows(
       });
       break;
     default: {
-      // 미래 enum 추가 시 컴파일 타임 누락 방지.
       const _exhaustive: never = sort;
       void _exhaustive;
       sorted.sort(cmpRegisteredDesc);
