@@ -11,42 +11,69 @@ interface Props {
   knownRegions: string[];
 }
 
+type RowState = "idle" | "saving" | "ok" | { error: string };
+
 /**
  * 미매핑 학교 패널.
  *
- * 화면:
- *  - 헤더: "현재 '기타' 로 분류된 학교 N건 — 자주 등장하는 학교부터 라벨링하세요."
- *  - 접기/펼치기 토글 (기본 펼침). 행 0건이면 차분한 안내로 collapsed 표시.
- *  - 각 행: 학교명 (재원생 X명) | 지역 dropdown.
- *    드롭다운에서 지역 선택 즉시 upsertSchoolRegionAction.
- *    성공 시 해당 행은 우측에 체크 아이콘 fade 후 router.refresh() 로 사라짐.
+ * UX (2026-05-15 개선):
+ *  - 드롭다운 onChange 자동 트리거는 모바일/Safari/터치 환경에서 발화가
+ *    누락되는 케이스가 있어 명시적 "저장" 버튼으로 전환. 사용자가 의도적으로
+ *    클릭해야 서버 액션이 호출되므로 "골랐는데 반응 없음" 시나리오 제거.
+ *  - 행 상태(저장 중·저장됨·에러)를 select 우측 큰 텍스트(14px)와 에러 박스로
+ *    명확히 표시. 이전 12px 미니 텍스트는 못 보고 지나칠 위험.
+ *
+ * 흐름:
+ *  1) 드롭다운에서 지역 선택 → 로컬 state에 selection 저장. 저장 안 됨.
+ *  2) "저장" 버튼 클릭 → upsertSchoolRegionAction.
+ *  3) 성공 시 "저장됨" 체크 700ms 후 router.refresh() → 행이 목록에서 사라짐.
+ *  4) 실패 시 빨간 에러 박스 표시, 드롭다운/버튼 재활성.
  */
 export function MissingSchoolsPanel({ items, knownRegions }: Props) {
   const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
-  // 행 단위 처리 상태: school 키 → "saving" | "ok" | reason 문자열.
-  const [rowState, setRowState] = useState<
-    Record<string, "saving" | "ok" | string>
-  >({});
+  // 행 단위 선택 상태: school 키 → 선택된 region 문자열.
+  const [selections, setSelections] = useState<Record<string, string>>({});
+  // 행 단위 처리 상태: school 키 → RowState.
+  const [rowState, setRowState] = useState<Record<string, RowState>>({});
   const [, startTransition] = useTransition();
 
-  const handleAssign = (school: string, region: string) => {
-    if (region === "" || region === "__placeholder__") return;
+  const handleSave = (school: string) => {
+    const region = selections[school];
+    if (!region) {
+      setRowState((s) => ({
+        ...s,
+        [school]: { error: "지역을 먼저 선택해 주세요" },
+      }));
+      return;
+    }
 
     setRowState((s) => ({ ...s, [school]: "saving" }));
     startTransition(async () => {
-      const result = await upsertSchoolRegionAction({ school, region });
-      if (result.status === "success") {
-        setRowState((s) => ({ ...s, [school]: "ok" }));
-        // 잠시 보여준 후 새로고침 — 행이 list 에서 사라지고, 매핑 표에 추가됨.
-        setTimeout(() => router.refresh(), 700);
-      } else if (result.status === "dev_seed_mode") {
+      try {
+        const result = await upsertSchoolRegionAction({ school, region });
+        if (result.status === "success") {
+          setRowState((s) => ({ ...s, [school]: "ok" }));
+          // 잠시 보여준 후 새로고침 — 행이 list 에서 사라지고 매핑 표에 추가됨.
+          setTimeout(() => router.refresh(), 700);
+        } else if (result.status === "dev_seed_mode") {
+          setRowState((s) => ({
+            ...s,
+            [school]: { error: "개발용 시드라 저장되지 않습니다" },
+          }));
+        } else {
+          setRowState((s) => ({
+            ...s,
+            [school]: { error: result.reason },
+          }));
+        }
+      } catch (e) {
+        // Server Action 통신 실패(네트워크 등). 사용자가 재시도할 수 있게 명확히 표시.
+        const msg = e instanceof Error ? e.message : "네트워크 오류";
         setRowState((s) => ({
           ...s,
-          [school]: "개발용 시드라 저장되지 않습니다",
+          [school]: { error: `저장 실패 — ${msg}` },
         }));
-      } else {
-        setRowState((s) => ({ ...s, [school]: result.reason }));
       }
     });
   };
@@ -103,7 +130,8 @@ export function MissingSchoolsPanel({ items, knownRegions }: Props) {
         <div className="border-t border-[color:var(--border)]">
           <p className="px-4 md:px-5 py-3 text-[13px] text-[color:var(--text-muted)] leading-relaxed">
             현재 &lsquo;기타&rsquo; 로 분류된 학교 {totalMissing.toLocaleString()}건
-            입니다. 재원생 수가 많은 학교부터 지역을 지정해 주세요.
+            입니다. 재원생 수가 많은 학교부터 지역을 선택하고 &lsquo;저장&rsquo;
+            버튼을 눌러 주세요.
           </p>
 
           {totalMissing === 0 ? (
@@ -115,72 +143,120 @@ export function MissingSchoolsPanel({ items, knownRegions }: Props) {
           ) : (
             <ul className="divide-y divide-[color:var(--border)]">
               {items.map((it) => {
-                const state = rowState[it.school];
+                const state = rowState[it.school] ?? "idle";
                 const isSaving = state === "saving";
                 const isOk = state === "ok";
                 const errorMsg =
-                  typeof state === "string" && state !== "saving" && state !== "ok"
-                    ? state
+                  typeof state === "object" && "error" in state
+                    ? state.error
                     : null;
+                const selected = selections[it.school] ?? "";
 
                 return (
                   <li
                     key={it.school}
                     className="
-                      flex items-center gap-3
-                      px-4 md:px-5 py-2.5
+                      flex flex-col gap-2
+                      px-4 md:px-5 py-3
                       hover:bg-[color:var(--bg-hover)]
                       transition-colors
                     "
                   >
-                    <div className="flex-1 min-w-0">
-                      <span className="text-[15px] text-[color:var(--text)] font-medium truncate">
-                        {it.school}
-                      </span>
-                      <span className="ml-2 text-[13px] text-[color:var(--text-muted)] tabular-nums">
-                        재원생 {it.student_count.toLocaleString()}명
-                      </span>
-                      {errorMsg && (
-                        <p className="mt-1 text-[12px] text-[color:var(--danger)]">
-                          {errorMsg}
-                        </p>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <span className="text-[15px] text-[color:var(--text)] font-medium truncate">
+                          {it.school}
+                        </span>
+                        <span className="ml-2 text-[13px] text-[color:var(--text-muted)] tabular-nums">
+                          재원생 {it.student_count.toLocaleString()}명
+                        </span>
+                      </div>
+
+                      {isOk ? (
+                        <span
+                          role="status"
+                          className="inline-flex items-center gap-1.5 text-[14px] font-medium text-[color:var(--success)]"
+                        >
+                          <Check
+                            className="size-4"
+                            strokeWidth={2}
+                            aria-hidden
+                          />
+                          저장됨
+                        </span>
+                      ) : (
+                        <>
+                          <select
+                            aria-label={`${it.school} 의 지역 선택`}
+                            value={selected}
+                            disabled={isSaving}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setSelections((s) => ({
+                                ...s,
+                                [it.school]: v,
+                              }));
+                              // 새로 선택하면 직전 에러는 지움.
+                              setRowState((s) => {
+                                const next = { ...s };
+                                delete next[it.school];
+                                return next;
+                              });
+                            }}
+                            className="
+                              h-10 min-w-36 rounded-lg px-3
+                              bg-bg-card border border-[color:var(--border)]
+                              text-[14px] text-[color:var(--text)]
+                              focus:outline-none focus:border-[color:var(--border-strong)]
+                              disabled:bg-[color:var(--bg-muted)] disabled:opacity-60
+                              cursor-pointer
+                            "
+                          >
+                            <option value="" disabled>
+                              지역 선택
+                            </option>
+                            {knownRegions.map((r) => (
+                              <option key={r} value={r}>
+                                {r}
+                              </option>
+                            ))}
+                          </select>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSave(it.school)}
+                            disabled={isSaving || selected === ""}
+                            aria-label={`${it.school} 매핑 저장`}
+                            className="
+                              inline-flex items-center justify-center
+                              h-10 px-4 rounded-lg
+                              bg-[color:var(--action)] text-[color:var(--action-text)]
+                              text-[14px] font-medium
+                              hover:bg-[color:var(--action-hover)]
+                              disabled:bg-[color:var(--bg-muted)]
+                              disabled:text-[color:var(--text-dim)]
+                              disabled:cursor-not-allowed
+                              transition-colors
+                            "
+                          >
+                            {isSaving ? "저장 중..." : "저장"}
+                          </button>
+                        </>
                       )}
                     </div>
 
-                    {isOk ? (
-                      <span
-                        role="status"
-                        className="inline-flex items-center gap-1 text-[13px] text-[color:var(--success)]"
-                      >
-                        <Check className="size-4" strokeWidth={2} aria-hidden />
-                        저장됨
-                      </span>
-                    ) : (
-                      <select
-                        aria-label={`${it.school} 의 지역 선택`}
-                        defaultValue="__placeholder__"
-                        disabled={isSaving}
-                        onChange={(e) =>
-                          handleAssign(it.school, e.target.value)
-                        }
+                    {errorMsg && (
+                      <p
+                        role="alert"
                         className="
-                          h-10 min-w-36 rounded-lg px-3
-                          bg-bg-card border border-[color:var(--border)]
-                          text-[14px] text-[color:var(--text)]
-                          focus:outline-none focus:border-[color:var(--border-strong)]
-                          disabled:bg-[color:var(--bg-muted)] disabled:opacity-60
-                          cursor-pointer
+                          rounded-md
+                          bg-[color:var(--danger-bg)]
+                          px-3 py-2
+                          text-[13px] text-[color:var(--danger)]
                         "
                       >
-                        <option value="__placeholder__" disabled>
-                          {isSaving ? "저장 중..." : "지역 선택"}
-                        </option>
-                        {knownRegions.map((r) => (
-                          <option key={r} value={r}>
-                            {r}
-                          </option>
-                        ))}
-                      </select>
+                        {errorMsg}
+                      </p>
                     )}
                   </li>
                 );
