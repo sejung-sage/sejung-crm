@@ -129,9 +129,9 @@ export function MissingSchoolsPanel({ items, knownRegions }: Props) {
       {!collapsed && (
         <div className="border-t border-[color:var(--border)]">
           <p className="px-4 md:px-5 py-3 text-[13px] text-[color:var(--text-muted)] leading-relaxed">
-            현재 &lsquo;기타&rsquo; 로 분류된 학교 {totalMissing.toLocaleString()}건
-            입니다. 재원생 수가 많은 학교부터 지역을 선택하고 &lsquo;저장&rsquo;
-            버튼을 눌러 주세요.
+            아직 지역이 지정되지 않은 학교 {totalMissing.toLocaleString()}건입니다.
+            재원생 수가 많은 학교부터 지역을 선택하고 &lsquo;저장&rsquo; 버튼을
+            눌러 주세요. (재원생 기준 — 학생 명단의 기본 필터와 동일)
           </p>
 
           {totalMissing === 0 ? (

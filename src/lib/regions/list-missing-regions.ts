@@ -59,7 +59,8 @@ function collectFromDevSeed(): MissingSchoolRegion[] {
 
   for (const p of DEV_STUDENT_PROFILES) {
     if (typeof p.school !== "string") continue;
-    if (p.status === "탈퇴") continue;
+    // 학생 명단(/students) 기본 필터와 일치 — 재원생만 카운트 (0037 RPC 와 동일).
+    if (p.status !== "재원생") continue;
     const s = normalizeSchoolKey(p.school);
     if (s.length === 0) continue;
     if (mappedSchools.has(s)) continue;
