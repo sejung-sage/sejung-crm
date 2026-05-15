@@ -52,13 +52,17 @@ export async function listMissingSchoolRegions(): Promise<
 }
 
 function collectFromDevSeed(): MissingSchoolRegion[] {
-  const mappedSchools = new Set<string>(DEV_SCHOOL_REGIONS.map((r) => r.school));
+  const mappedSchools = new Set<string>(
+    DEV_SCHOOL_REGIONS.map((r) => r.school.trim()),
+  );
   const counts = new Map<string, number>();
 
   for (const p of DEV_STUDENT_PROFILES) {
-    if (typeof p.school !== "string" || p.school.length === 0) continue;
-    if (mappedSchools.has(p.school)) continue;
-    counts.set(p.school, (counts.get(p.school) ?? 0) + 1);
+    if (typeof p.school !== "string") continue;
+    const s = p.school.trim();
+    if (s.length === 0) continue;
+    if (mappedSchools.has(s)) continue;
+    counts.set(s, (counts.get(s) ?? 0) + 1);
   }
 
   return aggregateAndSort(counts);
@@ -84,8 +88,13 @@ async function collectFromSupabase(): Promise<MissingSchoolRegion[]> {
   const rows = (data ?? []) as Array<{ school: string | null }>;
   const counts = new Map<string, number>();
   for (const r of rows) {
-    if (typeof r.school !== "string" || r.school.length === 0) continue;
-    counts.set(r.school, (counts.get(r.school) ?? 0) + 1);
+    if (typeof r.school !== "string") continue;
+    // 학교명 정규화: 공백/제어문자가 섞인 변형을 한 항목으로 합쳐 카운트.
+    // 0034 마이그레이션 이후엔 DB 단에서 보장되지만, 백필 이전·ETL 일시적
+    // 이탈 대비 클라이언트 단 정규화도 함께 유지.
+    const s = r.school.trim();
+    if (s.length === 0) continue;
+    counts.set(s, (counts.get(s) ?? 0) + 1);
   }
 
   return aggregateAndSort(counts);
