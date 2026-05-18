@@ -6,10 +6,14 @@
 --   가독성 ↓. 초등생은 '초등' 한 칩으로 충분 (학년이 필요하면 학생 상세에서 grade_raw 확인).
 --
 -- 변경:
---   1) grade CHECK 갱신 — 초1~초6 제거, '초등' 추가. 총 10종.
+--   1) 기존 grade CHECK 제거 (백필이 '초등' 새 값을 사용할 수 있게).
+--   2) 백필 — 기존 grade IN ('초1'~'초6') row 를 '초등' 으로 일괄 변경.
+--   3) 새 grade CHECK 추가 — '초1'~'초6' 제거, '초등' 추가. 총 10종.
 --      (초등, 중1~중3, 고1~고3, 재수, 졸업, 미정)
---   2) normalize_student_grade() — 학교가 초이면 grade_raw 무관 '초등'.
---   3) 백필 — 기존 grade IN ('초1'~'초6') row 를 '초등' 으로 일괄 변경.
+--   4) normalize_student_grade() — 학교가 초이면 grade_raw 무관 '초등'.
+--
+-- 순서 주의: CHECK 풀기 전에 UPDATE 를 시도하면 SQLSTATE 23514 위반.
+-- 0041 시점 CHECK 가 '초등' 을 허용하지 않으므로 반드시 DROP → UPDATE → ADD.
 --
 -- 안전: 0041 의 derive_school_level / school_level CHECK 는 그대로 유지.
 --   학교급은 여전히 초/중/고/기타 4종. 변경은 grade 만.
@@ -22,14 +26,18 @@ BEGIN;
 
 SET LOCAL statement_timeout = '5min';
 
--- ── 1) 백필 먼저 — CHECK 갱신 전에 row 들을 신규 값으로 ──────────
+-- ── 1) 기존 CHECK 먼저 제거 ───────────────────────────────
+-- 백필이 UPDATE grade='초등' 을 시도하는데 0041 시점 CHECK 는 '초등' 미포함
+-- (초1~초6 만 허용) 이라 SQLSTATE 23514 발생. CHECK 를 먼저 풀어야 한다.
+ALTER TABLE public.students
+  DROP CONSTRAINT IF EXISTS students_grade_check;
+
+-- ── 2) 백필 — 초1~초6 → 초등 ────────────────────────────
 UPDATE public.students
 SET grade = '초등'
 WHERE grade IN ('초1','초2','초3','초4','초5','초6');
 
--- ── 2) CHECK 제약 갱신 ────────────────────────────────────
-ALTER TABLE public.students
-  DROP CONSTRAINT IF EXISTS students_grade_check;
+-- ── 3) 새 CHECK 추가 (10종) ──────────────────────────────
 ALTER TABLE public.students
   ADD CONSTRAINT students_grade_check
   CHECK (grade IS NULL OR grade IN (
