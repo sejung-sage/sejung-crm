@@ -28,12 +28,22 @@ const LEVEL_SEGMENTS: ReadonlyArray<{
   { value: "전체", label: "전체" },
   { value: "고", label: "고등" },
   { value: "중", label: "중등" },
+  { value: "초", label: "초등" },
 ];
 
 const GRADE_OPTIONS_HIGH: ReadonlyArray<Grade> = ["고1", "고2", "고3", "재수"];
 const GRADE_OPTIONS_MID: ReadonlyArray<Grade> = ["중1", "중2", "중3"];
-// 학년 칩은 학교급과 무관하게 항상 7종 노출. 학교급 세그먼트는 school_level 필터로만 작용.
+const GRADE_OPTIONS_ELEM: ReadonlyArray<Grade> = [
+  "초1",
+  "초2",
+  "초3",
+  "초4",
+  "초5",
+  "초6",
+];
+// 학년 칩 — 학교급과 무관하게 항상 모두 노출 (13종). 학교급 세그먼트는 school_level 필터로만 작용.
 const GRADE_OPTIONS_ALL: ReadonlyArray<Grade> = [
+  ...GRADE_OPTIONS_ELEM,
   ...GRADE_OPTIONS_MID,
   ...GRADE_OPTIONS_HIGH,
 ];
@@ -111,7 +121,11 @@ export function StudentsFilters({
   // school_level 은 운영 단순화를 위해 단일 선택 (배열 첫 값만 사용).
   const levelRaw = searchParams.getAll("level");
   const level: SchoolLevel | "전체" =
-    levelRaw[0] === "중" || levelRaw[0] === "고" ? levelRaw[0] : "전체";
+    levelRaw[0] === "초" ||
+    levelRaw[0] === "중" ||
+    levelRaw[0] === "고"
+      ? levelRaw[0]
+      : "전체";
   const includeHidden = searchParams.get("include_hidden") === "1";
 
   const sortRaw = searchParams.get("sort");

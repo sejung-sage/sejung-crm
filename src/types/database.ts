@@ -15,11 +15,17 @@
 
 export type Branch = "대치" | "송도" | string;
 /**
- * 학년 (정규화 9종 enum).
- * 0012 마이그레이션에서 자유형식 TEXT → enum 으로 전환.
+ * 학년 (정규화 enum, 15종 — 초1~초6/중1~중3/고1~고3/재수/졸업/미정).
+ * 0012 에서 자유형식 TEXT → enum. 0041 에서 초1~초6 추가.
  * 단일 출처는 `@/lib/schemas/common.GradeSchema`.
  */
 export type Grade =
+  | "초1"
+  | "초2"
+  | "초3"
+  | "초4"
+  | "초5"
+  | "초6"
   | "중1"
   | "중2"
   | "중3"
@@ -31,8 +37,9 @@ export type Grade =
   | "미정";
 /**
  * 학교급. school + grade_raw 조합으로 derive_school_level() 도출.
+ * 0041 에서 '초' 추가 (총 4종).
  */
-export type SchoolLevel = "중" | "고" | "기타";
+export type SchoolLevel = "초" | "중" | "고" | "기타";
 export type Track = "문과" | "이과";
 export type StudentStatus =
   | "재원생"

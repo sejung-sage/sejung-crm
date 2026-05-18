@@ -56,9 +56,11 @@ interface Props {
  */
 const GRADE_OPTIONS_HIGH: Grade[] = ["고1", "고2", "고3", "재수"];
 const GRADE_OPTIONS_MID: Grade[] = ["중1", "중2", "중3"];
+const GRADE_OPTIONS_ELEM: Grade[] = ["초1", "초2", "초3", "초4", "초5", "초6"];
 const GRADE_OPTIONS_HIDDEN: Grade[] = ["졸업", "미정"];
-// 학년 칩은 학교급과 무관하게 항상 7종 노출. 학교급 세그먼트는 시각 분류 보조용.
+// 학년 칩 — 항상 모든 학교급(초+중+고) 노출. 학교급 세그먼트는 시각 분류 보조용.
 const GRADE_OPTIONS_ALL: Grade[] = [
+  ...GRADE_OPTIONS_ELEM,
   ...GRADE_OPTIONS_MID,
   ...GRADE_OPTIONS_HIGH,
 ];
@@ -75,12 +77,13 @@ const SUBJECT_OPTIONS: Subject[] = [
 // 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용 —
 // 학생 명단·그룹 빌더·매핑 admin 모두 동일 출처.
 const LEVEL_SEGMENTS: ReadonlyArray<{
-  value: "전체" | "중" | "고";
+  value: "전체" | "초" | "중" | "고";
   label: string;
 }> = [
   { value: "전체", label: "전체" },
   { value: "고", label: "고등" },
   { value: "중", label: "중등" },
+  { value: "초", label: "초등" },
 ];
 const SCHOOL_VISIBLE_LIMIT = 8;
 const DEBOUNCE_MS = 300;
@@ -126,11 +129,13 @@ export function GroupBuilder({
   const [showAllSchools, setShowAllSchools] = useState<boolean>(false);
 
   // 학교급 세그먼티드 토글. 초기값은 기존에 선택된 학년에서 추론.
-  const [level, setLevel] = useState<"전체" | "중" | "고">(() => {
+  const [level, setLevel] = useState<"전체" | "초" | "중" | "고">(() => {
     const initialGrades = initial.filters.grades;
     if (initialGrades.length === 0) return "전체";
+    const allElem = initialGrades.every((g) => GRADE_OPTIONS_ELEM.includes(g));
     const allMid = initialGrades.every((g) => GRADE_OPTIONS_MID.includes(g));
     const allHigh = initialGrades.every((g) => GRADE_OPTIONS_HIGH.includes(g));
+    if (allElem) return "초";
     if (allMid) return "중";
     if (allHigh) return "고";
     return "전체";
