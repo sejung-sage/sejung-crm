@@ -1,14 +1,14 @@
 /**
  * 학교 → 지역 매핑 리스트 조회 (admin 화면용).
  *
- * 정책:
- *  - 페이지네이션 (1000행 단위) — 0040 시드 후 매핑 row 가 수천개로 커져
- *    단일 limit(1000) 으론 일부만 가져와서 화면에 region 누락 현상 발생.
- *    PostgREST 의 max_rows 제약(기본 1000) 회피용 range 분할 fetch.
- *  - search: students.school 과 동일하게 자유 텍스트 ILIKE '%query%' (대소문자
- *    무시·한글 OK). 빈 문자열이면 무시.
- *  - region: 정확 일치(=). 빈 문자열이면 무시.
- *  - 정렬: region ASC, school ASC.
+ * 정책 (2026-05-18 — 0042 RPC 도입):
+ *  - 학생 데이터에 EXISTS 인 매핑만 반환. /students 의 학교 필터와 동일한
+ *    학교 집합을 노출 — 정식명+줄임형 중복 / 학생 없는 예방 매핑 노이즈 제거.
+ *  - 0040 시드로 school_regions 가 수천 row 로 커졌으나 RPC 가 PG 단에서
+ *    EXISTS + 정렬 한 번에 처리. 결과는 학생 데이터의 학교 distinct 수 이내.
+ *  - search: 자유 텍스트 부분 일치(ILIKE). 빈 문자열이면 무시.
+ *  - region: 정확 일치. 빈 문자열이면 무시.
+ *  - 정렬: region ASC, school ASC (RPC 내부).
  *  - dev-seed 모드는 인메모리 DEV_SCHOOL_REGIONS 사용.
  */
 
@@ -18,10 +18,6 @@ import {
   isDevSeedMode,
 } from "@/lib/profile/students-dev-seed";
 import type { SchoolRegionRow } from "@/types/database";
-
-const PAGE_SIZE = 1000;
-/** 안전상한 — 1000 × 20 = 2만 row 까지. 그 이상이면 검색·필터 강제. */
-const MAX_PAGES = 20;
 
 export interface ListSchoolRegionsQuery {
   /** 학교명 부분일치(ILIKE). 빈/미지정이면 무시. */
@@ -46,6 +42,8 @@ export async function listSchoolRegions(
 }
 
 function listFromDevSeed(search: string, region: string): SchoolRegionRow[] {
+  // dev-seed 는 개발용 정적 데이터 — 모든 매핑 노출 (운영처럼 EXISTS 좁힘 안 함).
+  // 운영 경로(Supabase RPC) 만 학생 데이터와 일치한 학교로 좁힘.
   const lc = search.toLowerCase();
   return [...DEV_SCHOOL_REGIONS]
     .filter((r) => {
@@ -60,43 +58,40 @@ function listFromDevSeed(search: string, region: string): SchoolRegionRow[] {
     });
 }
 
+/** RPC 좁힌 인터페이스 — Database 타입에 새 RPC 미반영 시 캐스팅. */
+interface RpcCaller {
+  rpc(
+    fn: string,
+    args?: Record<string, unknown>,
+  ): Promise<{
+    data: unknown;
+    error: { message: string } | null;
+  }>;
+}
+
 async function listFromSupabase(
   search: string,
   region: string,
 ): Promise<SchoolRegionRow[]> {
   const supabase = await createSupabaseServerClient();
 
-  // ILIKE 메타문자 제거(인젝션·문법 가드).
+  // ILIKE 메타문자 제거 (인젝션·문법 가드). RPC 안에서 `%||search||%` 합성하므로
+  // 호출부에서 % / _ / 콤마 / 괄호 등 제거.
   const safeSearch = search
     ? search.replace(ILIKE_META_PATTERN, "").trim()
     : "";
 
-  const all: SchoolRegionRow[] = [];
+  const { data, error } = await (supabase as unknown as RpcCaller).rpc(
+    "list_school_regions_with_students",
+    {
+      p_search: safeSearch.length > 0 ? safeSearch : null,
+      p_region: region ? region : null,
+    },
+  );
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    let q = supabase
-      .from("school_regions")
-      .select("school, region, created_at, updated_at")
-      .order("region", { ascending: true })
-      .order("school", { ascending: true })
-      .range(from, to);
-
-    if (region) q = q.eq("region", region);
-    if (safeSearch.length > 0) q = q.ilike("school", `%${safeSearch}%`);
-
-    const { data, error } = await q;
-    if (error) {
-      throw new Error(`지역 매핑 조회에 실패했습니다: ${error.message}`);
-    }
-
-    const rows = (data ?? []) as SchoolRegionRow[];
-    if (rows.length === 0) break;
-    all.push(...rows);
-    if (rows.length < PAGE_SIZE) break;
+  if (error) {
+    throw new Error(`지역 매핑 조회에 실패했습니다: ${error.message}`);
   }
 
-  return all;
+  return ((data ?? []) as SchoolRegionRow[]);
 }
