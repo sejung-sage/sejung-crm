@@ -151,7 +151,15 @@ export function StudentsFilters({
 
   const updateParams = useCallback(
     (mutator: (p: URLSearchParams) => void) => {
-      const next = new URLSearchParams(searchParams.toString());
+      // 최신 URL 을 직접 읽어 mutate — useSearchParams() 는 useTransition 중
+      // 옛 snapshot 을 잠시 반환할 수 있어, 사용자가 빠르게 학년 칩을
+      // 연속 토글하면 이전 클릭 결과가 누락되거나 누적되는 race 가 발생.
+      // window.location.search 가 항상 최신.
+      const sourceQuery =
+        typeof window !== "undefined"
+          ? window.location.search
+          : `?${searchParams.toString()}`;
+      const next = new URLSearchParams(sourceQuery);
       mutator(next);
       // 필터 변경 시 페이지 1 로 리셋
       next.delete("page");
