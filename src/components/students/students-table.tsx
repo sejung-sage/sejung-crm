@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { Grade, StudentProfileRow } from "@/types/database";
 import { formatPhone } from "@/lib/phone";
 import { StudentStatusBadge } from "@/components/students/status-badge";
+import { BranchBadge } from "@/components/students/branch-badge";
 
 interface Props {
   rows: StudentProfileRow[];
@@ -71,16 +72,19 @@ export function StudentsTable({ rows }: Props) {
                 `}
               >
                 <Td>
-                  <Link
-                    href={`/students/${r.id}`}
-                    className={`font-medium hover:underline ${
-                      dim
-                        ? "text-[color:var(--text-muted)]"
-                        : "text-[color:var(--text)]"
-                    }`}
-                  >
-                    {r.name}
-                  </Link>
+                  <div className="flex items-center gap-2">
+                    <Link
+                      href={`/students/${r.id}`}
+                      className={`font-medium hover:underline ${
+                        dim
+                          ? "text-[color:var(--text-muted)]"
+                          : "text-[color:var(--text)]"
+                      }`}
+                    >
+                      {r.name}
+                    </Link>
+                    <BranchBadge branch={r.branch} />
+                  </div>
                 </Td>
                 <Td
                   className={

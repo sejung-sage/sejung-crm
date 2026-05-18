@@ -2,6 +2,7 @@ import Link from "next/link";
 import { MessageCircle } from "lucide-react";
 import type { StudentProfileRow } from "@/types/database";
 import { StudentStatusBadge } from "@/components/students/status-badge";
+import { BranchBadge } from "@/components/students/branch-badge";
 import { PhoneReveal } from "@/components/students/phone-reveal";
 
 interface Props {
@@ -13,8 +14,8 @@ interface Props {
  * 이름·배지·메타정보·학부모 연락처·우측 문자 보내기 버튼.
  */
 export function StudentProfileHeader({ profile }: Props) {
+  // 메타에서 branch 는 이름 옆 배지로 강조하므로 텍스트 메타에서는 제외.
   const metaParts: string[] = [];
-  metaParts.push(profile.branch);
   if (profile.grade) metaParts.push(profile.grade);
   if (profile.school) metaParts.push(profile.school);
 
@@ -31,6 +32,7 @@ export function StudentProfileHeader({ profile }: Props) {
             >
               {profile.name}
             </h1>
+            <BranchBadge branch={profile.branch} />
             <StudentStatusBadge status={profile.status} />
           </div>
 

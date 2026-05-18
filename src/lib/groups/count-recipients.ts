@@ -41,6 +41,7 @@ export interface CountRecipientsResult {
     name: string;
     school: string | null;
     grade: Grade | null;
+    branch: string;
   }>;
 }
 
@@ -203,5 +204,6 @@ function toSampleRow(p: StudentProfileRow) {
     name: p.name,
     school: p.school,
     grade: p.grade,
+    branch: p.branch,
   };
 }

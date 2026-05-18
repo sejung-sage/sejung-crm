@@ -1,6 +1,7 @@
 import type { StudentProfileRow } from "@/types/database";
 import { maskPhone } from "@/lib/phone";
 import { StudentStatusBadge } from "@/components/students/status-badge";
+import { BranchBadge } from "@/components/students/branch-badge";
 
 /**
  * 그룹 상세 하단 · 소속 학생 목록 (Server 렌더).
@@ -45,12 +46,15 @@ export function GroupStudentsTable({ rows }: Props) {
               className="border-b border-[color:var(--border)] last:border-b-0 hover:bg-[color:var(--bg-hover)] transition-colors"
             >
               <Td>
-                <a
-                  href={`/students/${r.id}`}
-                  className="font-medium text-[color:var(--text)] hover:underline"
-                >
-                  {r.name}
-                </a>
+                <div className="flex items-center gap-2">
+                  <a
+                    href={`/students/${r.id}`}
+                    className="font-medium text-[color:var(--text)] hover:underline"
+                  >
+                    {r.name}
+                  </a>
+                  <BranchBadge branch={r.branch} />
+                </div>
               </Td>
               <Td className="text-[color:var(--text-muted)]">
                 {r.school ?? "-"}

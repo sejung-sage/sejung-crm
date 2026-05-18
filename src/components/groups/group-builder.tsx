@@ -15,6 +15,7 @@ import {
 } from "@/app/(features)/groups/actions";
 import { BRANCHES } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
+import { BranchBadge } from "@/components/students/branch-badge";
 
 interface DirectStudent {
   id: string;
@@ -622,6 +623,7 @@ export function GroupBuilder({
                       className="text-[13px] text-[color:var(--text)] flex items-center gap-2"
                     >
                       <span className="font-medium">{s.name}</span>
+                      <BranchBadge branch={s.branch} />
                       <span className="text-[color:var(--text-muted)]">
                         {s.school ?? "-"}
                       </span>
