@@ -58,16 +58,27 @@ function listFromDevSeed(search: string, region: string): SchoolRegionRow[] {
     });
 }
 
-/** RPC 좁힌 인터페이스 — Database 타입에 새 RPC 미반영 시 캐스팅. */
+/**
+ * RPC 좁힌 인터페이스 — Database 타입에 새 RPC 미반영 시 캐스팅.
+ * `.range()` 도 노출 — PostgREST max_rows(1000) cap 회피용 페이지네이션.
+ */
 interface RpcCaller {
   rpc(
     fn: string,
     args?: Record<string, unknown>,
-  ): Promise<{
-    data: unknown;
-    error: { message: string } | null;
-  }>;
+  ): {
+    range(
+      from: number,
+      to: number,
+    ): Promise<{
+      data: unknown;
+      error: { message: string } | null;
+    }>;
+  };
 }
+
+const RPC_PAGE_SIZE = 1000;
+const RPC_MAX_PAGES = 20;
 
 async function listFromSupabase(
   search: string,
@@ -81,17 +92,30 @@ async function listFromSupabase(
     ? search.replace(ILIKE_META_PATTERN, "").trim()
     : "";
 
-  const { data, error } = await (supabase as unknown as RpcCaller).rpc(
-    "list_school_regions_with_students",
-    {
-      p_search: safeSearch.length > 0 ? safeSearch : null,
-      p_region: region ? region : null,
-    },
-  );
+  // RPC 결과도 PostgREST max_rows(1000) cap 에 걸리므로 .range() 페이지네이션.
+  // RPC 내부 ORDER BY region ASC, school ASC 정렬이 보장되어 페이지 cut 안전.
+  const all: SchoolRegionRow[] = [];
 
-  if (error) {
-    throw new Error(`지역 매핑 조회에 실패했습니다: ${error.message}`);
+  for (let page = 0; page < RPC_MAX_PAGES; page++) {
+    const from = page * RPC_PAGE_SIZE;
+    const to = from + RPC_PAGE_SIZE - 1;
+
+    const { data, error } = await (supabase as unknown as RpcCaller)
+      .rpc("list_school_regions_with_students", {
+        p_search: safeSearch.length > 0 ? safeSearch : null,
+        p_region: region ? region : null,
+      })
+      .range(from, to);
+
+    if (error) {
+      throw new Error(`지역 매핑 조회에 실패했습니다: ${error.message}`);
+    }
+
+    const rows = (data ?? []) as SchoolRegionRow[];
+    if (rows.length === 0) break;
+    all.push(...rows);
+    if (rows.length < RPC_PAGE_SIZE) break;
   }
 
-  return ((data ?? []) as SchoolRegionRow[]);
+  return all;
 }
