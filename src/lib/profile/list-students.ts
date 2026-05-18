@@ -94,7 +94,33 @@ async function listFromSupabase(
     );
   }
 
-  // ─── 본 select (student_profiles 뷰) ──────────────────────
+  // ─── 본 데이터 fetch 전략 분기 ────────────────────────────
+  // 2단계 fetch (성능 핵심, 0046):
+  //   정렬 키가 students 컬럼이고 subjects/teachers 필터가 없으면 → 1단계로
+  //   students 에서 id+필터+정렬+페이지 좁힘(인덱스 활용 가능) → 2단계로
+  //   student_profiles 에서 그 id 들만 IN(...) 으로 view 작은 set materialize.
+  //   학생 60k 뷰 풀스캔 → 50 row 만 view → 100배 이상 빨라짐.
+  //
+  // view 직접 fetch (fallback):
+  //   - 정렬이 view 컬럼(attendance_rate/enrollment_count/total_paid)일 때.
+  //   - subjects/teachers 필터가 활성화될 때 (학생 UI 노출 안 되지만 URL fallback).
+  const canUseTwoStage =
+    isStudentsColumnSort(input.sort) &&
+    input.subjects.length === 0 &&
+    input.teachers.length === 0;
+
+  if (canUseTwoStage) {
+    return await fetchTwoStage({
+      supabase,
+      input,
+      from,
+      to,
+      regionPlan,
+      countQuery,
+    });
+  }
+
+  // ─── 본 select (student_profiles 뷰 직접) ─────────────────
   let query = supabase.from("student_profiles").select("*");
 
   if (input.search) {
@@ -136,8 +162,6 @@ async function listFromSupabase(
   }
 
   // 지역 필터 — student_profiles.region (school_regions 매핑) 정확 일치.
-  // 미매칭/학교 NULL 학생은 뷰에서 '기타' 로 fallback 되므로 사용자가 '기타'
-  // 칩을 켜면 그 학생들이 함께 잡힌다. 0026 추가.
   if (input.regions.length > 0) {
     query = query.in("region", input.regions);
   }
@@ -153,7 +177,6 @@ async function listFromSupabase(
 
   query = applySupabaseSort(query, input.sort);
 
-  // count·data 병렬 실행.
   const [countResult, dataResult] = await Promise.all([
     countQuery,
     query.range(from, to),
@@ -163,7 +186,6 @@ async function listFromSupabase(
     throw new Error(`학생 목록 조회에 실패했습니다: ${dataResult.error.message}`);
   }
 
-  // count 쿼리가 실패해도 본 select 가 성공했으면 페이지는 살린다 (총 수 0 fallback).
   const total = countResult.error ? 0 : (countResult.count ?? 0);
 
   return {
@@ -173,6 +195,164 @@ async function listFromSupabase(
     pageSize: input.pageSize,
     source: "supabase",
   };
+}
+
+/**
+ * 정렬 키가 students 테이블 컬럼이라 1단계에서 students 인덱스 활용 가능한지.
+ * attendance_rate / enrollment_count / total_paid 는 view 집계 컬럼이라 X.
+ */
+function isStudentsColumnSort(sort: StudentSort): boolean {
+  switch (sort) {
+    case "registered_desc":
+    case "registered_asc":
+    case "name_asc":
+    case "name_desc":
+      return true;
+    case "attendance_desc":
+    case "attendance_asc":
+    case "enrollment_count_desc":
+    case "total_paid_desc":
+      return false;
+  }
+}
+
+/** 2단계 fetch: students 에서 id 좁힘 → student_profiles 작은 set 만 materialize. */
+async function fetchTwoStage(args: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  input: ListStudentsInput;
+  from: number;
+  to: number;
+  regionPlan: RegionPlan | null;
+  countQuery: CountBuilder;
+}): Promise<ListStudentsResult> {
+  const { supabase, input, from, to, regionPlan, countQuery } = args;
+
+  // 1단계: students 에서 id 만 — 인덱스(0046) 가속.
+  let idsQuery = supabase.from("students").select("id");
+
+  if (input.search) {
+    const like = `%${input.search}%`;
+    idsQuery = idsQuery.or(
+      `name.ilike.${like},school.ilike.${like},parent_phone.ilike.${like}`,
+    );
+  }
+  if (input.branch && input.branch !== "전체") {
+    idsQuery = idsQuery.eq("branch", input.branch);
+  }
+  if (input.grades.length > 0) {
+    idsQuery = idsQuery.in("grade", input.grades);
+  }
+  if (input.schoolLevels.length > 0) {
+    idsQuery = idsQuery.in("school_level", input.schoolLevels);
+  }
+  if (input.statuses.length > 0) {
+    idsQuery = idsQuery.in("status", input.statuses);
+  }
+  if (input.schools.length > 0) {
+    idsQuery = idsQuery.in("school", input.schools);
+  }
+  if (regionPlan) {
+    idsQuery = applyRegionPlanToCount(idsQuery, regionPlan);
+  }
+  if (!input.includeHidden && input.grades.length === 0) {
+    idsQuery = idsQuery.not(
+      "grade",
+      "in",
+      `(${HIDDEN_GRADES_BY_DEFAULT.join(",")})`,
+    );
+  }
+
+  idsQuery = applyStudentsSort(idsQuery, input.sort);
+
+  // count + 1단계 ids 병렬. CountBuilder 는 thenable 이지만 좁힌 인터페이스에
+  // await 결과 타입이 없어 캐스팅.
+  type CountAwaited = {
+    count: number | null;
+    error: { message: string } | null;
+  };
+  const [countResult, idsResult] = await Promise.all([
+    countQuery as unknown as Promise<CountAwaited>,
+    idsQuery.range(from, to),
+  ]);
+
+  if (idsResult.error) {
+    throw new Error(
+      `학생 목록 조회에 실패했습니다: ${idsResult.error.message}`,
+    );
+  }
+
+  const idsRows = (idsResult.data ?? []) as Array<{ id: string }>;
+  const ids = idsRows.map((r) => r.id);
+  const total = countResult.error ? 0 : (countResult.count ?? 0);
+
+  if (ids.length === 0) {
+    return {
+      rows: [],
+      total,
+      page: input.page,
+      pageSize: input.pageSize,
+      source: "supabase",
+    };
+  }
+
+  // 2단계: student_profiles 에서 그 id 들만 view materialize.
+  // PostgreSQL IN 은 순서 보존 안 함 → 같은 정렬 키로 view 단에서 한 번 더 정렬.
+  let profilesQuery = supabase
+    .from("student_profiles")
+    .select("*")
+    .in("id", ids);
+  profilesQuery = applySupabaseSort(profilesQuery, input.sort);
+
+  const profilesResult = await profilesQuery;
+  if (profilesResult.error) {
+    throw new Error(
+      `학생 목록 조회에 실패했습니다: ${profilesResult.error.message}`,
+    );
+  }
+
+  return {
+    rows: (profilesResult.data ?? []) as StudentProfileRow[],
+    total,
+    page: input.page,
+    pageSize: input.pageSize,
+    source: "supabase",
+  };
+}
+
+/**
+ * students 테이블 쿼리용 order 적용 (registered_at / name 정렬만).
+ * view 의 attendance_rate 등은 처리하지 않음 — 호출 전 isStudentsColumnSort 로 가드.
+ */
+function applyStudentsSort<Q extends ProfilesOrderBuilder>(
+  query: Q,
+  sort: StudentSort,
+): Q {
+  switch (sort) {
+    case "registered_desc":
+      return query.order("registered_at", {
+        ascending: false,
+        nullsFirst: false,
+      }) as Q;
+    case "registered_asc":
+      return query.order("registered_at", {
+        ascending: true,
+        nullsFirst: false,
+      }) as Q;
+    case "name_asc":
+      return query
+        .order("name", { ascending: true })
+        .order("registered_at", { ascending: false, nullsFirst: false }) as Q;
+    case "name_desc":
+      return query
+        .order("name", { ascending: false })
+        .order("registered_at", { ascending: false, nullsFirst: false }) as Q;
+    default:
+      // view 컬럼 정렬은 fetchTwoStage 호출 안 됨. 안전 fallback.
+      return query.order("registered_at", {
+        ascending: false,
+        nullsFirst: false,
+      }) as Q;
+  }
 }
 
 // ─── region 필터 변환 ───────────────────────────────────────

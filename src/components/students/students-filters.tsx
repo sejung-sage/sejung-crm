@@ -34,12 +34,34 @@ const LEVEL_SEGMENTS: ReadonlyArray<{
 const GRADE_OPTIONS_HIGH: ReadonlyArray<Grade> = ["고1", "고2", "고3", "재수"];
 const GRADE_OPTIONS_MID: ReadonlyArray<Grade> = ["중1", "중2", "중3"];
 const GRADE_OPTIONS_ELEM: ReadonlyArray<Grade> = ["초등"];
-// 학년 칩 — 학교급과 무관하게 항상 모두 노출 (8종). 학교급 세그먼트는 school_level 필터로만 작용.
 const GRADE_OPTIONS_ALL: ReadonlyArray<Grade> = [
   ...GRADE_OPTIONS_ELEM,
   ...GRADE_OPTIONS_MID,
   ...GRADE_OPTIONS_HIGH,
 ];
+
+/**
+ * 학교급(level) 별 노출 가능한 학년 칩 — 학교급-학년 정합성 강제.
+ *  - 전체: 8종 모두
+ *  - 초:   초등 1종
+ *  - 중:   중1·중2·중3
+ *  - 고:   고1·고2·고3·재수
+ * 학교급 전환 시 부적합한 grade 는 setLevel 에서 자동 제거.
+ */
+function gradeOptionsForLevel(
+  level: SchoolLevel | "전체",
+): ReadonlyArray<Grade> {
+  switch (level) {
+    case "초":
+      return GRADE_OPTIONS_ELEM;
+    case "중":
+      return GRADE_OPTIONS_MID;
+    case "고":
+      return GRADE_OPTIONS_HIGH;
+    default:
+      return GRADE_OPTIONS_ALL;
+  }
+}
 
 const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드", "탈퇴"] as const;
 // 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용.
@@ -198,6 +220,16 @@ export function StudentsFilters({
     updateParams((p) => {
       if (value === "전체") p.delete("level");
       else p.set("level", value);
+
+      // 학교급-학년 정합성: 새 level 에 부적합한 grade 자동 제거.
+      // 예: 중등 선택 시 grade=고1 같은 게 남아 있으면 결과가 0건이 되는
+      //     이상한 조합 방지.
+      const allowed = new Set<string>(gradeOptionsForLevel(value));
+      const current = p.getAll("grade");
+      p.delete("grade");
+      for (const g of current) {
+        if (allowed.has(g)) p.append("grade", g);
+      }
     });
   };
 
@@ -323,10 +355,10 @@ export function StudentsFilters({
         </select>
       </div>
 
-      {/* 학년 칩 + 졸업·미정 토글 */}
+      {/* 학년 칩 + 졸업·미정 토글 — 학년은 현 학교급에 맞는 옵션만 노출 */}
       <div className="flex flex-wrap gap-x-6 gap-y-3 items-center pt-1">
         <FilterGroup label="학년">
-          {GRADE_OPTIONS_ALL.map((g) => (
+          {gradeOptionsForLevel(level).map((g) => (
             <Chip
               key={g}
               label={g}
