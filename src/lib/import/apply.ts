@@ -78,16 +78,11 @@ type StudentUpsertPayload = {
   phone: string | null;
   school: string | null;
   /**
-   * 정규화된 학년 (초1~초6/중1~중3/고1~고3/재수/졸업/미정, 0041 후 15종).
+   * 정규화된 학년 (초등/중1~중3/고1~고3/재수/졸업/미정, 0043 후 10종).
    * DB students.grade CHECK 제약 통과.
    */
   grade:
-    | "초1"
-    | "초2"
-    | "초3"
-    | "초4"
-    | "초5"
-    | "초6"
+    | "초등"
     | "중1"
     | "중2"
     | "중3"

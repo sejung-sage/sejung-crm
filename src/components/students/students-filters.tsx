@@ -33,15 +33,8 @@ const LEVEL_SEGMENTS: ReadonlyArray<{
 
 const GRADE_OPTIONS_HIGH: ReadonlyArray<Grade> = ["고1", "고2", "고3", "재수"];
 const GRADE_OPTIONS_MID: ReadonlyArray<Grade> = ["중1", "중2", "중3"];
-const GRADE_OPTIONS_ELEM: ReadonlyArray<Grade> = [
-  "초1",
-  "초2",
-  "초3",
-  "초4",
-  "초5",
-  "초6",
-];
-// 학년 칩 — 학교급과 무관하게 항상 모두 노출 (13종). 학교급 세그먼트는 school_level 필터로만 작용.
+const GRADE_OPTIONS_ELEM: ReadonlyArray<Grade> = ["초등"];
+// 학년 칩 — 학교급과 무관하게 항상 모두 노출 (8종). 학교급 세그먼트는 school_level 필터로만 작용.
 const GRADE_OPTIONS_ALL: ReadonlyArray<Grade> = [
   ...GRADE_OPTIONS_ELEM,
   ...GRADE_OPTIONS_MID,

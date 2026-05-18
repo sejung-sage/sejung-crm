@@ -56,7 +56,7 @@ interface Props {
  */
 const GRADE_OPTIONS_HIGH: Grade[] = ["고1", "고2", "고3", "재수"];
 const GRADE_OPTIONS_MID: Grade[] = ["중1", "중2", "중3"];
-const GRADE_OPTIONS_ELEM: Grade[] = ["초1", "초2", "초3", "초4", "초5", "초6"];
+const GRADE_OPTIONS_ELEM: Grade[] = ["초등"];
 const GRADE_OPTIONS_HIDDEN: Grade[] = ["졸업", "미정"];
 // 학년 칩 — 항상 모든 학교급(초+중+고) 노출. 학교급 세그먼트는 시각 분류 보조용.
 const GRADE_OPTIONS_ALL: Grade[] = [

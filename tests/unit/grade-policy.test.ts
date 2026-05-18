@@ -29,15 +29,10 @@ import {
 
 // ─── 0) 공통 enum 타입 정합성 ───────────────────────────────
 
-describe("정규화 enum · 공통 상수 (0012 + 0041)", () => {
-  it("GRADE_VALUES 는 15종 (초1~초6/중1~중3/고1~고3/재수/졸업/미정)", () => {
+describe("정규화 enum · 공통 상수 (0012 + 0041 + 0043)", () => {
+  it("GRADE_VALUES 는 10종 (초등/중1~중3/고1~고3/재수/졸업/미정)", () => {
     expect(GRADE_VALUES).toEqual([
-      "초1",
-      "초2",
-      "초3",
-      "초4",
-      "초5",
-      "초6",
+      "초등",
       "중1",
       "중2",
       "중3",
@@ -48,7 +43,7 @@ describe("정규화 enum · 공통 상수 (0012 + 0041)", () => {
       "졸업",
       "미정",
     ]);
-    expect(GRADE_VALUES.length).toBe(15);
+    expect(GRADE_VALUES.length).toBe(10);
   });
 
   it("SCHOOL_LEVEL_VALUES 는 4종 (초/중/고/기타)", () => {
