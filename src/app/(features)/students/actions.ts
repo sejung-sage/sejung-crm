@@ -115,7 +115,6 @@ export async function createStudentAction(
     grade: parsed.grade ?? null,
     grade_raw: parsed.grade ?? null,
     school_level: null,
-    track: null,
     status: parsed.status,
     branch: parsed.branch,
     registered_at: today,

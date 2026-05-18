@@ -16,7 +16,6 @@ export function StudentProfileHeader({ profile }: Props) {
   const metaParts: string[] = [];
   metaParts.push(profile.branch);
   if (profile.grade) metaParts.push(profile.grade);
-  if (profile.track) metaParts.push(profile.track);
   if (profile.school) metaParts.push(profile.school);
 
   return (

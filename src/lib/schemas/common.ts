@@ -48,8 +48,6 @@ export type SchoolLevel = z.infer<typeof SchoolLevelSchema>;
  */
 export const HIDDEN_GRADES_BY_DEFAULT: ReadonlyArray<Grade> = ["졸업", "미정"];
 
-export const TrackSchema = z.enum(["문과", "이과"]);
-
 export const StudentStatusSchema = z.enum([
   "재원생",
   "수강이력자",

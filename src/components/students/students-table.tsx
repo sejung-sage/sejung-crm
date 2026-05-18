@@ -51,7 +51,6 @@ export function StudentsTable({ rows }: Props) {
             <Th>이름</Th>
             <Th>학교</Th>
             <Th className="w-20 text-center">학년</Th>
-            <Th className="w-20 text-center">계열</Th>
             <Th className="w-28 text-center">재원 상태</Th>
             <Th className="w-24 text-right">출석률</Th>
             <Th className="w-20 text-right">수강</Th>
@@ -100,15 +99,6 @@ export function StudentsTable({ rows }: Props) {
                   }`}
                 >
                   {r.grade ?? "-"}
-                </Td>
-                <Td
-                  className={`text-center ${
-                    dim
-                      ? "text-[color:var(--text-dim)]"
-                      : "text-[color:var(--text-muted)]"
-                  }`}
-                >
-                  {r.track ?? "-"}
                 </Td>
                 <Td className="text-center">
                   <StudentStatusBadge status={r.status} />

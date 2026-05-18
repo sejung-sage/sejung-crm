@@ -77,9 +77,6 @@ async function listFromSupabase(
   if (input.schoolLevels.length > 0) {
     countQuery = countQuery.in("school_level", input.schoolLevels);
   }
-  if (input.tracks.length > 0) {
-    countQuery = countQuery.in("track", input.tracks);
-  }
   if (input.statuses.length > 0) {
     countQuery = countQuery.in("status", input.statuses);
   }
@@ -117,10 +114,6 @@ async function listFromSupabase(
 
   if (input.schoolLevels.length > 0) {
     query = query.in("school_level", input.schoolLevels);
-  }
-
-  if (input.tracks.length > 0) {
-    query = query.in("track", input.tracks);
   }
 
   if (input.statuses.length > 0) {
@@ -398,12 +391,6 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
     rows = rows.filter(
       (r) =>
         r.school_level !== null && input.schoolLevels.includes(r.school_level),
-    );
-  }
-
-  if (input.tracks.length > 0) {
-    rows = rows.filter(
-      (r) => r.track !== null && input.tracks.includes(r.track),
     );
   }
 

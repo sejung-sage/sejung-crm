@@ -94,7 +94,6 @@ type StudentUpsertPayload = {
     | "미정";
   /** 사용자 입력 원본 학년 문자열. DB students.grade_raw 에 저장. */
   grade_raw: string | null;
-  track: "문과" | "이과" | null;
   status: "재원생" | "수강이력자" | "신규리드" | "탈퇴";
   branch: string;
   registered_at: string | null;
@@ -251,7 +250,6 @@ export async function applyImport(
     school: s.school,
     grade: s.grade,
     grade_raw: s.grade_raw,
-    track: s.track,
     status: s.status,
     branch: s.branch,
     registered_at: s.registered_at,

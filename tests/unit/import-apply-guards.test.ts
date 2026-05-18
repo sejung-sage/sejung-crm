@@ -47,7 +47,6 @@ const VALID_STUDENT = {
   phone: null,
   school: null,
   grade: null,
-  track: null,
   status: "재원생" as const,
   branch: "대치",
   registered_at: null,

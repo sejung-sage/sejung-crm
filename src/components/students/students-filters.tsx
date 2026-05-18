@@ -231,7 +231,6 @@ export function StudentsFilters({
       p.delete("branch");
       p.delete("level");
       p.delete("grade");
-      p.delete("track");
       p.delete("status");
       p.delete("region");
       p.delete("school");

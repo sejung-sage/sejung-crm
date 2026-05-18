@@ -50,8 +50,6 @@ const HEADER_MAP: Record<string, string> = {
   school: "school",
   학년: "grade",
   grade: "grade",
-  계열: "track",
-  track: "track",
   "재원 상태": "status",
   재원상태: "status",
   상태: "status",

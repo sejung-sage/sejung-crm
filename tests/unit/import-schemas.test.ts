@@ -29,7 +29,6 @@ describe("ImportStudentRowSchema", () => {
       // 0012 마이그레이션 후: grade 미입력 → '미정' 으로 정규화
       expect(r.data.grade).toBe("미정");
       expect(r.data.grade_raw).toBeNull();
-      expect(r.data.track).toBeNull();
     }
   });
 
@@ -151,27 +150,7 @@ describe("ImportStudentRowSchema", () => {
     }
   });
 
-  it('track "문과" / "이과" 통과', () => {
-    const a = ImportStudentRowSchema.safeParse({ ...baseRow, track: "문과" });
-    expect(a.success && a.data.track).toBe("문과");
-    const b = ImportStudentRowSchema.safeParse({ ...baseRow, track: "이과" });
-    expect(b.success && b.data.track).toBe("이과");
-  });
-
-  it('track "기타" → 실패', () => {
-    const r = ImportStudentRowSchema.safeParse({ ...baseRow, track: "기타" });
-    expect(r.success).toBe(false);
-    if (!r.success) {
-      const paths = r.error.issues.map((i) => i.path[0]);
-      expect(paths).toContain("track");
-    }
-  });
-
-  it("track 빈값 → null 허용", () => {
-    const r = ImportStudentRowSchema.safeParse({ ...baseRow, track: "" });
-    expect(r.success).toBe(true);
-    if (r.success) expect(r.data.track).toBeNull();
-  });
+  // track 컬럼은 0044 마이그에서 제거 — 관련 테스트 폐기 (2026-05-18).
 
   it("status 빈값 → '재원생' 기본 적용", () => {
     const r = ImportStudentRowSchema.safeParse({ ...baseRow, status: "" });

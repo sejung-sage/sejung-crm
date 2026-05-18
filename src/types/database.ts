@@ -35,7 +35,8 @@ export type Grade =
  * 0041 에서 '초' 추가 (총 4종).
  */
 export type SchoolLevel = "초" | "중" | "고" | "기타";
-export type Track = "문과" | "이과";
+// Track 타입 제거 — 0044 마이그에서 students.track 컬럼 DROP.
+// 문과/이과 분류 폐기 (2026-05-18).
 export type StudentStatus =
   | "재원생"
   | "수강이력자"
@@ -84,9 +85,8 @@ export interface StudentRow {
   grade: Grade | null;
   /** 아카(Aca2000) V_student_list.학년 원본 값 ("1"~"10"/"고3"/"졸"/NULL). 0012 추가. */
   grade_raw: string | null;
-  /** 학교급 (중/고/기타). 0012 추가. school+grade_raw 로 derive_school_level() 도출. */
+  /** 학교급 (초/중/고/기타). 0012 추가. school+grade_raw 로 derive_school_level() 도출. */
   school_level: SchoolLevel | null;
-  track: Track | null;
   status: StudentStatus;
   branch: string;
   registered_at: string | null;
@@ -394,9 +394,8 @@ export interface StudentProfileRow {
   grade: Grade | null;
   /** 아카 원본 학년 값 (디버그·ETL 재처리용). 0012 추가. */
   grade_raw: string | null;
-  /** 학교급 (중/고/기타). 0012 추가. */
+  /** 학교급 (초/중/고/기타). 0012 추가, 0041 에서 '초' 추가. */
   school_level: SchoolLevel | null;
-  track: Track | null;
   status: StudentStatus;
   branch: string;
   parent_phone: string | null;

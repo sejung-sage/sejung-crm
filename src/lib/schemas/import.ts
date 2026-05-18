@@ -5,7 +5,6 @@ import {
   PhoneSchema,
   StudentStatusSchema,
   SubjectSchema,
-  TrackSchema,
   type Grade,
 } from "./common";
 
@@ -308,14 +307,6 @@ export const ImportStudentRowSchema = z
     school: OptionalTrimString(50),
     /** 사용자가 CSV/XLSX 에 적은 grade 원시 문자열. transform 단계에서 grade enum 으로 정규화. */
     grade: RawGradeField,
-    track: z
-      .preprocess((v) => {
-        const e = emptyToNull(v);
-        if (e === null) return null;
-        if (typeof e === "string") return e.trim();
-        return e;
-      }, z.union([TrackSchema, z.null()]))
-      .nullable(),
     status: z
       .preprocess((v) => {
         const e = emptyToNull(v);
@@ -336,11 +327,10 @@ export const ImportStudentRowSchema = z
       name: row.name,
       phone: row.phone,
       school: row.school,
-      /** 정규화된 학년 (Grade enum 9종). DB students.grade 에 그대로 저장. */
+      /** 정규화된 학년 (Grade enum 10종). DB students.grade 에 그대로 저장. */
       grade,
       /** 사용자 입력 원본 학년 문자열. DB students.grade_raw 에 저장. null 가능. */
       grade_raw: rawGrade,
-      track: row.track,
       status: row.status,
       branch: row.branch,
       registered_at: row.registered_at,
@@ -356,7 +346,6 @@ export const ImportStudentRowSchema = z
       school: z.string().nullable(),
       grade: GradeSchema,
       grade_raw: z.string().nullable(),
-      track: TrackSchema.nullable(),
       status: StudentStatusSchema,
       branch: z.string(),
       registered_at: z.string().nullable(),

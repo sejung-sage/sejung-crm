@@ -8,7 +8,6 @@ import {
   SchoolLevelSchema,
   StudentStatusSchema,
   SubjectSchema,
-  TrackSchema,
 } from "./common";
 
 /**
@@ -46,7 +45,6 @@ export const ListStudentsInputSchema = z.object({
   branch: z.string().optional(), // 비어있으면 "전체 분원"
   grades: z.array(GradeSchema).optional().default([]),
   schoolLevels: z.array(SchoolLevelSchema).optional().default([]),
-  tracks: z.array(TrackSchema).optional().default([]),
   statuses: z.array(StudentStatusSchema).optional().default([]),
   /** 수강 과목 필터 (다중 선택). student_profiles.subjects (text[]) 와 교집합. */
   subjects: z.array(SubjectSchema).optional().default([]),
@@ -77,7 +75,6 @@ export type ListStudentsInput = z.infer<typeof ListStudentsInputSchema>;
  *   ?branch=대치                     → branch
  *   ?grade=중1&grade=고2             → grades
  *   ?level=중&level=고               → schoolLevels
- *   ?track=문과                      → tracks
  *   ?status=재원생                   → statuses
  *   ?subject=수학&subject=국어       → subjects (다중 선택)
  *   ?teacher=김선생&teacher=박선생   → teachers (다중 선택)
@@ -121,7 +118,6 @@ export function parseStudentsSearchParams(
     branch: typeof raw.branch === "string" ? raw.branch : undefined,
     grades: toArray(raw.grade).filter((g) => gradeWhitelist.has(g)),
     schoolLevels: toArray(raw.level).filter((l) => levelWhitelist.has(l)),
-    tracks: toArray(raw.track).filter((t) => t === "문과" || t === "이과"),
     // 첫 진입(URL 에 ?status= 키 자체가 없음) 일 때는 "재원생" 만 default 로
     // 적용해 초기 조회 비용을 낮춘다. 사용자가 다른 status 칩을 명시적으로
     // 켜면 그 값들로 대체. 모든 status 칩을 끄면 다시 default(재원생)로 복귀.
@@ -152,7 +148,6 @@ export const StudentUpsertSchema = z.object({
   parent_phone: PhoneSchema.optional().or(z.literal("")),
   school: z.string().max(50).optional().or(z.literal("")),
   grade: GradeSchema.optional(),
-  track: TrackSchema.optional(),
   status: StudentStatusSchema.default("재원생"),
   branch: BranchSchema,
   registered_at: z.string().optional().or(z.literal("")),

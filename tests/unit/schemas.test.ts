@@ -101,12 +101,10 @@ describe("parseStudentsSearchParams · URL → 입력", () => {
     expect(r.includeHidden).toBe(false);
   });
 
-  it("track · status 필터링 동작", () => {
+  it("status 필터링 동작 — 화이트리스트 외 값 제거", () => {
     const r = parseStudentsSearchParams({
-      track: "문과",
       status: ["재원생", "알수없음"],
     });
-    expect(r.tracks).toEqual(["문과"]);
     expect(r.statuses).toEqual(["재원생"]);
   });
 
