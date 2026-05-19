@@ -87,7 +87,7 @@ export async function middleware(request: NextRequest) {
 
   // 프로필 조회 (active, must_change_password)
   const { data: profile } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("active, must_change_password")
     .eq("user_id", user.id)
     .maybeSingle();
