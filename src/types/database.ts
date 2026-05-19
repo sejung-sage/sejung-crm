@@ -253,6 +253,8 @@ export interface TemplateRow {
   is_ad: boolean;
   /** 본문 EUC-KR 바이트(한글 2, ASCII 1). 생성·수정 시 앱에서 계산. */
   byte_count: number;
+  /** 분원 (대치/송도/반포/방배). 0055 추가. master 만 다른 분원 조회/편집. */
+  branch: string;
   created_by: string | null;
   created_at: string;
   updated_at: string;
@@ -637,4 +639,202 @@ export interface Database {
     Functions: Record<string, never>;
     Enums: Record<string, never>;
   };
+}
+
+// ===== aca_* 확장 raw 테이블 (0054) =====
+//
+// 0054_aca_extension_tables.sql 에서 추가된 7개 view 의 raw 적재 테이블.
+// ETL Python (scripts/etl/migrate_*.py) 이 직접 적재. 운영 코드는 거의 안 봄.
+// 향후 정산·강사·반형태 분석의 anchor.
+// 각 테이블 컬럼 집합은 마이그의 CREATE TABLE 정의와 1:1 동일.
+
+/** 아카 수납 이력 raw (V_Pay_List). 32,985~67,666 rows/분원. */
+export interface AcaPaymentRow {
+  id: string;
+  aca_payment_id: string;
+  aca_student_id: string | null;
+  aca_class_id: string | null;
+  aca_unpaid_id: string | null;
+  branch: string;
+  student_name: string | null;
+  class_name: string | null;
+  due_date: string | null;
+  paid_at: string | null;
+  item: string | null;
+  amount: number | null;
+  payment_method: string | null;
+  approval_no: string | null;
+  business_no: string | null;
+  handler: string | null;
+  teacher_name: string | null;
+  subject_raw: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 아카 수강권 raw — 회차 단위 결제 단위 (V_Ticket_student_income_List 슈퍼셋). 19,147~220,128 rows/분원. */
+export interface AcaTicketRow {
+  id: string;
+  aca_ticket_id: string;
+  aca_student_id: string | null;
+  aca_class_id: string | null;
+  aca_enrollment_id: string | null;
+  aca_unpaid_id: string | null;
+  aca_payment_id: string | null;
+  branch: string;
+  student_name: string | null;
+  student_school: string | null;
+  student_grade: string | null;
+  class_name: string | null;
+  class_type1: string | null;
+  class_type2: string | null;
+  class_type3: string | null;
+  class_total_amount: number | null;
+  class_capacity: number | null;
+  class_total_sessions: number | null;
+  class_amount_per_session: number | null;
+  settings_value: string | null;
+  close_flag: string | null;
+  class_grade: string | null;
+  teacher_name: string | null;
+  subject_raw: string | null;
+  subject_detail: string | null;
+  class_detail: string | null;
+  schedule_days: string | null;
+  schedule_time: string | null;
+  etc: string | null;
+  classroom: string | null;
+  due_date: string | null;
+  used_at: string | null;
+  class_date: string | null;
+  normal_amount: number | null;
+  discount_amount: number | null;
+  payment_state: string | null;
+  paid_at: string | null;
+  paid_amount: number | null;
+  payment_method: string | null;
+  business_no: string | null;
+  recorded_at: string | null;
+  recorded_on: string | null;
+  created_on: string | null;
+  teacher_names: string | null;
+  teacher_codes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 아카 반×수업일 회계 스냅샷 raw (V_class_account_list). 6,298~32,677 rows/분원. */
+export interface AcaClassAccountRow {
+  id: string;
+  aca_class_account_id: string;
+  aca_class_id: string | null;
+  aca_class_type_id: string | null;
+  branch: string;
+  class_name: string | null;
+  total_amount: number | null;
+  capacity: number | null;
+  total_sessions: number | null;
+  amount_per_session: number | null;
+  settings_value: string | null;
+  close_flag: string | null;
+  class_grade: string | null;
+  teacher_name: string | null;
+  subject_raw: string | null;
+  subject_detail: string | null;
+  class_detail: string | null;
+  schedule_days: string | null;
+  schedule_time: string | null;
+  etc: string | null;
+  class_type_sort: number | null;
+  class_sort: number | null;
+  class_date: string | null;
+  unsettled: number | null;
+  recall_target: number | null;
+  completed: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 아카 미납 항목 raw (V_income_List). 19~616 rows/분원. */
+export interface AcaUnpaidRow {
+  id: string;
+  aca_unpaid_id: string;
+  aca_student_id: string | null;
+  aca_class_id: string | null;
+  branch: string;
+  student_name: string | null;
+  student_school: string | null;
+  student_grade: string | null;
+  class_type1: string | null;
+  class_type2: string | null;
+  class_type3: string | null;
+  class_name: string | null;
+  due_date: string | null;
+  item: string | null;
+  amount: number | null;
+  handler: string | null;
+  settings_value: string | null;
+  close_flag: string | null;
+  class_grade: string | null;
+  teacher_name: string | null;
+  subject_raw: string | null;
+  subject_detail: string | null;
+  class_detail: string | null;
+  schedule_days: string | null;
+  schedule_time: string | null;
+  etc: string | null;
+  classroom: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 아카 강사·직원 마스터 raw (V_People_List). 51~179 rows/분원. */
+export interface AcaTeacherRow {
+  id: string;
+  aca_teacher_id: string;
+  branch: string;
+  name: string | null;
+  login_id: string | null;
+  phone: string | null;
+  birthday: string | null;
+  role_type: string | null;
+  position: string | null;
+  department: string | null;
+  status_label: string | null;
+  postal_code: string | null;
+  road_address: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 아카 강사-반 배정 이력 raw (V_People_Subject_List). 189~1,538 rows/분원. */
+export interface AcaTeacherSubjectRow {
+  id: string;
+  aca_teacher_subject_id: string;
+  aca_teacher_id: string | null;
+  aca_class_id: string | null;
+  branch: string;
+  subject_raw: string | null;
+  teacher_name: string | null;
+  class_name: string | null;
+  assigned_at: string | null;
+  ended_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 아카 반형태 분류 raw — 반형태1/2/3 트리 (V_classqqtype_list). 2~15 rows/분원. */
+export interface AcaClassTypeRow {
+  id: string;
+  aca_class_type_id: string;
+  branch: string;
+  registered_at: string | null;
+  type1: string | null;
+  type2: string | null;
+  type3: string | null;
+  brand_code: number | null;
+  brand_name: string | null;
+  sort_order: number | null;
+  created_at: string;
+  updated_at: string;
 }
