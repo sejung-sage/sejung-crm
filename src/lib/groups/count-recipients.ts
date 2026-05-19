@@ -147,7 +147,7 @@ async function countFromSupabase(
   //    포맷 변환은 하지 않는다 (unsubscribes.phone 과 student_profiles.parent_phone 의
   //    포맷이 동일하다는 기존 가정 유지).
   const { data: unsubRows, error: unsubError } = await supabase
-    .from("unsubscribes")
+    .from("crm_unsubscribes")
     .select("phone");
   if (unsubError) {
     throw new Error(

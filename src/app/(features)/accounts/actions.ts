@@ -87,7 +87,7 @@ async function loadTargetProfile(
 > {
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("*")
     .eq("user_id", targetUserId)
     .maybeSingle();
@@ -172,7 +172,7 @@ export async function createAccountAction(
   };
 
   const { error: insertErr } = await (
-    svc.from("users_profile") as unknown as {
+    svc.from("crm_users_profile") as unknown as {
       insert: (v: Record<string, unknown>) => Promise<{
         error: { message: string } | null;
       }>;
@@ -272,7 +272,7 @@ export async function updateAccountAction(
 
   const supabase = await createSupabaseServerClient();
   const { error } = await (
-    supabase.from("users_profile") as unknown as {
+    supabase.from("crm_users_profile") as unknown as {
       update: (v: ProfilePatch) => {
         eq: (col: string, val: string) => Promise<{
           error: { message: string } | null;
@@ -323,7 +323,7 @@ export async function deactivateAccountAction(
 
   const supabase = await createSupabaseServerClient();
   const { error } = await (
-    supabase.from("users_profile") as unknown as {
+    supabase.from("crm_users_profile") as unknown as {
       update: (v: { active: boolean }) => {
         eq: (col: string, val: string) => Promise<{
           error: { message: string } | null;
@@ -371,7 +371,7 @@ export async function reactivateAccountAction(
   // must_change_password 는 건드리지 않는다 (재활성화는 비밀번호 정책과 무관).
   const supabase = await createSupabaseServerClient();
   const { error } = await (
-    supabase.from("users_profile") as unknown as {
+    supabase.from("crm_users_profile") as unknown as {
       update: (v: { active: boolean }) => {
         eq: (col: string, val: string) => Promise<{
           error: { message: string } | null;

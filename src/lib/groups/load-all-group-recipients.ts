@@ -49,7 +49,7 @@ export async function loadAllGroupRecipients(
 
   // 1) unsubscribes 1회만 페치
   const { data: unsubRows, error: unsubError } = await supabase
-    .from("unsubscribes")
+    .from("crm_unsubscribes")
     .select("phone");
   if (unsubError) {
     throw new Error(`수신거부 목록 조회 실패: ${unsubError.message}`);

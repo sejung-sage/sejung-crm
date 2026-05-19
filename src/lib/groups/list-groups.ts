@@ -52,7 +52,7 @@ async function listFromSupabase(
   const to = from + PAGE_SIZE - 1;
 
   let q = supabase
-    .from("groups")
+    .from("crm_groups")
     .select("*", { count: "exact" })
     .order("last_sent_at", { ascending: false, nullsFirst: false });
 

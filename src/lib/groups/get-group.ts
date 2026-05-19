@@ -29,7 +29,7 @@ export async function getGroup(id: string): Promise<GroupRow | null> {
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from("groups")
+    .from("crm_groups")
     .select("*")
     .eq("id", id)
     .maybeSingle();

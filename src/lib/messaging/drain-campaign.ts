@@ -228,7 +228,7 @@ async function loadCampaign(
   campaignId: string,
 ): Promise<CampaignRow> {
   const { data, error } = await supabase
-    .from("campaigns")
+    .from("crm_campaigns")
     .select("*")
     .eq("id", campaignId)
     .maybeSingle();
@@ -243,7 +243,7 @@ async function fetchPending(
   campaignId: string,
 ): Promise<Array<{ id: string; phone: string }>> {
   const { data, error } = await supabase
-    .from("messages")
+    .from("crm_messages")
     .select("id, phone")
     .eq("campaign_id", campaignId)
     .eq("status", "대기")
@@ -259,7 +259,7 @@ async function hasPending(
   campaignId: string,
 ): Promise<boolean> {
   const { count, error } = await supabase
-    .from("messages")
+    .from("crm_messages")
     .select("id", { count: "exact", head: true })
     .eq("campaign_id", campaignId)
     .eq("status", "대기");
@@ -274,7 +274,7 @@ async function determineFinalStatus(
 ): Promise<"완료" | "실패"> {
   // 발송됨이 1건이라도 있으면 '완료' (부분 실패 포함). 전부 실패면 '실패'.
   const { count: okCount, error } = await supabase
-    .from("messages")
+    .from("crm_messages")
     .select("id", { count: "exact", head: true })
     .eq("campaign_id", campaignId)
     .eq("status", "발송됨");
@@ -346,7 +346,7 @@ async function updateCampaignStatus(
   status: CampaignStatus,
 ): Promise<void> {
   await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           c: string,
@@ -366,14 +366,14 @@ async function incrementCampaignCost(
 ): Promise<void> {
   // race 발생 가능하나 self-invocation 직렬이라 위험 낮음. 강한 원자성 필요 시 RPC 로 이전.
   const { data } = await supabase
-    .from("campaigns")
+    .from("crm_campaigns")
     .select("total_cost")
     .eq("id", campaignId)
     .maybeSingle();
 
   const cur = (data as { total_cost?: number } | null)?.total_cost ?? 0;
   await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           c: string,

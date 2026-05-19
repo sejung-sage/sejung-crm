@@ -47,7 +47,7 @@ export async function getCampaignMessageCounts(
   const results = await Promise.all(
     statuses.map(async (s) => {
       const { count, error } = await supabase
-        .from("messages")
+        .from("crm_messages")
         .select("id", { count: "exact", head: true })
         .eq("campaign_id", campaignId)
         .eq("status", s);

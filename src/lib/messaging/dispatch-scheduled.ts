@@ -60,7 +60,7 @@ export async function dispatchScheduledCampaigns(): Promise<DispatchResult> {
 
   // 1) 도달한 예약 캠페인 조회 (오래된 순)
   const { data: candidates, error } = await supabase
-    .from("campaigns")
+    .from("crm_campaigns")
     .select("id")
     .eq("status", "예약됨")
     .lte("scheduled_at", ts)
@@ -101,7 +101,7 @@ async function dispatchOne(
   // 2) atomic 락 — UPDATE ... WHERE status='예약됨' RETURNING.
   // 동시 cron 인스턴스가 같은 캠페인을 잡아도 한쪽만 통과.
   const lockRes = await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           c: string,
@@ -193,7 +193,7 @@ async function dispatchOne(
     }));
 
     const insertRes = await (
-      supabase.from("messages") as unknown as {
+      supabase.from("crm_messages") as unknown as {
         insert: (
           v: Record<string, unknown>[],
         ) => Promise<{ error: { message: string } | null }>;
@@ -324,7 +324,7 @@ async function markCampaignFailed(
   // failed_reason 컬럼이 campaigns 에 없어 messages 단까지만 reason 보존.
   // campaigns.status='실패' 만 박는다.
   await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           c: string,

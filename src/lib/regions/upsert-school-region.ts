@@ -46,7 +46,7 @@ export async function upsertSchoolRegion(
   // Supabase v2 Database 타입 추론 한계 (groups/actions.ts 와 동일 패턴) —
   // upsert + onConflict 의 좁은 타입을 명시적으로 캐스팅.
   const result = await (
-    supabase.from("school_regions") as unknown as {
+    supabase.from("crm_school_regions") as unknown as {
       upsert: (
         v: Pick<SchoolRegionRow, "school" | "region">,
         options: { onConflict: string },

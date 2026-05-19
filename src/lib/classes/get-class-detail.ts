@@ -53,7 +53,7 @@ async function getFromSupabase(
 
   // 1) 강좌 메타 조회. 없으면 null.
   const classRes = await supabase
-    .from("classes")
+    .from("aca_classes")
     .select("*")
     .eq("id", classId)
     .maybeSingle();
@@ -81,7 +81,7 @@ async function getFromSupabase(
 
   // 2) 수강생 student_id 목록. JS 단 distinct.
   const enrollmentsRes = await supabase
-    .from("enrollments")
+    .from("aca_enrollments")
     .select("student_id")
     .eq("aca_class_id", acaClassId);
 
@@ -117,7 +117,7 @@ async function getFromSupabase(
           error: null,
         }),
     supabase
-      .from("attendances")
+      .from("aca_attendances")
       .select("id, student_id, attended_at, status, aca_class_id")
       .eq("aca_class_id", acaClassId)
       .order("attended_at", { ascending: true }),

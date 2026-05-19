@@ -552,53 +552,55 @@ export interface ClassDetail {
 export interface Database {
   public: {
     Tables: {
-      students: { Row: StudentRow; Insert: StudentInsert; Update: StudentUpdate };
-      enrollments: {
+      // ── aca_* : Aca2000 ETL 출처 (0049 prefix 분리) ─────────
+      aca_students: { Row: StudentRow; Insert: StudentInsert; Update: StudentUpdate };
+      aca_enrollments: {
         Row: EnrollmentRow;
         Insert: Omit<EnrollmentRow, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<EnrollmentRow, "id">>;
       };
-      attendances: {
+      aca_attendances: {
         Row: AttendanceRow;
         Insert: Omit<AttendanceRow, "id" | "created_at"> & { id?: string };
         Update: Partial<Omit<AttendanceRow, "id">>;
       };
-      classes: {
+      aca_classes: {
         Row: ClassRow;
         Insert: Omit<ClassRow, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<ClassRow, "id">>;
       };
-      groups: {
+      // ── crm_* : CRM 자체 데이터 (0049 prefix 분리) ──────────
+      crm_groups: {
         Row: GroupRow;
         Insert: Omit<GroupRow, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<GroupRow, "id">>;
       };
-      templates: {
+      crm_templates: {
         Row: TemplateRow;
         Insert: Omit<TemplateRow, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<TemplateRow, "id">>;
       };
-      campaigns: {
+      crm_campaigns: {
         Row: CampaignRow;
         Insert: Omit<CampaignRow, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<CampaignRow, "id">>;
       };
-      messages: {
+      crm_messages: {
         Row: MessageRow;
         Insert: Omit<MessageRow, "id" | "created_at"> & { id?: string };
         Update: Partial<Omit<MessageRow, "id">>;
       };
-      unsubscribes: {
+      crm_unsubscribes: {
         Row: UnsubscribeRow;
         Insert: UnsubscribeRow;
         Update: Partial<UnsubscribeRow>;
       };
-      users_profile: {
+      crm_users_profile: {
         Row: UserProfileRow;
         Insert: Omit<UserProfileRow, "created_at" | "updated_at">;
         Update: Partial<UserProfileRow>;
       };
-      school_regions: {
+      crm_school_regions: {
         Row: SchoolRegionRow;
         Insert: Omit<SchoolRegionRow, "created_at" | "updated_at"> & {
           created_at?: string;

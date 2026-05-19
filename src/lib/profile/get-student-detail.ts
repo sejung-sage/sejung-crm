@@ -72,18 +72,18 @@ async function getFromSupabase(
         .eq("id", studentId)
         .maybeSingle(),
       supabase
-        .from("enrollments")
+        .from("aca_enrollments")
         .select("*")
         .eq("student_id", studentId)
         .order("paid_at", { ascending: false, nullsFirst: false })
         .order("start_date", { ascending: false }),
       supabase
-        .from("attendances")
+        .from("aca_attendances")
         .select("*")
         .eq("student_id", studentId)
         .order("attended_at", { ascending: false }),
       supabase
-        .from("messages")
+        .from("crm_messages")
         .select(
           "id, phone, status, sent_at, campaign_id, campaigns:campaign_id(title)",
         )
@@ -152,7 +152,7 @@ async function attachClassLookup(
   }
 
   const { data, error } = await supabase
-    .from("classes")
+    .from("aca_classes")
     .select("aca_class_id, total_sessions, amount_per_session, teacher_name, subject, subject_raw")
     .in("aca_class_id", ids);
 
@@ -203,7 +203,7 @@ async function attachAttendanceClassLookup(
   }
 
   const { data, error } = await supabase
-    .from("classes")
+    .from("aca_classes")
     .select(
       "aca_class_id, name, teacher_name, subject, subject_raw, schedule_days, schedule_time, start_date, end_date",
     )

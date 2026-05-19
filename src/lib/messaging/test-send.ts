@@ -224,7 +224,7 @@ async function insertCampaign(
   payload: Record<string, unknown>,
 ): Promise<CampaignInsertReturn> {
   const { data, error } = await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       insert: (v: Record<string, unknown>) => {
         select: (cols: string) => {
           single: () => Promise<{
@@ -257,7 +257,7 @@ async function insertMessage(
   payload: Record<string, unknown>,
 ): Promise<MessageInsertReturn> {
   const { data, error } = await (
-    supabase.from("messages") as unknown as {
+    supabase.from("crm_messages") as unknown as {
       insert: (v: Record<string, unknown>) => {
         select: (cols: string) => {
           single: () => Promise<{
@@ -287,7 +287,7 @@ async function updateMessage(
   patch: Record<string, unknown>,
 ): Promise<void> {
   await (
-    supabase.from("messages") as unknown as {
+    supabase.from("crm_messages") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,
@@ -307,7 +307,7 @@ async function safeUpdateCampaignStatus(
   totalCost: number,
 ): Promise<void> {
   await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,

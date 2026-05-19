@@ -125,7 +125,7 @@ def load_student_id_map(supabase) -> dict[str, str]:
     offset = 0
     while True:
         res = (
-            supabase.table("students")
+            supabase.table("aca_students")
             .select("id, aca2000_id")
             .not_.is_("aca2000_id", "null")
             .range(offset, offset + page_size - 1)
@@ -221,7 +221,7 @@ def transform(
 def upsert_batch(supabase, batch: list[dict]) -> tuple[int, str | None]:
     try:
         res = (
-            supabase.table("enrollments")
+            supabase.table("aca_enrollments")
             .upsert(batch, on_conflict="aca_enrollment_id")
             .execute()
         )

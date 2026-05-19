@@ -26,7 +26,7 @@ export async function deleteSchoolRegion(school: string): Promise<void> {
   const supabase = await createSupabaseServerClient();
 
   const { error } = await supabase
-    .from("school_regions")
+    .from("crm_school_regions")
     .delete()
     .eq("school", trimmed);
 

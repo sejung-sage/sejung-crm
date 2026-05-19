@@ -78,7 +78,7 @@ async function collectFromSupabase(
     const to = from + PAGE_SIZE - 1;
 
     let query = supabase
-      .from("students")
+      .from("aca_students")
       .select("school")
       .not("school", "is", null)
       .range(from, to);
@@ -107,7 +107,7 @@ async function collectFromSupabase(
 
   // 2) school_regions 매핑 전체 조회 (수십~수백 행, 가벼움).
   const { data: mappingRows } = await supabase
-    .from("school_regions")
+    .from("crm_school_regions")
     .select("school, region");
   const schoolToRegion = new Map<string, string>();
   for (const m of (mappingRows ?? []) as { school: string; region: string }[]) {

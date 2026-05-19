@@ -42,7 +42,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
 
   // 3) users_profile 조회
   const { data, error } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select(
       "user_id, name, email, role, branch, active, must_change_password",
     )

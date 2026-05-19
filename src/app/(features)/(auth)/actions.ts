@@ -102,7 +102,7 @@ export async function loginAction(
 
   // 비활성 계정 차단 (1차) + role/branch 조회 (분원 컨텍스트 셋업용)
   const { data: profile } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("active, role, branch")
     .eq("user_id", data.user.id)
     .maybeSingle();
@@ -173,7 +173,7 @@ export async function selectBranchAction(
     return { status: "failed", reason: "로그인 후 이용 가능합니다" };
   }
   const { data: profile } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("role, active")
     .eq("user_id", user.id)
     .maybeSingle();
@@ -252,7 +252,7 @@ export async function changePasswordAction(
   }
 
   const { data: profile } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("must_change_password, active")
     .eq("user_id", user.id)
     .maybeSingle();
@@ -298,7 +298,7 @@ export async function changePasswordAction(
   //    role/branch/active 등 권한 컬럼은 절대 손대지 않는다.
   const svc = createSupabaseServiceClient();
   const { error: flagErr, data: flagRows } = await (
-    svc.from("users_profile") as unknown as {
+    svc.from("crm_users_profile") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (col: string, val: string) => {
           select: (cols: string) => Promise<{

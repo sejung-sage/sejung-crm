@@ -401,7 +401,7 @@ async function insertCampaign(
   payload: Record<string, unknown>,
 ): Promise<CampaignInsertReturn> {
   const { data, error } = await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       insert: (v: Record<string, unknown>) => {
         select: (cols: string) => {
           single: () => Promise<{
@@ -437,7 +437,7 @@ async function insertMessages(
   // INSERT 응답에서 id/phone 회신을 받을 필요가 없다. select 생략으로
   // 6만건 대량 INSERT 의 응답 페이로드를 0 으로 줄인다.
   const { error } = await (
-    supabase.from("messages") as unknown as {
+    supabase.from("crm_messages") as unknown as {
       insert: (v: Record<string, unknown>[]) => Promise<{
         error: { message: string } | null;
       }>;
@@ -457,7 +457,7 @@ async function safeUpdateCampaignStatus(
   totalCost: number,
 ): Promise<void> {
   await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,

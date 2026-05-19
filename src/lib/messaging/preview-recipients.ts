@@ -158,7 +158,7 @@ async function previewFromSupabase(
 
   // 1) 수신거부 phone 목록 선(先)페치 — SQL 절 인자로 사용.
   const { data: unsubRows, error: unsubError } = await supabase
-    .from("unsubscribes")
+    .from("crm_unsubscribes")
     .select("phone");
   if (unsubError) {
     throw new Error(

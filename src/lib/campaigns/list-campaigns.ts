@@ -60,7 +60,7 @@ async function listFromSupabase(
   const to = from + PAGE_SIZE - 1;
 
   let q = supabase
-    .from("campaigns")
+    .from("crm_campaigns")
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false });
 

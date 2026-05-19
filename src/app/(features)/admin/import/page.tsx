@@ -66,7 +66,7 @@ async function isAllowed(): Promise<boolean> {
     if (!user) return false;
 
     const { data, error } = await supabase
-      .from("users_profile")
+      .from("crm_users_profile")
       .select("role, active")
       .eq("user_id", user.id)
       .maybeSingle<{ role: UserRole; active: boolean }>();

@@ -25,7 +25,7 @@ export async function getAccount(
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("*")
     .eq("user_id", userId)
     .maybeSingle();

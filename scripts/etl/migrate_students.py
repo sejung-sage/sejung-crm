@@ -204,7 +204,7 @@ def upsert_batch(supabase, batch: list[dict]) -> tuple[int, str | None]:
     """배치 UPSERT (onConflict: aca2000_id). (성공건수, 마스킹된 에러메시지)."""
     try:
         res = (
-            supabase.table("students")
+            supabase.table("aca_students")
             .upsert(batch, on_conflict="aca2000_id")
             .execute()
         )

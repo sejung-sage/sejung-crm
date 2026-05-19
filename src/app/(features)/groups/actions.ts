@@ -82,7 +82,7 @@ async function assertWriteRole(): Promise<AuthOk | AuthFail> {
   }
 
   const { data, error } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("role, active")
     .eq("user_id", user.id)
     .maybeSingle();
@@ -163,7 +163,7 @@ export async function createGroupAction(
     created_by: auth.userId,
   };
   const { data, error } = await (
-    supabase.from("groups") as unknown as {
+    supabase.from("crm_groups") as unknown as {
       insert: (v: Record<string, unknown>) => {
         select: (cols: string) => {
           single: () => Promise<{
@@ -221,7 +221,7 @@ export async function updateGroupAction(
   // 현재 값이 필요함: filters 가 바뀌면 recipient_count 재계산을 위해,
   // branch 가 바뀌어도 마찬가지.
   const { data: current, error: fetchError } = await supabase
-    .from("groups")
+    .from("crm_groups")
     .select("*")
     .eq("id", parsed.id)
     .maybeSingle();
@@ -271,7 +271,7 @@ export async function updateGroupAction(
 
   // 동일한 사유로 update 도 좁은 cast.
   const { error: updateError } = await (
-    supabase.from("groups") as unknown as {
+    supabase.from("crm_groups") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,
@@ -315,7 +315,7 @@ export async function deleteGroupAction(
 
   const supabase = await createSupabaseServerClient();
   // campaigns.group_id 는 ON DELETE SET NULL 이므로 기존 캠페인 보존 상태로 삭제됨.
-  const { error } = await supabase.from("groups").delete().eq("id", id);
+  const { error } = await supabase.from("crm_groups").delete().eq("id", id);
 
   if (error) {
     return {
@@ -351,7 +351,7 @@ export async function deleteGroupsAction(
 
   const supabase = await createSupabaseServerClient();
   const { error, count } = await supabase
-    .from("groups")
+    .from("crm_groups")
     .delete({ count: "exact" })
     .in("id", ids);
 

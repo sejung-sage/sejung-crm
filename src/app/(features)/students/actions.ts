@@ -44,7 +44,7 @@ async function assertWriteRole(): Promise<AuthOk | AuthFail> {
   }
 
   const { data, error } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("role, active")
     .eq("user_id", user.id)
     .maybeSingle();
@@ -121,7 +121,7 @@ export async function createStudentAction(
   };
 
   const { data, error } = await (
-    supabase.from("students") as unknown as {
+    supabase.from("aca_students") as unknown as {
       insert: (v: Record<string, unknown>) => {
         select: (cols: string) => {
           single: () => Promise<{

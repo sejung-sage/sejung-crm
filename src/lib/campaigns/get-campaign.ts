@@ -31,7 +31,7 @@ export async function getCampaign(
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from("campaigns")
+    .from("crm_campaigns")
     .select("*")
     .eq("id", id)
     .maybeSingle();

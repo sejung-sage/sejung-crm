@@ -42,7 +42,7 @@ export async function listAccounts(
   const supabase = await createSupabaseServerClient();
 
   let qb = supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("*", { count: "exact" })
     .order("created_at", { ascending: false })
     .range(from, to);

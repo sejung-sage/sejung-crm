@@ -41,7 +41,7 @@ export async function listCampaignMessages(
   //  - UI 의 CampaignMessagesTable 은 클라이언트 페이지네이션 (50건 안에서만 동작).
   //    50건 이상 페이지 이동은 추후 server-side paginate (page param) 으로 확장.
   const { data, error } = await supabase
-    .from("messages")
+    .from("crm_messages")
     .select("*, students:student_id(name)")
     .eq("campaign_id", campaignId)
     .order("created_at", { ascending: false })

@@ -36,7 +36,7 @@ async function collectFromSupabase(): Promise<string[]> {
 
   // 1) school_regions 의 학교 (매핑 풀 — 예방 매핑 포함).
   const { data: mappingRows } = await supabase
-    .from("school_regions")
+    .from("crm_school_regions")
     .select("school");
   for (const r of (mappingRows ?? []) as Array<{ school: string }>) {
     if (typeof r.school === "string" && r.school.trim().length > 0) {
@@ -49,7 +49,7 @@ async function collectFromSupabase(): Promise<string[]> {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
     const { data, error } = await supabase
-      .from("students")
+      .from("aca_students")
       .select("school")
       .not("school", "is", null)
       .range(from, to);

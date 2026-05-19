@@ -59,7 +59,7 @@ export async function listGroupStudents(
 
   // 수신거부 phone 선페치
   const { data: unsubRows, error: unsubError } = await supabase
-    .from("unsubscribes")
+    .from("crm_unsubscribes")
     .select("phone");
   if (unsubError) {
     throw new Error(

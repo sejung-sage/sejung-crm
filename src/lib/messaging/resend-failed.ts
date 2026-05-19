@@ -80,7 +80,7 @@ export async function resendFailedMessages(
 
   // 3) 실패 메시지만 조회 (is_test 제외 — 테스트 발송 캠페인은 별도 처리)
   const { data: failedRows, error: fetchError } = await supabase
-    .from("messages")
+    .from("crm_messages")
     .select("id, phone, student_id")
     .eq("campaign_id", campaignId)
     .eq("status", "실패")
@@ -113,7 +113,7 @@ export async function resendFailedMessages(
 
   // 최신 unsubscribes 조회
   const { data: unsubData, error: unsubError } = await supabase
-    .from("unsubscribes")
+    .from("crm_unsubscribes")
     .select("phone");
   if (unsubError) {
     return {
@@ -268,7 +268,7 @@ async function updateMessage(
   patch: Record<string, unknown>,
 ): Promise<void> {
   await (
-    supabase.from("messages") as unknown as {
+    supabase.from("crm_messages") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,
@@ -287,7 +287,7 @@ async function safeUpdateCampaignStatus(
   status: "발송중" | "완료" | "실패",
 ): Promise<void> {
   await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,
@@ -310,7 +310,7 @@ async function incrementCampaignCost(
   // 현재값 + added 로 단순 갱신 (race 가능성은 매우 낮은 워크플로우).
   // 강한 원자성 필요시 RPC SQL 함수로 옮길 수 있음 (Phase 1).
   const { data: cur } = await supabase
-    .from("campaigns")
+    .from("crm_campaigns")
     .select("total_cost")
     .eq("id", campaignId)
     .maybeSingle();
@@ -320,7 +320,7 @@ async function incrementCampaignCost(
     typeof curRow?.total_cost === "number" ? curRow.total_cost : 0;
 
   await (
-    supabase.from("campaigns") as unknown as {
+    supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,

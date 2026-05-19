@@ -60,7 +60,7 @@ async function listFromSupabase(
   const to = from + PAGE_SIZE - 1;
 
   let q = supabase
-    .from("templates")
+    .from("crm_templates")
     .select("*", { count: "exact" })
     .order("updated_at", { ascending: false });
 
@@ -102,7 +102,7 @@ export async function listUniqueTeachers(): Promise<string[]> {
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from("templates")
+    .from("crm_templates")
     .select("teacher_name")
     .not("teacher_name", "is", null);
   if (error) {

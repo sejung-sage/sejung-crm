@@ -271,7 +271,7 @@ def transform(row: dict, branch_id: str, branch_name: str) -> dict | None:
 def upsert_batch(supabase, batch: list[dict]) -> tuple[int, str | None]:
     try:
         res = (
-            supabase.table("classes")
+            supabase.table("aca_classes")
             .upsert(batch, on_conflict="aca_class_id")
             .execute()
         )

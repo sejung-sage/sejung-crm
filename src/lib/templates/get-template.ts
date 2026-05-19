@@ -23,7 +23,7 @@ export async function getTemplate(id: string): Promise<TemplateRow | null> {
 
   const supabase = await createSupabaseServerClient();
   const { data, error } = await supabase
-    .from("templates")
+    .from("crm_templates")
     .select("*")
     .eq("id", id)
     .maybeSingle();

@@ -62,7 +62,7 @@ async function assertWriteRole(): Promise<AuthOk | AuthFail> {
   }
 
   const { data, error } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("role, active")
     .eq("user_id", user.id)
     .maybeSingle();
@@ -127,7 +127,7 @@ export async function createTemplateAction(
   };
 
   const { data, error } = await (
-    supabase.from("templates") as unknown as {
+    supabase.from("crm_templates") as unknown as {
       insert: (v: Record<string, unknown>) => {
         select: (cols: string) => {
           single: () => Promise<{
@@ -192,7 +192,7 @@ export async function updateTemplateAction(
   };
 
   const { error } = await (
-    supabase.from("templates") as unknown as {
+    supabase.from("crm_templates") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,
@@ -235,7 +235,7 @@ export async function deleteTemplateAction(
   }
 
   const supabase = await createSupabaseServerClient();
-  const { error } = await supabase.from("templates").delete().eq("id", id);
+  const { error } = await supabase.from("crm_templates").delete().eq("id", id);
 
   if (error) {
     return {

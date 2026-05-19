@@ -47,7 +47,7 @@ async function assertAdminRole(): Promise<{ ok: true } | { ok: false; reason: st
   }
 
   const { data, error } = await supabase
-    .from("users_profile")
+    .from("crm_users_profile")
     .select("role, active")
     .eq("user_id", user.id)
     .maybeSingle();
