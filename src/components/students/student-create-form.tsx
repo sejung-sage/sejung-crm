@@ -12,6 +12,7 @@ import {
 } from "@/lib/schemas/student";
 import { createStudentAction } from "@/app/(features)/students/actions";
 import { useToast } from "@/components/ui/toast";
+import { SchoolCombobox } from "@/components/students/school-combobox";
 
 const STATUS_OPTIONS = ["재원생", "수강이력자"] as const;
 
@@ -22,7 +23,12 @@ const STATUS_OPTIONS = ["재원생", "수강이력자"] as const;
  * 필수: 이름 / 학부모 연락처 / 분원
  * 선택: 학년 / 학교 / 상태
  */
-export function StudentCreateForm() {
+interface Props {
+  /** 학교 자동완성용 풀. 서버에서 prefetch — students.school ∪ school_regions. */
+  schoolOptions: string[];
+}
+
+export function StudentCreateForm({ schoolOptions }: Props) {
   const router = useRouter();
   const { show: showToast } = useToast();
   const [isPending, startTransition] = useTransition();
@@ -151,12 +157,10 @@ export function StudentCreateForm() {
         <Field
           label="학교"
           input={
-            <input
+            <SchoolCombobox
               name="school"
-              type="text"
-              maxLength={50}
-              placeholder="예: 휘문고"
-              className={inputClass}
+              options={schoolOptions}
+              placeholder="예: 휘문고 (검색 또는 직접 입력)"
             />
           }
         />
