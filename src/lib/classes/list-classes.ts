@@ -166,14 +166,14 @@ async function listFromSupabase(
   // (1) 카운트 쿼리 + (2) 페이지 쿼리 — 같은 필터를 양쪽에 동일 적용.
   const countQuery = applyClassFilters(
     supabase
-      .from("aca_classes")
+      .from("crm_classes")
       .select("id", { count: "exact", head: true }),
     filters,
   );
 
   // 정렬은 DB 측(applyClassesSort) 적용 후 .range() 로 페이지 자르기.
   const pageQuery = applyClassesSort(
-    applyClassFilters(supabase.from("aca_classes").select("*"), filters),
+    applyClassFilters(supabase.from("crm_classes").select("*"), filters),
     filters.sort,
   ).range(from, to);
 
@@ -553,7 +553,7 @@ async function fetchEnrolledStudentCounts(
   }
 
   const { data, error } = await supabase
-    .from("aca_enrollments")
+    .from("crm_enrollments")
     .select("aca_class_id, student_id")
     .in("aca_class_id", acaClassIds);
 

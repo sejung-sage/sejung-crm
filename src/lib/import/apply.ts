@@ -261,7 +261,7 @@ export async function applyImport(
   let studentsUpserted = 0;
 
   for (const batch of chunk(studentPayloads, CHUNK_SIZE)) {
-    const writer = supabase.from("aca_students");
+    const writer = supabase.from("crm_students");
     const builder =
       upsertMode === "upsert"
         ? writer.upsert(batch as unknown as WriteRow[], {
@@ -299,7 +299,7 @@ export async function applyImport(
     );
     for (const phonesBatch of chunk(phones, CHUNK_SIZE)) {
       const { data, error } = await supabase
-        .from("aca_students")
+        .from("crm_students")
         .select("id, parent_phone, name")
         .in("parent_phone", phonesBatch);
       if (error) {
@@ -358,7 +358,7 @@ export async function applyImport(
 
     for (const batch of chunk(enrollmentPayloads, CHUNK_SIZE)) {
       const { data, error } = await supabase
-        .from("aca_enrollments")
+        .from("crm_enrollments")
         .insert(batch as unknown as WriteRow[])
         .select("id, student_id, course_name");
       if (error) {
@@ -423,7 +423,7 @@ export async function applyImport(
 
     for (const batch of chunk(attendancePayloads, CHUNK_SIZE)) {
       const { data, error } = await supabase
-        .from("aca_attendances")
+        .from("crm_attendances")
         .insert(batch as unknown as WriteRow[])
         .select("id");
       if (error) {

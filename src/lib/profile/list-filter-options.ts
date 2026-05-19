@@ -78,7 +78,7 @@ async function collectFromSupabase(
     const to = from + PAGE_SIZE - 1;
 
     let query = supabase
-      .from("aca_students")
+      .from("crm_students")
       .select("school")
       .not("school", "is", null)
       .range(from, to);

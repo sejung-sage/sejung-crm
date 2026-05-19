@@ -552,7 +552,8 @@ export interface ClassDetail {
 export interface Database {
   public: {
     Tables: {
-      // ── aca_* : Aca2000 ETL 출처 (0049 prefix 분리) ─────────
+      // ── aca_* : Aca2000 ETL 적재 (0049 prefix). raw layer. ────
+      // ETL Python(scripts/etl/) 이 직접 적재. 운영 코드는 거의 안 봄.
       aca_students: { Row: StudentRow; Insert: StudentInsert; Update: StudentUpdate };
       aca_enrollments: {
         Row: EnrollmentRow;
@@ -565,6 +566,25 @@ export interface Database {
         Update: Partial<Omit<AttendanceRow, "id">>;
       };
       aca_classes: {
+        Row: ClassRow;
+        Insert: Omit<ClassRow, "id" | "created_at" | "updated_at"> & { id?: string };
+        Update: Partial<Omit<ClassRow, "id">>;
+      };
+      // ── crm_* (학생/강좌/수강/출석) : 정제 layer (0051 dual-layer) ─
+      // apply_aca_to_crm() 함수가 aca_* → crm_* 정제 UPSERT. 운영 페이지는
+      // 이쪽만 본다. schema 는 aca_* 와 동일 (LIKE INCLUDING ALL).
+      crm_students: { Row: StudentRow; Insert: StudentInsert; Update: StudentUpdate };
+      crm_enrollments: {
+        Row: EnrollmentRow;
+        Insert: Omit<EnrollmentRow, "id" | "created_at" | "updated_at"> & { id?: string };
+        Update: Partial<Omit<EnrollmentRow, "id">>;
+      };
+      crm_attendances: {
+        Row: AttendanceRow;
+        Insert: Omit<AttendanceRow, "id" | "created_at"> & { id?: string };
+        Update: Partial<Omit<AttendanceRow, "id">>;
+      };
+      crm_classes: {
         Row: ClassRow;
         Insert: Omit<ClassRow, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<ClassRow, "id">>;

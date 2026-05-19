@@ -59,7 +59,7 @@ async function listFromSupabase(
   //   "필터 적용 전 학생 수" 가 되어 보수적으로 과대. 대안은 enrollments JOIN 인데
   //   학생 명단 메인 화면 케이스가 아니라 그냥 허용.
   let countQuery = supabase
-    .from("aca_students")
+    .from("crm_students")
     .select("id", { count: "exact", head: true });
 
   if (input.search) {
@@ -228,7 +228,7 @@ async function fetchTwoStage(args: {
   const { supabase, input, from, to, regionPlan, countQuery } = args;
 
   // 1단계: students 에서 id 만 — 인덱스(0046) 가속.
-  let idsQuery = supabase.from("aca_students").select("id");
+  let idsQuery = supabase.from("crm_students").select("id");
 
   if (input.search) {
     const like = `%${input.search}%`;

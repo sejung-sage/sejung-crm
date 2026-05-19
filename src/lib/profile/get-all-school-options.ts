@@ -49,7 +49,7 @@ async function collectFromSupabase(): Promise<string[]> {
     const from = page * PAGE_SIZE;
     const to = from + PAGE_SIZE - 1;
     const { data, error } = await supabase
-      .from("aca_students")
+      .from("crm_students")
       .select("school")
       .not("school", "is", null)
       .range(from, to);

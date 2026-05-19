@@ -121,7 +121,7 @@ export async function createStudentAction(
   };
 
   const { data, error } = await (
-    supabase.from("aca_students") as unknown as {
+    supabase.from("crm_students") as unknown as {
       insert: (v: Record<string, unknown>) => {
         select: (cols: string) => {
           single: () => Promise<{
