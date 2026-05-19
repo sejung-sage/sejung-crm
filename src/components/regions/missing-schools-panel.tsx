@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, Check, AlertCircle } from "lucide-react";
 import type { MissingSchoolRegion } from "@/lib/regions/list-missing-regions";
 import { upsertSchoolRegionAction } from "@/app/(features)/regions/actions";
+import { useToast } from "@/components/ui/toast";
 
 interface Props {
   /** 학생 수 많은 순 cap N 개. */
@@ -41,6 +42,7 @@ export function MissingSchoolsPanel({
   knownRegions,
 }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [collapsed, setCollapsed] = useState(false);
   // 행 단위 선택 상태: school 키 → 선택된 region 문자열.
   const [selections, setSelections] = useState<Record<string, string>>({});
@@ -64,6 +66,7 @@ export function MissingSchoolsPanel({
         const result = await upsertSchoolRegionAction({ school, region });
         if (result.status === "success") {
           setRowState((s) => ({ ...s, [school]: "ok" }));
+          showToast("success", `'${school}' 을 ${region} 으로 분류했어요`);
           // 잠시 보여준 후 새로고침 — 행이 list 에서 사라지고 매핑 표에 추가됨.
           setTimeout(() => router.refresh(), 700);
         } else if (result.status === "dev_seed_mode") {
@@ -76,6 +79,7 @@ export function MissingSchoolsPanel({
             ...s,
             [school]: { error: result.reason },
           }));
+          showToast("error", `매핑 저장 실패: ${result.reason}`);
         }
       } catch (e) {
         // Server Action 통신 실패(네트워크 등). 사용자가 재시도할 수 있게 명확히 표시.
@@ -84,6 +88,7 @@ export function MissingSchoolsPanel({
           ...s,
           [school]: { error: `저장 실패 — ${msg}` },
         }));
+        showToast("error", `저장 실패: ${msg}`);
       }
     });
   };

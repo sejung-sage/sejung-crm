@@ -4,6 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { Loader2, Moon, Send, Users } from "lucide-react";
 import type { GroupListItem } from "@/types/database";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
+import { useToast } from "@/components/ui/toast";
 import {
   previewAction,
   testSendAction,
@@ -327,6 +328,7 @@ function TestSendDialog({
   step2: ComposeStep2State;
   onClose: () => void;
 }) {
+  const { show: showToast } = useToast();
   const [phone, setPhone] = useState("");
   const [isPending, startTransition] = useTransition();
   const [resultMsg, setResultMsg] = useState<{
@@ -357,35 +359,32 @@ function TestSendDialog({
         toPhone: cleaned,
       });
       switch (result.status) {
-        case "success":
-          setResultMsg({
-            tone: "success",
-            text: `테스트 발송 완료. (성공 ${result.sent}건 / 실패 ${result.failed}건)`,
-          });
+        case "success": {
+          const text = `테스트 발송 완료. (성공 ${result.sent}건 / 실패 ${result.failed}건)`;
+          setResultMsg({ tone: "success", text });
+          showToast(
+            "success",
+            `테스트 발송됐어요 — 성공 ${result.sent}건 / 실패 ${result.failed}건`,
+          );
           break;
+        }
         case "scheduled":
           setResultMsg({
             tone: "success",
             text: "테스트 발송이 예약되었습니다.",
           });
+          showToast("success", "테스트 발송이 예약됐어요");
           break;
         case "blocked":
-          setResultMsg({
-            tone: "danger",
-            text: result.reason,
-          });
+          setResultMsg({ tone: "danger", text: result.reason });
+          showToast("error", `테스트 발송 차단: ${result.reason}`);
           break;
         case "failed":
-          setResultMsg({
-            tone: "danger",
-            text: result.reason,
-          });
+          setResultMsg({ tone: "danger", text: result.reason });
+          showToast("error", `테스트 발송 실패: ${result.reason}`);
           break;
         case "dev_seed_mode":
-          setResultMsg({
-            tone: "muted",
-            text: result.reason,
-          });
+          setResultMsg({ tone: "muted", text: result.reason });
           break;
       }
     });

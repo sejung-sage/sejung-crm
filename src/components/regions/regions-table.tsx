@@ -62,6 +62,7 @@ export function RegionsTable({ rows, knownRegions }: Props) {
       const result = await upsertSchoolRegionAction({ school, region });
       if (result.status === "success") {
         setRowState((s) => ({ ...s, [school]: "ok" }));
+        showToast("success", `'${school}' 을 ${region} 으로 옮겼어요`);
         // 새 region 그룹을 자동으로 펼친다 — 학교가 다른 그룹으로 이동한 경우
         // 사용자가 같은 자리에서 보이는 변화가 없어 "안 됐다" 고 오해하던 UX 버그 해결.
         setOpenRegions((prev) => {
@@ -85,6 +86,7 @@ export function RegionsTable({ rows, knownRegions }: Props) {
         }));
       } else {
         setRowState((s) => ({ ...s, [school]: result.reason }));
+        showToast("error", `매핑 저장 실패: ${result.reason}`);
       }
     });
   };
