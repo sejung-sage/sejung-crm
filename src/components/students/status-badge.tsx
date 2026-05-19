@@ -17,6 +17,11 @@ export function StudentStatusBadge({ status }: { status: StudentStatus | string 
           bg: "var(--bg-muted)",
           fg: "var(--text-muted)",
         };
+      case "수강이력없음":
+        return {
+          bg: "var(--bg-muted)",
+          fg: "var(--text-dim)",
+        };
       case "탈퇴":
         return {
           bg: "var(--bg-muted)",
