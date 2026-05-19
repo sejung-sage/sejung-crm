@@ -14,7 +14,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, Building2, Check } from "lucide-react";
+import { ChevronDown, Building2, Check, Loader2 } from "lucide-react";
 import { selectBranchAction } from "@/app/(features)/(auth)/actions";
 import { useToast } from "@/components/ui/toast";
 
@@ -71,19 +71,37 @@ export function SidebarBranchSwitcher({ current, branches }: Props) {
           disabled:opacity-60 disabled:cursor-not-allowed
         "
       >
-        <Building2
-          className="size-4 text-[color:var(--text-muted)] shrink-0"
-          strokeWidth={1.75}
-          aria-hidden
-        />
+        {pending ? (
+          <Loader2
+            className="size-4 text-[color:var(--text-muted)] shrink-0 animate-spin"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+        ) : (
+          <Building2
+            className="size-4 text-[color:var(--text-muted)] shrink-0"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+        )}
         <span className="flex-1 truncate">
-          분원: <span className="font-medium">{currentLabel}</span>
+          {pending ? (
+            <span className="text-[color:var(--text-muted)]">
+              분원 전환 중...
+            </span>
+          ) : (
+            <>
+              분원: <span className="font-medium">{currentLabel}</span>
+            </>
+          )}
         </span>
-        <ChevronDown
-          className={`size-4 text-[color:var(--text-muted)] shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
-          strokeWidth={1.75}
-          aria-hidden
-        />
+        {!pending && (
+          <ChevronDown
+            className={`size-4 text-[color:var(--text-muted)] shrink-0 transition-transform ${open ? "rotate-180" : ""}`}
+            strokeWidth={1.75}
+            aria-hidden
+          />
+        )}
       </button>
 
       {open && (
