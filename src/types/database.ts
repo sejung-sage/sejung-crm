@@ -37,11 +37,7 @@ export type Grade =
 export type SchoolLevel = "초" | "중" | "고" | "기타";
 // Track 타입 제거 — 0044 마이그에서 students.track 컬럼 DROP.
 // 문과/이과 분류 폐기 (2026-05-18).
-export type StudentStatus =
-  | "재원생"
-  | "수강이력자"
-  | "신규리드"
-  | "탈퇴";
+export type StudentStatus = "재원생" | "수강이력자" | "탈퇴";
 export type Subject =
   | "국어"
   | "영어"

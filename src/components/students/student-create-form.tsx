@@ -13,7 +13,7 @@ import {
 import { createStudentAction } from "@/app/(features)/students/actions";
 import { useToast } from "@/components/ui/toast";
 
-const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드"] as const;
+const STATUS_OPTIONS = ["재원생", "수강이력자"] as const;
 
 /**
  * F1 · 학생 직접 등록 폼.

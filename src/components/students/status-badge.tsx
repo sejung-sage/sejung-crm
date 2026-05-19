@@ -17,11 +17,6 @@ export function StudentStatusBadge({ status }: { status: StudentStatus | string 
           bg: "var(--bg-muted)",
           fg: "var(--text-muted)",
         };
-      case "신규리드":
-        return {
-          bg: "var(--info-bg)",
-          fg: "var(--info)",
-        };
       case "탈퇴":
         return {
           bg: "var(--bg-muted)",

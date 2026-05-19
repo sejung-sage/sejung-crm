@@ -93,13 +93,13 @@ describe("listStudents · dev seed", () => {
     expect(r.rows[0].grade).toBe("중2");
   });
 
-  it("재원 상태 복수 선택 · 재원생+신규리드", async () => {
+  it("재원 상태 복수 선택 · 재원생+수강이력자", async () => {
     const r = await listStudents({
       ...baseInput,
-      statuses: ["재원생", "신규리드"],
+      statuses: ["재원생", "수강이력자"],
     });
     expect(r.rows.every((s) =>
-      ["재원생", "신규리드"].includes(s.status),
+      ["재원생", "수강이력자"].includes(s.status),
     )).toBe(true);
   });
 

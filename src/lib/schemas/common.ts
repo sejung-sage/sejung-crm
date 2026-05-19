@@ -51,7 +51,6 @@ export const HIDDEN_GRADES_BY_DEFAULT: ReadonlyArray<Grade> = ["졸업", "미정
 export const StudentStatusSchema = z.enum([
   "재원생",
   "수강이력자",
-  "신규리드",
   "탈퇴",
 ]);
 
