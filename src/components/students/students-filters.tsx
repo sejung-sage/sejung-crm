@@ -7,7 +7,7 @@ import {
   useState,
   useTransition,
 } from "react";
-import { Search, X, Eye, ChevronDown } from "lucide-react";
+import { Search, X, Eye, ChevronDown, Loader2 } from "lucide-react";
 import type { Grade, SchoolLevel } from "@/types/database";
 import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
@@ -286,6 +286,28 @@ export function StudentsFilters({
 
   return (
     <div className="space-y-4" aria-busy={isPending}>
+      {/* 필터 변경 중 전체 화면 dim + 스피너. App Router 의 같은 segment
+          navigation (URL searchParams 만 변경) 에서는 loading.tsx 가 자동
+          노출되지 않으므로 useTransition isPending 으로 직접 overlay. */}
+      {isPending && (
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-0 z-40 bg-black/15 backdrop-blur-[1px] flex items-center justify-center"
+        >
+          <div className="flex items-center gap-3 px-5 py-3.5 rounded-xl bg-bg-card border border-[color:var(--border)] shadow-md">
+            <Loader2
+              className="size-5 animate-spin text-[color:var(--text-muted)]"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <span className="text-[14px] text-[color:var(--text)]">
+              불러오는 중...
+            </span>
+          </div>
+        </div>
+      )}
+
       {/* 상단: 검색 + 분원 + 학교급 세그먼티드 + 정렬 */}
       <div className="flex flex-col md:flex-row md:items-center gap-3">
         <form onSubmit={onSearchSubmit} className="flex-1">
