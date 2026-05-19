@@ -1,6 +1,5 @@
 import Link from "next/link";
 import {
-  Search,
   Users,
   GraduationCap,
   BookOpen,
@@ -143,33 +142,6 @@ export async function Sidebar() {
           )}
         </div>
       )}
-
-      {/* 검색 */}
-      <div className="px-4 pb-4">
-        <label className="relative block">
-          <span className="sr-only">전체 검색</span>
-          <Search
-            className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-          <input
-            type="search"
-            placeholder="검색"
-            className="
-              w-full h-10 rounded-lg
-              pl-9 pr-3
-              bg-[color:var(--bg-muted)]
-              border border-transparent
-              text-[15px] text-[color:var(--text)]
-              placeholder:text-[color:var(--text-dim)]
-              focus:outline-none focus:border-[color:var(--border-strong)]
-              focus:bg-[color:var(--bg-card)]
-              transition-colors
-            "
-          />
-        </label>
-      </div>
 
       {/* 네비 */}
       <nav className="flex-1 overflow-y-auto px-2 pb-6">
