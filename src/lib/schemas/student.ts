@@ -125,7 +125,7 @@ export function parseStudentsSearchParams(
       raw.status === undefined
         ? ["재원생"]
         : toArray(raw.status).filter((s) =>
-            ["재원생", "수강이력자", "수강이력없음", "탈퇴"].includes(s),
+            ["재원생", "수강이력자", "수강 x", "탈퇴"].includes(s),
           ),
     subjects: toArray(raw.subject).filter((s) => subjectWhitelist.has(s)),
     teachers: cleanFreeText(toArray(raw.teacher)),

@@ -94,7 +94,7 @@ type StudentUpsertPayload = {
     | "미정";
   /** 사용자 입력 원본 학년 문자열. DB students.grade_raw 에 저장. */
   grade_raw: string | null;
-  status: "재원생" | "수강이력자" | "수강이력없음" | "탈퇴";
+  status: "재원생" | "수강이력자" | "수강 x" | "탈퇴";
   branch: string;
   registered_at: string | null;
   aca2000_id: string | null;

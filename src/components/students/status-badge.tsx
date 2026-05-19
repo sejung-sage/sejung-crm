@@ -17,7 +17,7 @@ export function StudentStatusBadge({ status }: { status: StudentStatus | string 
           bg: "var(--bg-muted)",
           fg: "var(--text-muted)",
         };
-      case "수강이력없음":
+      case "수강 x":
         return {
           bg: "var(--bg-muted)",
           fg: "var(--text-dim)",

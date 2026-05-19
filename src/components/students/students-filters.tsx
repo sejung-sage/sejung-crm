@@ -63,7 +63,7 @@ function gradeOptionsForLevel(
   }
 }
 
-const STATUS_OPTIONS = ["재원생", "수강이력자", "수강이력없음", "탈퇴"] as const;
+const STATUS_OPTIONS = ["재원생", "수강이력자", "수강 x", "탈퇴"] as const;
 // 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용.
 
 /**
