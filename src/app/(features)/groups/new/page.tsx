@@ -3,6 +3,8 @@ import { countRecipients } from "@/lib/groups/count-recipients";
 import { getSchoolOptions } from "@/lib/groups/school-options";
 import { getClassDetail } from "@/lib/classes/get-class-detail";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/current-user";
+import { getSelectedBranch } from "@/lib/auth/branch-context";
 import {
   findDevProfileById,
   isDevSeedMode,
@@ -23,7 +25,22 @@ import type { Grade } from "@/types/database";
  * 둘 다 정규화된 `Prefill` 형태로 변환 후 동일 흐름 사용.
  * 학생 prefill 과 강좌 prefill 동시 지정 시 학생을 우선 (학생 단건이 더 specific).
  */
-const DEFAULT_BRANCH = "대치"; // dev 기본값. Phase 1 에서 로그인 사용자 분원으로 대체.
+/**
+ * 신규 그룹의 default 분원을 결정.
+ *  - prefill 이 있으면 그 학생/강좌의 분원 (이미 상위에서 처리됨)
+ *  - master: 사이드바 선택 분원(cookie) 또는 본인 분원
+ *  - non-master: 본인 분원 강제
+ *  - 비로그인 fallback: '대치'
+ */
+async function resolveDefaultBranch(): Promise<string> {
+  const user = await getCurrentUser();
+  if (!user) return "대치";
+  if (user.role === "master") {
+    const selected = await getSelectedBranch();
+    return selected ?? user.branch ?? "대치";
+  }
+  return user.branch;
+}
 
 interface PrefillRecipient {
   id: string;
@@ -128,7 +145,7 @@ export default async function NewGroupPage({
     prefill = await fetchPrefillFromClass(classId);
   }
 
-  const branch = prefill?.branch ?? DEFAULT_BRANCH;
+  const branch = prefill?.branch ?? (await resolveDefaultBranch());
   const initialFilters: GroupFilters = {
     grades: [],
     schools: [],
@@ -137,10 +154,14 @@ export default async function NewGroupPage({
     includeStudentIds: prefill ? prefill.recipients.map((r) => r.id) : [],
   };
 
-  const [initialPreview, schoolOptions] = await Promise.all([
+  const [initialPreview, schoolOptions, currentUser] = await Promise.all([
     countRecipients(initialFilters, branch),
     getSchoolOptions(),
+    getCurrentUser(),
   ]);
+
+  // 분원 칩 변경 권한: master 만 다른 분원 그룹 생성 가능.
+  const canPickBranch = currentUser?.role === "master";
 
   return (
     <GroupBuilder
@@ -158,6 +179,7 @@ export default async function NewGroupPage({
         total: initialPreview.total,
         sample: initialPreview.sample,
       }}
+      canPickBranch={canPickBranch}
     />
   );
 }

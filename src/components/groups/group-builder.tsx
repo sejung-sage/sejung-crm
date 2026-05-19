@@ -48,6 +48,13 @@ interface Props {
   /** 초기 프리뷰(서버에서 한 번 계산). */
   initialPreview: SamplePreview;
   mode: "create" | "edit";
+  /**
+   * 분원 칩 변경 가능 여부.
+   *  - master: true (다른 분원 그룹도 만들 수 있음)
+   *  - non-master: false (자기 분원으로 강제, 칩 비활성)
+   * 미지정 시 true (호환 default — 호출부에서 명시 권장).
+   */
+  canPickBranch?: boolean;
 }
 
 /**
@@ -112,6 +119,7 @@ export function GroupBuilder({
   schoolOptions,
   initialPreview,
   mode,
+  canPickBranch = true,
 }: Props) {
   const router = useRouter();
   const { show: showToast } = useToast();
@@ -335,16 +343,32 @@ export function GroupBuilder({
               />
             </Field>
 
-            <Field label="분원" required>
+            <Field
+              label="분원"
+              required
+              hint={
+                !canPickBranch
+                  ? "본인 분원으로 자동 설정됩니다 (다른 분원 그룹은 master 만 만들 수 있어요)"
+                  : undefined
+              }
+            >
               <div className="flex gap-1.5">
-                {BRANCHES.map((b) => (
-                  <Chip
-                    key={b}
-                    label={b}
-                    active={branch === b}
-                    onClick={() => setBranch(b)}
-                  />
-                ))}
+                {BRANCHES.map((b) => {
+                  const isCurrent = branch === b;
+                  // non-master: 본인 분원 칩만 active 로 보여주고 변경 잠금.
+                  if (!canPickBranch && !isCurrent) return null;
+                  return (
+                    <Chip
+                      key={b}
+                      label={b}
+                      active={isCurrent}
+                      onClick={() => {
+                        if (!canPickBranch) return;
+                        setBranch(b);
+                      }}
+                    />
+                  );
+                })}
               </div>
             </Field>
           </section>

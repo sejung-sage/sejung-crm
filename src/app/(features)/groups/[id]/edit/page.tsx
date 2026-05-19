@@ -3,6 +3,7 @@ import { GroupBuilder } from "@/components/groups/group-builder";
 import { getGroup } from "@/lib/groups/get-group";
 import { countRecipients } from "@/lib/groups/count-recipients";
 import { getSchoolOptions } from "@/lib/groups/school-options";
+import { getCurrentUser } from "@/lib/auth/current-user";
 
 /**
  * F2-02 · 발송 그룹 수정 (/groups/[id]/edit)
@@ -19,10 +20,14 @@ export default async function EditGroupPage({
   const group = await getGroup(id);
   if (!group) notFound();
 
-  const [initialPreview, schoolOptions] = await Promise.all([
+  const [initialPreview, schoolOptions, currentUser] = await Promise.all([
     countRecipients(group.filters, group.branch),
     getSchoolOptions(),
+    getCurrentUser(),
   ]);
+
+  // 분원 칩 변경 권한: master 만 분원 이동 가능 (운영 관리). 그 외는 잠금.
+  const canPickBranch = currentUser?.role === "master";
 
   return (
     <GroupBuilder
@@ -38,6 +43,7 @@ export default async function EditGroupPage({
         total: initialPreview.total,
         sample: initialPreview.sample,
       }}
+      canPickBranch={canPickBranch}
     />
   );
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { getSelectedBranch } from "@/lib/auth/branch-context";
 import { listGroups } from "@/lib/groups/list-groups";
 import { listTemplates } from "@/lib/templates/list-templates";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
@@ -78,9 +79,16 @@ export default async function ComposePage({
     );
   }
 
-  // 그룹 / 템플릿 미리 로드 (드롭다운용 — 첫 페이지 50건)
+  // 그룹 / 템플릿 미리 로드 (드롭다운용 — 첫 페이지 50건).
+  // 분원 격리: master 는 사이드바에서 선택한 분원(cookie) 만, non-master 는
+  // 본인 분원만. RLS 가 2차 방어이지만 UI 드롭다운에서도 다른 분원 노출 차단.
+  const branchFilter =
+    currentUser.role === "master"
+      ? ((await getSelectedBranch()) ?? "")
+      : currentUser.branch;
+
   const [groupsResult, templatesResult] = await Promise.all([
-    listGroups({ q: "", branch: "", page: 1 }),
+    listGroups({ q: "", branch: branchFilter, page: 1 }),
     listTemplates({ q: "", page: 1 }),
   ]);
 
