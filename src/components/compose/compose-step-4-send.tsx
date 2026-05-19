@@ -10,6 +10,7 @@ import {
   sendNowAction,
 } from "@/app/(features)/compose/actions";
 import type { ComposeStep2State } from "./compose-wizard";
+import { ConfirmSendDialog } from "./confirm-send-dialog";
 
 /**
  * F3 Part B · Step 4 — 즉시 발송 / 예약 발송 + 최종 요약 + 결과 처리.
@@ -57,6 +58,9 @@ export function ComposeStep4Send({
   );
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<SendUiResult | null>(null);
+  // 발송 확인 다이얼로그 표시 여부. 발송 버튼 클릭 시 true → 사용자 확정 후
+  // 실제 액션. 되돌릴 수 없는 작업이라 명시적 확인 필수.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   // 예약 모드일 때 datetime-local 의 min 값 (현재 시각 + 1분)
   const minScheduleAt = useMemo(() => toLocalDatetimeInput(new Date(Date.now() + 60_000)), []);
@@ -69,9 +73,15 @@ export function ComposeStep4Send({
     if (next === "now") onScheduleAtChange(null);
   };
 
-  const onSubmit = () => {
+  // 발송 버튼 클릭 → 다이얼로그 열기만. 실제 액션은 confirmSend 에서.
+  const openConfirm = () => {
     if (!isReady) return;
     setResult(null);
+    setConfirmOpen(true);
+  };
+
+  const confirmSend = () => {
+    setConfirmOpen(false);
 
     startTransition(async () => {
       if (mode === "now") {
@@ -258,7 +268,7 @@ export function ComposeStep4Send({
         <div className="flex items-center justify-end pt-2">
           <button
             type="button"
-            onClick={onSubmit}
+            onClick={openConfirm}
             disabled={!isReady || isPending}
             className="
               inline-flex items-center gap-1.5 h-10 px-6 rounded-lg
@@ -277,6 +287,19 @@ export function ComposeStep4Send({
                 : "예약 등록"}
           </button>
         </div>
+      )}
+
+      {confirmOpen && (
+        <ConfirmSendDialog
+          mode={mode}
+          scheduleAt={scheduleAt}
+          recipientCount={preview.recipientCount}
+          cost={preview.cost.totalCost}
+          messageBody={step2.body}
+          title={title.trim()}
+          onCancel={() => setConfirmOpen(false)}
+          onConfirm={confirmSend}
+        />
       )}
     </div>
   );
