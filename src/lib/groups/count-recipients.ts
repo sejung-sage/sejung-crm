@@ -10,25 +10,26 @@
  *
  * 수신자 산정 규칙:
  *   - filters.includeStudentIds 가 비어있지 않으면 → 그 학생들만 (조건 무시)
- *   - 비어있으면 → grades/schools/subjects 조건 매치
+ *   - 비어있으면 → grades/schools/subjects/regions 조건 매치
  *   분원·탈퇴·수신거부 가드는 두 경우 모두 적용.
  *
- * 쿼리 구조 (PostgREST `max_rows = 1000` 우회):
- *   1) unsubscribes.phone 목록을 먼저 페치 (수신거부 건수는 많지 않음).
- *   2) student_profiles 를 **두 번** 호출:
- *      (A) head + count: 헤더로 총 개수만 받기 (body 없음, cap 무관).
- *      (B) sample: 동일 필터 + LIMIT 5 로 상위 5명만.
- *   3) 수신거부 phone 제외는 **SQL 단** (PostgREST `.or(...)`) 에서 처리.
- *      JS 단에서 처리하면 (A)의 head 카운트가 수신거부 포함 값이 되어 부정확하므로
- *      반드시 SQL 단에서 동일 조건으로 적용해야 두 쿼리가 일관된다.
+ * 쿼리 전략 (statement timeout 해소 — 4만+ 학생 규모):
+ *   `student_profiles` 뷰는 crm_students + crm_enrollments + crm_attendances +
+ *   crm_school_regions 풀 집계 (LEFT JOIN + GROUP BY). 45K 학생 × 수만 attendance
+ *   를 매번 집계하면 8s statement_timeout 초과.
  *
- * 과거 구조: 전체 row 를 받아 JS 에서 카운트/제외 → student_profiles 가 1000행을
- * 넘으면 PostgREST 가 1000 에서 응답을 잘라 total 이 1000 에 고정되는 버그.
+ *   - crm_students 인덱스 (0046: branch+status+school_level+grade, school) 위에서 직접 쿼리.
+ *   - subjects 필터: crm_enrollments 에서 매칭 student_id 사전 페치 → in() 적용.
+ *   - regions 필터: crm_school_regions 에서 매칭 school 사전 페치 → school in() 적용.
+ *   - sample 표시 컬럼 (name/school/grade/branch) 는 crm_students 에 모두 있어 뷰 우회.
+ *
+ *   수신거부 제외는 SQL 단(.or)에서 동일하게 적용 — JS 단 후처리하면 count 와 sample 의
+ *   기준이 어긋남.
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { GroupFilters } from "@/lib/schemas/group";
-import type { Grade, StudentProfileRow } from "@/types/database";
+import type { Grade } from "@/types/database";
 import {
   DEV_STUDENT_PROFILES,
   isDevSeedMode,
@@ -72,69 +73,11 @@ function countFromDevSeed(
  *  콤마/괄호/슬래시 등 메타문자 인젝션을 방지. */
 const SAFE_PHONE_PATTERN = /^[\d-]+$/;
 
-/**
- * student_profiles 쿼리 빌더 헬퍼. (A) count 와 (B) sample 두 호출이 동일한 필터·동일한
- * 수신거부 제외 조건을 갖도록 한 곳에서 조립한다.
- *
- * - selectExpr: (A) 는 "id" + head 모드, (B) 는 본문 컬럼 전체.
- * - countOption: "exact" 면 head 카운트, undefined 면 일반 select.
- * - safeUnsubPhones: 정규식 통과한 수신거부 phone 만. 빈 배열이면 OR 절 자체를 추가하지 않는다
- *   (PostgREST 가 `not.in.()` 빈 인자에서 에러를 낼 수 있음).
- */
-function buildStudentProfilesQuery(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  filters: GroupFilters,
-  branch: string,
-  safeUnsubPhones: string[],
-  selectExpr: string,
-  options: { count?: "exact"; head?: boolean } = {},
-) {
-  let query = supabase
-    .from("student_profiles")
-    .select(selectExpr, options)
-    .neq("status", "탈퇴");
-
-  if (branch) {
-    query = query.eq("branch", branch);
-  }
-
-  // 직접 선택한 학생 ID 가 있으면 **조건 절은 무시** 하고 그 학생들만.
-  //
-  // 사용자 멘탈 모델: "본인 1명/소수만 명시적으로 보내기" 시나리오.
-  // 조건과 union 하면 의도 외 학생이 섞여 사고 위험 → 단순화.
-  // 분원·탈퇴·수신거부 가드는 그대로 적용.
-  if (filters.includeStudentIds.length > 0) {
-    query = query.in("id", filters.includeStudentIds);
-  } else {
-    if (filters.grades.length > 0) {
-      query = query.in("grade", filters.grades);
-    }
-    if (filters.schools.length > 0) {
-      query = query.in("school", filters.schools);
-    }
-    if (filters.subjects.length > 0) {
-      // student_profiles.subjects 는 array_agg 결과. overlaps 로 교집합 존재 확인.
-      query = query.overlaps("subjects", filters.subjects);
-    }
-    if (filters.regions.length > 0) {
-      // student_profiles.region 은 0026 마이그 이후 NOT NULL (COALESCE → '기타').
-      // 다중 지역 OR 매칭 = .in().
-      query = query.in("region", filters.regions);
-    }
-  }
-
-  // 수신거부 phone 제외를 SQL 단에서 처리.
-  // 의미: parent_phone IS NULL OR parent_phone NOT IN (수신거부 목록)
-  //  - parent_phone 미보유 학생은 수신거부 매칭 자체가 불가하므로 통과.
-  //  - 매칭되는 학생만 제외.
-  // 빈 배열일 때는 절을 추가하지 않아 전체 통과 (PostgREST 빈 in 절 회피).
-  if (safeUnsubPhones.length > 0) {
-    query = query.or(
-      `parent_phone.is.null,parent_phone.not.in.(${safeUnsubPhones.join(",")})`,
-    );
-  }
-
-  return query;
+interface SampleStudentRow {
+  name: string;
+  school: string | null;
+  grade: Grade | null;
+  branch: string;
 }
 
 async function countFromSupabase(
@@ -143,9 +86,8 @@ async function countFromSupabase(
 ): Promise<CountRecipientsResult> {
   const supabase = await createSupabaseServerClient();
 
-  // 1) 수신거부 학부모 번호 목록 선(先)페치 → SQL 단 제외 절 인자로 사용.
-  //    포맷 변환은 하지 않는다 (unsubscribes.phone 과 student_profiles.parent_phone 의
-  //    포맷이 동일하다는 기존 가정 유지).
+  // 1) 수신거부 학부모 번호 목록 선(先)페치.
+  //    크기: 수십~수백 (인입은 회원 옵트아웃 한정).
   const { data: unsubRows, error: unsubError } = await supabase
     .from("crm_unsubscribes")
     .select("phone");
@@ -161,29 +103,113 @@ async function countFromSupabase(
         typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
     );
 
-  // 2-A) 카운트 쿼리: head + count=exact 로 헤더만 받는다 (PostgREST max_rows cap 무관).
-  const countQuery = buildStudentProfilesQuery(
-    supabase,
-    filters,
-    branch,
-    safeUnsubPhones,
-    "id",
-    { count: "exact", head: true },
-  );
-  const { count, error: countError } = await countQuery;
-  if (countError) {
-    throw new Error(`수신자 카운트 조회에 실패했습니다: ${countError.message}`);
+  // 2) subjects 필터 사전 매핑 — crm_enrollments 에서 매칭 student_id 페치.
+  //    student_profiles 뷰의 subjects array_agg + overlaps 대신
+  //    enrollments 인덱스로 student_id 만 뽑아 students 에 적용.
+  let allowedStudentIds: string[] | null = null;
+  if (filters.includeStudentIds.length > 0) {
+    allowedStudentIds = filters.includeStudentIds;
+  } else if (filters.subjects.length > 0) {
+    const { data: enrollRows, error: enrollErr } = await supabase
+      .from("crm_enrollments")
+      .select("student_id")
+      .in("subject", filters.subjects);
+    if (enrollErr) {
+      throw new Error(`수강 정보 조회에 실패했습니다: ${enrollErr.message}`);
+    }
+    const set = new Set<string>();
+    for (const r of (enrollRows ?? []) as { student_id: string }[]) {
+      if (r.student_id) set.add(r.student_id);
+    }
+    if (set.size === 0) return { total: 0, sample: [] };
+    allowedStudentIds = Array.from(set);
   }
 
-  // 2-B) 샘플 쿼리: 동일 필터에서 상위 5명만 가져와 미리보기에 사용.
-  const sampleQuery = buildStudentProfilesQuery(
-    supabase,
-    filters,
-    branch,
-    safeUnsubPhones,
-    "id, name, school, grade, status, branch, parent_phone, phone, registered_at, enrollment_count, total_paid, subjects, teachers, attendance_rate, last_attended_at, last_paid_at, region",
+  // 3) regions 필터 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
+  //    "기타" 칩은 매핑된 region='기타' 학교만 매칭 (단순화). 매핑 없는 학교는 제외.
+  //    추후 매핑 없는 학교까지 "기타" 로 포함하려면 별도 IS NULL 분기 필요.
+  let allowedSchools: string[] | null = null;
+  if (filters.regions.length > 0 && filters.includeStudentIds.length === 0) {
+    const { data: regionRows, error: regErr } = await supabase
+      .from("crm_school_regions")
+      .select("school")
+      .in("region", filters.regions);
+    if (regErr) {
+      throw new Error(`지역 매핑 조회에 실패했습니다: ${regErr.message}`);
+    }
+    allowedSchools = (regionRows ?? [])
+      .map((r) => (r as { school: string }).school)
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
+    if (allowedSchools.length === 0) return { total: 0, sample: [] };
+  }
+
+  // 4) crm_students 쿼리 빌더 — count 와 sample 이 동일 필터를 공유.
+  //    student_profiles 뷰 우회 → 0046 인덱스(branch+status+school_level+grade, school) 활용.
+  type StudentsQuery = ReturnType<ReturnType<typeof supabase.from>["select"]>;
+  function buildQuery(
+    selectExpr: string,
+    options: { count?: "exact"; head?: boolean } = {},
+  ): StudentsQuery {
+    let q = supabase
+      .from("crm_students")
+      .select(selectExpr, options)
+      .neq("status", "탈퇴");
+
+    if (branch) {
+      q = q.eq("branch", branch);
+    }
+
+    if (allowedStudentIds) {
+      q = q.in("id", allowedStudentIds);
+    } else {
+      if (filters.grades.length > 0) {
+        q = q.in("grade", filters.grades);
+      }
+      if (filters.schools.length > 0) {
+        q = q.in("school", filters.schools);
+      }
+      if (allowedSchools) {
+        q = q.in("school", allowedSchools);
+      }
+    }
+
+    if (safeUnsubPhones.length > 0) {
+      q = q.or(
+        `parent_phone.is.null,parent_phone.not.in.(${safeUnsubPhones.join(",")})`,
+      );
+    }
+
+    return q as StudentsQuery;
+  }
+
+  // 5) 카운트 — head + count=exact 로 헤더만.
+  const { count, error: countError } = await buildQuery("id", {
+    count: "exact",
+    head: true,
+  });
+  if (countError) {
+    throw new Error(
+      `수신자 카운트 조회에 실패했습니다: ${countError.message}`,
+    );
+  }
+
+  // 6) 샘플 — 상위 5명. 표시 필드는 crm_students 컬럼만 사용 (뷰 우회).
+  const sampleQuery = buildQuery(
+    "name, school, grade, branch",
   );
-  const { data: sampleData, error: sampleError } = await sampleQuery
+  const { data: sampleData, error: sampleError } = await (
+    sampleQuery as unknown as {
+      order: (
+        col: string,
+        opts: { ascending: boolean; nullsFirst?: boolean },
+      ) => {
+        limit: (n: number) => Promise<{
+          data: SampleStudentRow[] | null;
+          error: { message: string } | null;
+        }>;
+      };
+    }
+  )
     .order("registered_at", { ascending: false, nullsFirst: false })
     .limit(SAMPLE_SIZE);
 
@@ -191,15 +217,18 @@ async function countFromSupabase(
     throw new Error(`수신자 조회에 실패했습니다: ${sampleError.message}`);
   }
 
-  const sampleRows = (sampleData ?? []) as StudentProfileRow[];
-
   return {
     total: count ?? 0,
-    sample: sampleRows.map(toSampleRow),
+    sample: (sampleData ?? []).map(toSampleRow),
   };
 }
 
-function toSampleRow(p: StudentProfileRow) {
+function toSampleRow(p: SampleStudentRow): {
+  name: string;
+  school: string | null;
+  grade: Grade | null;
+  branch: string;
+} {
   return {
     name: p.name,
     school: p.school,
