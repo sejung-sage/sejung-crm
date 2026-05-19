@@ -10,6 +10,7 @@ import type {
   StudentMessageRow,
   StudentProfileRow,
 } from "@/types/database";
+import { isStrictAttendanceBranch } from "./attendance-policy";
 import {
   findDevAttendancesByStudentId,
   findDevEnrollmentsByStudentId,
@@ -64,32 +65,44 @@ async function getFromSupabase(
 ): Promise<StudentDetail | null> {
   const supabase = await createSupabaseServerClient();
 
-  const [profileRes, enrollmentsRes, attendancesRes, messagesRes] =
-    await Promise.all([
-      supabase
-        .from("student_profiles")
-        .select("*")
-        .eq("id", studentId)
-        .maybeSingle(),
-      supabase
-        .from("crm_enrollments")
-        .select("*")
-        .eq("student_id", studentId)
-        .order("paid_at", { ascending: false, nullsFirst: false })
-        .order("start_date", { ascending: false }),
-      supabase
-        .from("crm_attendances")
-        .select("*")
-        .eq("student_id", studentId)
-        .order("attended_at", { ascending: false }),
-      supabase
-        .from("crm_messages")
-        .select(
-          "id, phone, status, sent_at, campaign_id, campaigns:campaign_id(title)",
-        )
-        .eq("student_id", studentId)
-        .order("sent_at", { ascending: false, nullsFirst: false }),
-    ]);
+  const [
+    profileRes,
+    studentRes,
+    enrollmentsRes,
+    attendancesRes,
+    messagesRes,
+  ] = await Promise.all([
+    supabase
+      .from("student_profiles")
+      .select("*")
+      .eq("id", studentId)
+      .maybeSingle(),
+    // student_profiles view 는 aca2000_id 를 노출하지 않아 ticket join key 확보용으로
+    // crm_students 를 별도 조회. 한 학생당 1행이라 비용은 미미.
+    supabase
+      .from("crm_students")
+      .select("aca2000_id")
+      .eq("id", studentId)
+      .maybeSingle(),
+    supabase
+      .from("crm_enrollments")
+      .select("*")
+      .eq("student_id", studentId)
+      .order("paid_at", { ascending: false, nullsFirst: false })
+      .order("start_date", { ascending: false }),
+    supabase
+      .from("crm_attendances")
+      .select("*")
+      .eq("student_id", studentId)
+      .order("attended_at", { ascending: false }),
+    supabase
+      .from("crm_messages")
+      .select(
+        "id, phone, status, sent_at, campaign_id, campaigns:campaign_id(title)",
+      )
+      .eq("student_id", studentId)
+      .order("sent_at", { ascending: false, nullsFirst: false }),
+  ]);
 
   if (profileRes.error) {
     throw new Error(
@@ -98,6 +111,11 @@ async function getFromSupabase(
   }
   if (!profileRes.data) return null;
 
+  if (studentRes.error) {
+    throw new Error(
+      `학생 마스터 조회에 실패했습니다: ${studentRes.error.message}`,
+    );
+  }
   if (enrollmentsRes.error) {
     throw new Error(
       `수강 이력 조회에 실패했습니다: ${enrollmentsRes.error.message}`,
@@ -115,9 +133,60 @@ async function getFromSupabase(
   }
 
   const profile = profileRes.data as StudentProfileRow;
+  const acaStudentId = (studentRes.data as { aca2000_id: string } | null)
+    ?.aca2000_id ?? null;
   const enrollmentsRaw = (enrollmentsRes.data ?? []) as EnrollmentRow[];
-  const attendancesRaw = (attendancesRes.data ?? []) as AttendanceRow[];
+  const attendancesRawDb = (attendancesRes.data ?? []) as AttendanceRow[];
   const messages = mapMessageRows(messagesRes.data ?? []);
+
+  // 비-방배 분원(대치/반포/송도)은 source 의 V_Attend_List 에 결석만 기록되고
+  // 실제 수업 출석은 aca_tickets.used_at(수강권 사용) 으로 표현된다.
+  // 이 경우 ticket 의 used_at 을 가상 attendance row 로 변환해 합쳐줘야
+  // student_profiles.attendance_rate (0057 마이그가 ticket 기반) 와
+  // 학생 상세 출석 탭의 표시가 일관된다.
+  //
+  // 방배는 5종 status 가 완전히 기록되므로 ticket 데이터를 섞으면 카운트가
+  // 이중 집계됨 — 그래서 분원 가드를 둔다.
+  let attendancesRaw: AttendanceRow[] = attendancesRawDb;
+  if (!isStrictAttendanceBranch(profile.branch) && acaStudentId) {
+    const ticketsRes = await supabase
+      .from("aca_tickets")
+      .select("id, aca_class_id, used_at, created_at, updated_at")
+      .eq("aca_student_id", acaStudentId)
+      .eq("payment_state", "결제완료")
+      .not("used_at", "is", null)
+      .lt("used_at", "2050-01-01");
+
+    if (ticketsRes.error) {
+      throw new Error(
+        `수강권 출석 조회에 실패했습니다: ${ticketsRes.error.message}`,
+      );
+    }
+
+    const ticketRows = (ticketsRes.data ?? []) as Array<{
+      id: string;
+      aca_class_id: string | null;
+      used_at: string;
+      created_at: string;
+      updated_at: string;
+    }>;
+
+    const ticketAsAttendance: AttendanceRow[] = ticketRows.map((t) => ({
+      id: t.id,
+      student_id: studentId,
+      enrollment_id: null,
+      // attended_at 컬럼은 DATE 라 ticket.used_at(timestamptz) 의 날짜 부분만 사용.
+      attended_at: toDateOnly(t.used_at),
+      status: "출석",
+      aca_attendance_id: null,
+      aca_class_id: t.aca_class_id,
+      created_at: t.created_at,
+    }));
+
+    attendancesRaw = [...attendancesRawDb, ...ticketAsAttendance].sort(
+      compareAttendancesDesc,
+    );
+  }
 
   // 강좌 마스터 lookup — aca_class_id 로 묶어 1쿼리, 그 다음 머지.
   // enrollments 와 attendances 는 같은 aca_class_id 풀을 공유하지만
@@ -129,6 +198,16 @@ async function getFromSupabase(
   );
 
   return { profile, enrollments, attendances, messages };
+}
+
+/**
+ * timestamptz 또는 ISO 문자열에서 'YYYY-MM-DD' 부분만 추출.
+ * aca_tickets.used_at(timestamptz) 을 crm_attendances.attended_at(DATE) 형식에
+ * 맞추는 데 사용. 입력이 이미 'YYYY-MM-DD' 면 그대로 반환.
+ */
+function toDateOnly(value: string): string {
+  // 'YYYY-MM-DD...' 형태 — 앞 10자가 날짜.
+  return value.length >= 10 ? value.slice(0, 10) : value;
 }
 
 /**

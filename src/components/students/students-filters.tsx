@@ -133,6 +133,9 @@ export function StudentsFilters({
   const [isPending, startTransition] = useTransition();
   // 학교 필터 패널의 펼침/접힘 (기본 접힘). 선택된 학교가 있으면 처음부터 펼침.
   const [schoolPanelOpen, setSchoolPanelOpen] = useState(false);
+  // 학교 검색어 — 패널 내부에서만 동작 (URL 동기화 없음).
+  // 학교 옵션이 수백 개 단위라 칩 그리드만으로는 찾기 힘들어 추가.
+  const [schoolQuery, setSchoolQuery] = useState("");
 
   // 의도된 query string mirror — 빠른 연속 클릭 race 방지용.
   // router.push 는 비동기라 window.location.search 도 잠시 stale.
@@ -556,51 +559,15 @@ export function StudentsFilters({
           </div>
         )}
 
-        {/* 펼쳐졌을 때: 5개 지역 그룹별 학교 칩 */}
+        {/* 펼쳐졌을 때: 검색 입력 + 5개 지역 그룹별 학교 칩 (스크롤). */}
         {schoolPanelOpen && (
-          <div
-            id="student-school-panel"
-            className="
-              mt-3 rounded-xl
-              bg-[color:var(--bg-muted)]
-              p-4 space-y-4
-            "
-          >
-            {schoolGroups.every((g) => g.schools.length === 0) ? (
-              <p className="text-[13px] text-[color:var(--text-muted)]">
-                표시할 학교가 없습니다.
-              </p>
-            ) : (
-              schoolGroups.map((group) => {
-                if (group.schools.length === 0) return null;
-                const selectedInGroup = group.schools.filter((s) =>
-                  schools.includes(s),
-                ).length;
-                return (
-                  <div key={group.region}>
-                    <h4 className="mb-1.5 flex items-baseline gap-1.5 text-[13px] font-semibold text-[color:var(--text)]">
-                      {group.region}
-                      <span className="text-[12px] font-normal text-[color:var(--text-muted)] tabular-nums">
-                        {selectedInGroup > 0
-                          ? `${selectedInGroup}/${group.schools.length}`
-                          : `${group.schools.length}`}
-                      </span>
-                    </h4>
-                    <div className="flex flex-wrap gap-1.5">
-                      {group.schools.map((s) => (
-                        <Chip
-                          key={s}
-                          label={s}
-                          active={schools.includes(s)}
-                          onClick={() => toggleMulti("school", s)}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
+          <SchoolSearchPanel
+            schoolGroups={schoolGroups}
+            selected={schools}
+            query={schoolQuery}
+            onQueryChange={setSchoolQuery}
+            onToggle={(s) => toggleMulti("school", s)}
+          />
         )}
       </div>
 
@@ -632,6 +599,148 @@ function FilterGroup({
         {label}
       </span>
       <div className="flex flex-wrap gap-1.5">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * 학교 검색·선택 패널.
+ *
+ * 학교 옵션은 분원당 수백~수천 개라 칩 그리드만으로는 탐색이 힘들다.
+ * 입력 텍스트 부분일치 필터 + 지역별 그룹 + 스크롤 컨테이너로 분해.
+ *
+ * 매칭이 없는 지역 그룹은 자동 숨김. 매칭 결과를 상위로 모아 보여주는
+ * 별도 "검색 결과" 섹션 대신, 기존 지역 분류를 유지해 어디 동네 학교인지
+ * 맥락을 잃지 않게 한다 (40~60대 운영자 배려).
+ *
+ * 선택된 학교 칩은 검색어와 무관하게 active 상태가 유지된다.
+ */
+function SchoolSearchPanel({
+  schoolGroups,
+  selected,
+  query,
+  onQueryChange,
+  onToggle,
+}: {
+  schoolGroups: SchoolGroup[];
+  selected: string[];
+  query: string;
+  onQueryChange: (q: string) => void;
+  onToggle: (school: string) => void;
+}) {
+  const normalized = query.trim().toLowerCase();
+  const filteredGroups = schoolGroups
+    .map((g) => ({
+      region: g.region,
+      schools:
+        normalized.length === 0
+          ? g.schools
+          : g.schools.filter((s) => s.toLowerCase().includes(normalized)),
+    }))
+    .filter((g) => g.schools.length > 0);
+
+  const totalMatched = filteredGroups.reduce(
+    (sum, g) => sum + g.schools.length,
+    0,
+  );
+  const hasResults = filteredGroups.length > 0;
+
+  return (
+    <div
+      id="student-school-panel"
+      className="mt-3 rounded-xl bg-[color:var(--bg-muted)] p-4 space-y-3"
+    >
+      {/* 검색 입력 */}
+      <label className="relative block">
+        <span className="sr-only">학교 검색</span>
+        <Search
+          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="학교명 검색 (예: 휘문, 단대부)"
+          className="
+            w-full h-10 rounded-lg
+            pl-9 pr-9
+            bg-bg-card
+            border border-[color:var(--border)]
+            text-[14px] text-[color:var(--text)]
+            placeholder:text-[color:var(--text-dim)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+          "
+        />
+        {query.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onQueryChange("")}
+            aria-label="검색어 지우기"
+            className="
+              absolute right-2 top-1/2 -translate-y-1/2
+              inline-flex items-center justify-center size-6 rounded-md
+              text-[color:var(--text-muted)] hover:text-[color:var(--text)]
+              hover:bg-[color:var(--bg-hover)]
+            "
+          >
+            <X className="size-4" strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
+      </label>
+
+      {/* 결과 카운트 */}
+      <p className="text-[12px] text-[color:var(--text-muted)]">
+        {normalized.length > 0
+          ? `검색 결과 ${totalMatched.toLocaleString()}개`
+          : `총 ${schoolGroups.reduce((s, g) => s + g.schools.length, 0).toLocaleString()}개 학교`}
+        {selected.length > 0 && (
+          <>
+            <span className="mx-1.5 text-[color:var(--text-dim)]">·</span>
+            <span>선택 {selected.length}개</span>
+          </>
+        )}
+      </p>
+
+      {/* 매칭된 지역 그룹 — 스크롤 가능한 컨테이너 */}
+      <div className="max-h-[420px] overflow-y-auto space-y-4 pr-1">
+        {!hasResults ? (
+          <p className="text-[13px] text-[color:var(--text-muted)] py-4 text-center">
+            {normalized.length > 0
+              ? `"${query.trim()}" 와(과) 일치하는 학교가 없습니다.`
+              : "표시할 학교가 없습니다."}
+          </p>
+        ) : (
+          filteredGroups.map((group) => {
+            const selectedInGroup = group.schools.filter((s) =>
+              selected.includes(s),
+            ).length;
+            return (
+              <div key={group.region}>
+                <h4 className="mb-1.5 flex items-baseline gap-1.5 text-[13px] font-semibold text-[color:var(--text)]">
+                  {group.region}
+                  <span className="text-[12px] font-normal text-[color:var(--text-muted)] tabular-nums">
+                    {selectedInGroup > 0
+                      ? `${selectedInGroup}/${group.schools.length}`
+                      : `${group.schools.length}`}
+                  </span>
+                </h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.schools.map((s) => (
+                    <Chip
+                      key={s}
+                      label={s}
+                      active={selected.includes(s)}
+                      onClick={() => onToggle(s)}
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
     </div>
   );
 }
