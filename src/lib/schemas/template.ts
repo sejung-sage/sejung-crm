@@ -125,6 +125,8 @@ export const TemplateListQuerySchema = z.object({
   q: z.string().trim().optional().default(""),
   type: z.enum(["SMS", "LMS", "ALIMTALK"]).optional(),
   teacher_name: z.string().trim().optional(),
+  /** 분원 필터. 0055 분원 격리 도입 후 추가. master 만 다른 분원 지정 가능. */
+  branch: z.string().trim().optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
 });
 export type TemplateListQuery = z.infer<typeof TemplateListQuerySchema>;

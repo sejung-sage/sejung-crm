@@ -22,6 +22,8 @@ interface Props {
   studentsTotal: number;
   currentPage: number;
   pageSize: number;
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
 export function GroupDetailView({
@@ -30,6 +32,7 @@ export function GroupDetailView({
   studentsTotal,
   currentPage,
   pageSize,
+  canRevealPhone = false,
 }: Props) {
   return (
     <div className="max-w-7xl space-y-6">
@@ -104,7 +107,7 @@ export function GroupDetailView({
           </p>
         </div>
 
-        <GroupStudentsTable rows={students} />
+        <GroupStudentsTable rows={students} canRevealPhone={canRevealPhone} />
 
         <Pagination
           page={currentPage}

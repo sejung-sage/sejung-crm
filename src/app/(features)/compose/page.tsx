@@ -89,7 +89,7 @@ export default async function ComposePage({
 
   const [groupsResult, templatesResult] = await Promise.all([
     listGroups({ q: "", branch: branchFilter, page: 1 }),
-    listTemplates({ q: "", page: 1 }),
+    listTemplates({ q: "", branch: branchFilter || undefined, page: 1 }),
   ]);
 
   const groups: GroupListItem[] = groupsResult.items;

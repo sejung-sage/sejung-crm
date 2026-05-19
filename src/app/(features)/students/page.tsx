@@ -79,7 +79,7 @@ export default async function StudentsPage({
         />
 
         {/* 테이블 */}
-        <StudentsTable rows={result.rows} />
+        <StudentsTable rows={result.rows} canRevealPhone={canPickBranch} />
 
         {/* 페이지네이션 */}
       <Pagination

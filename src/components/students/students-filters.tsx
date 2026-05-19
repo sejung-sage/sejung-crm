@@ -3,7 +3,9 @@
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
 } from "react";
@@ -63,7 +65,16 @@ function gradeOptionsForLevel(
   }
 }
 
-const STATUS_OPTIONS = ["재원생", "수강이력자", "수강 x", "탈퇴"] as const;
+/**
+ * 재원 상태 4종 토글 — 단일 선택.
+ *  - "전체": 재원생 / 수강이력자 / 수강 x 통합 (탈퇴 제외)
+ *  - "재원생" (default · 첫 진입 시 active)
+ *  - "수강이력자"
+ *  - "수강 x"
+ * 탈퇴 학생은 일반 운영 시야에서 제외 — 별도 화면 필요 시 추후 검토.
+ */
+const STATUS_OPTIONS = ["전체", "재원생", "수강이력자", "수강 x"] as const;
+type StatusOption = (typeof STATUS_OPTIONS)[number];
 // 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용.
 
 /**
@@ -123,14 +134,33 @@ export function StudentsFilters({
   // 학교 필터 패널의 펼침/접힘 (기본 접힘). 선택된 학교가 있으면 처음부터 펼침.
   const [schoolPanelOpen, setSchoolPanelOpen] = useState(false);
 
+  // 의도된 query string mirror — 빠른 연속 클릭 race 방지용.
+  // router.push 는 비동기라 window.location.search 도 잠시 stale.
+  // 클릭마다 이 ref 를 mutate 후 push, 외부 navigation 시 useEffect 가 sync.
+  const pendingQueryRef = useRef<string>(
+    typeof window !== "undefined"
+      ? window.location.search
+      : `?${searchParams.toString()}`,
+  );
+
+  useEffect(() => {
+    // useSearchParams 가 갱신되면(=URL 이 실제 반영되면) mirror 도 sync.
+    // 사용자가 빠르게 토글하는 사이에는 useSearchParams 가 진동하지만
+    // pendingQueryRef 는 항상 "마지막 의도된 상태" 를 유지하므로 안전.
+    pendingQueryRef.current = `?${searchParams.toString()}`;
+  }, [searchParams]);
+
   const q = searchParams.get("q") ?? "";
   const branch = searchParams.get("branch") ?? "전체";
   const grades = searchParams.getAll("grade");
-  // URL 에 ?status= 키 자체가 없으면 백엔드는 "재원생" default 적용 (조회 가속).
-  // 칩 active 표시도 동일하게 맞춰서 UI 와 실 쿼리 일관성을 유지한다.
-  const statusesFromUrl = searchParams.getAll("status");
-  const statusKeyPresent = searchParams.has("status");
-  const statuses = statusKeyPresent ? statusesFromUrl : ["재원생"];
+  // 재원 상태는 단일 선택 — URL ?status 값을 그대로 활성 칩 라벨로 사용.
+  // 키 자체가 없으면 backend default "재원생" 과 동일하게 매칭.
+  const statusRaw = searchParams.get("status");
+  const status: StatusOption = (
+    STATUS_OPTIONS as ReadonlyArray<string>
+  ).includes(statusRaw ?? "")
+    ? (statusRaw as StatusOption)
+    : "재원생";
   const regions = searchParams.getAll("region");
   const schools = searchParams.getAll("school");
   // school_level 은 운영 단순화를 위해 단일 선택 (배열 첫 값만 사용).
@@ -151,23 +181,19 @@ export function StudentsFilters({
 
   const updateParams = useCallback(
     (mutator: (p: URLSearchParams) => void) => {
-      // 최신 URL 을 직접 읽어 mutate — useSearchParams() 는 useTransition 중
-      // 옛 snapshot 을 잠시 반환할 수 있어, 사용자가 빠르게 학년 칩을
-      // 연속 토글하면 이전 클릭 결과가 누락되거나 누적되는 race 가 발생.
-      // window.location.search 가 항상 최신.
-      const sourceQuery =
-        typeof window !== "undefined"
-          ? window.location.search
-          : `?${searchParams.toString()}`;
-      const next = new URLSearchParams(sourceQuery);
+      // pendingQueryRef = "마지막 의도된 query string". router.push 가 비동기라
+      // window.location.search 도 stale 가능. ref 를 mutate → ref 업데이트 → push
+      // 순서로 처리해서 빠른 연속 클릭에서도 토글 결과 누적이 보장된다.
+      const next = new URLSearchParams(pendingQueryRef.current);
       mutator(next);
-      // 필터 변경 시 페이지 1 로 리셋
-      next.delete("page");
+      next.delete("page"); // 필터 변경 시 페이지 1 로 리셋
+      const nextQuery = `?${next.toString()}`;
+      pendingQueryRef.current = nextQuery;
       startTransition(() => {
-        router.push(`${pathname}?${next.toString()}`);
+        router.push(`${pathname}${nextQuery}`);
       });
     },
-    [router, pathname, searchParams],
+    [router, pathname],
   );
 
   const onSearchSubmit = (e: React.FormEvent<HTMLFormElement>) => {
@@ -181,11 +207,8 @@ export function StudentsFilters({
     });
   };
 
-  /** 다중 토글 — grade/status/region 공통. */
-  const toggleValue = (
-    key: "grade" | "status" | "region",
-    value: string,
-  ) => {
+  /** 다중 토글 — grade/region 공통. (status 는 단일 선택으로 별도 처리) */
+  const toggleValue = (key: "grade" | "region", value: string) => {
     updateParams((p) => {
       const all = p.getAll(key);
       p.delete(key);
@@ -195,6 +218,19 @@ export function StudentsFilters({
         for (const v of all) p.append(key, v);
         p.append(key, value);
       }
+    });
+  };
+
+  /**
+   * 재원 상태 단일 선택 (4종 토글). 같은 칩 재클릭 시 default(재원생) 로 복귀.
+   *  - "재원생" 선택 → URL 키 제거 (default 와 동일, 사용자 의도가 명시적이라
+   *    URL 도 깔끔하게 유지)
+   *  - 그 외 → ?status=<value>
+   */
+  const setStatus = (value: StatusOption) => {
+    updateParams((p) => {
+      if (value === "재원생") p.delete("status");
+      else p.set("status", value);
     });
   };
 
@@ -260,7 +296,7 @@ export function StudentsFilters({
     branch !== "전체" ||
     level !== "전체" ||
     grades.length > 0 ||
-    statuses.length > 0 ||
+    status !== "재원생" ||
     regions.length > 0 ||
     schools.length > 0 ||
     includeHidden;
@@ -288,12 +324,20 @@ export function StudentsFilters({
     <div className="space-y-4" aria-busy={isPending}>
       {/* 필터 변경 중 전체 화면 dim + 스피너. App Router 의 같은 segment
           navigation (URL searchParams 만 변경) 에서는 loading.tsx 가 자동
-          노출되지 않으므로 useTransition isPending 으로 직접 overlay. */}
+          노출되지 않으므로 useTransition isPending 으로 직접 overlay.
+          오버레이가 모든 포인터 이벤트를 흡수해 빠른 연속 클릭을 차단한다 —
+          ref 기반 query mirror 와 함께 race condition 의 2중 방어. */}
       {isPending && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed inset-0 z-40 bg-black/15 backdrop-blur-[1px] flex items-center justify-center"
+          aria-busy="true"
+          className="fixed inset-0 z-40 bg-black/15 backdrop-blur-[1px] flex items-center justify-center cursor-wait"
+          onMouseDownCapture={(e) => e.preventDefault()}
+          onClickCapture={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
         >
           <div className="flex items-center gap-3 px-5 py-3.5 rounded-xl bg-bg-card border border-[color:var(--border)] shadow-md">
             <Loader2
@@ -419,15 +463,15 @@ export function StudentsFilters({
         </button>
       </div>
 
-      {/* 재원 상태 + 지역 칩 */}
+      {/* 재원 상태 (단일 선택 토글) + 지역 칩 (다중) */}
       <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
         <FilterGroup label="재원 상태">
           {STATUS_OPTIONS.map((s) => (
             <Chip
               key={s}
               label={s}
-              active={statuses.includes(s)}
-              onClick={() => toggleValue("status", s)}
+              active={status === s}
+              onClick={() => setStatus(s)}
             />
           ))}
         </FilterGroup>

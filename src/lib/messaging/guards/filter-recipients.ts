@@ -17,7 +17,7 @@ export interface Recipient {
   /** 하이픈 없는 11자리 휴대폰(e.g. "01012345678"). 호출자가 정규화 책임. */
   phone: string;
   name: string;
-  /** 학생 상태(재원생/수강이력자/신규리드/탈퇴 등). */
+  /** 학생 상태(재원생/수강이력자/수강 x/탈퇴 등). */
   status: string;
 }
 

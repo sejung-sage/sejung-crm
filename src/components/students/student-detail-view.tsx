@@ -10,13 +10,15 @@ import { StudentMessagesPanel } from "@/components/students/student-messages-pan
 
 interface Props {
   detail: StudentDetail;
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
 /**
  * 학생 상세 화면 컨테이너 (Server Component).
  * 브레드크럼 · 프로필 헤더 · KPI · 탭(수강/출석/발송) 순으로 배치.
  */
-export function StudentDetailView({ detail }: Props) {
+export function StudentDetailView({ detail, canRevealPhone = false }: Props) {
   return (
     <div className="max-w-7xl space-y-6">
       <nav aria-label="이동 경로">
@@ -34,7 +36,7 @@ export function StudentDetailView({ detail }: Props) {
         </Link>
       </nav>
 
-      <StudentProfileHeader profile={detail.profile} />
+      <StudentProfileHeader profile={detail.profile} canRevealPhone={canRevealPhone} />
 
       <StudentKpiCards detail={detail} />
 
@@ -48,7 +50,12 @@ export function StudentDetailView({ detail }: Props) {
             branch={detail.profile.branch}
           />
         }
-        messagesPanel={<StudentMessagesPanel messages={detail.messages} />}
+        messagesPanel={
+          <StudentMessagesPanel
+            messages={detail.messages}
+            canRevealPhone={canRevealPhone}
+          />
+        }
       />
     </div>
   );

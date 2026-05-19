@@ -14,7 +14,7 @@ import type { GroupFilters } from "@/lib/schemas/group";
  *   - 신규 추가:
  *       DC0006 한지민 (대치·중2·재원생·대왕중)
  *       DC0007 송재호 (대치·졸업·수강이력자·휘문고)
- *       DC0008 임가람 (대치·미정·신규리드·school NULL)
+ *       DC0008 임가람 (대치·미정·수강 x·school NULL)
  *
  * 규칙: branch + status≠탈퇴 + unsub + filters(grades/schools/subjects).
  * (default-hide 졸업·미정 은 list-students 계층에서 처리. 그룹 발송에선 적용 안 됨.)

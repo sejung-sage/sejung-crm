@@ -17,13 +17,13 @@ import {
  *   DC0001 휘문고 / 재원생  → 강남구
  *   DC0002 단대부고 / 재원생 → 강남구
  *   DC0003 휘문고 / 재원생  → 강남구
- *   DC0004 중동고 / 신규리드 → 강남구
+ *   DC0004 중동고 / 수강 x → 강남구
  *   DC0005 단대부고 / 수강이력자 → 강남구
  *   SD0001 송도고 / 재원생   → 인천 송도
  *   SD0002 인천포스코고 / 재원생 → 기타
  *   SD0003 송도고 / 재원생   → 인천 송도
  *   SD0004 송도국제고 / 탈퇴 → 기타
- *   SD0005 송도고 / 신규리드 → 인천 송도
+ *   SD0005 송도고 / 수강 x → 인천 송도
  *   DC0006 대왕중 / 재원생   → 기타
  *   DC0007 휘문고 / 졸업     → 강남구
  *   DC0008 school=null / 미정 → 기타
@@ -111,7 +111,7 @@ describe("listStudents · region 필터 (dev-seed)", () => {
       const input = parseStudentsSearchParams({ region: "기타" });
       const r = await listStudents(input);
       // SD0004 는 status='탈퇴' 로 default 재원생 필터에 의해 제외.
-      // DC0008 은 status='신규리드' 라 default 재원생 필터에 의해 제외.
+      // DC0008 은 status='수강 x' 라 default 재원생 필터에 의해 제외.
       expect(r.total).toBe(2);
       const ids = r.rows.map((s) => s.id).sort();
       expect(ids).toEqual(["dev-DC0006", "dev-SD0002"]);

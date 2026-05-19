@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { getClassDetail } from "@/lib/classes/get-class-detail";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { ClassDetailView } from "@/components/classes/class-detail-view";
 
 /**
@@ -14,7 +15,11 @@ export default async function ClassDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const detail = await getClassDetail(id);
+  const [detail, currentUser] = await Promise.all([
+    getClassDetail(id),
+    getCurrentUser(),
+  ]);
   if (!detail) notFound();
-  return <ClassDetailView detail={detail} />;
+  const canRevealPhone = currentUser?.role === "master";
+  return <ClassDetailView detail={detail} canRevealPhone={canRevealPhone} />;
 }

@@ -3,10 +3,12 @@
 import { useMemo, useState } from "react";
 import type { CampaignMessageRow, MessageStatus } from "@/types/database";
 import { MessageStatusBadge } from "@/components/campaigns/campaign-status-badge";
-import { maskPhone } from "@/lib/phone";
+import { formatPhone, maskPhone } from "@/lib/phone";
 
 interface Props {
   rows: CampaignMessageRow[];
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
 // "도달" status 는 sendon webhook/polling 미구현으로 영원히 0건 → 칩 노출 제외.
@@ -29,7 +31,7 @@ const PAGE_SIZE = 50;
  *  - 수신번호는 마스킹된 형태로만 노출 (학부모 연락처 보호)
  *  - 실패 사유는 작은 회색 텍스트로 행 아래 병기
  */
-export function CampaignMessagesTable({ rows }: Props) {
+export function CampaignMessagesTable({ rows, canRevealPhone = false }: Props) {
   const [statusFilter, setStatusFilter] = useState<"ALL" | MessageStatus>(
     "ALL",
   );
@@ -129,7 +131,9 @@ export function CampaignMessagesTable({ rows }: Props) {
                     )}
                   </Td>
                   <Td className="tabular-nums text-[color:var(--text-muted)]">
-                    {maskPhone(m.phone)}
+                    {canRevealPhone
+                      ? formatPhone(m.phone) || maskPhone(m.phone)
+                      : maskPhone(m.phone)}
                   </Td>
                   <Td>
                     <MessageStatusBadge status={m.status} />

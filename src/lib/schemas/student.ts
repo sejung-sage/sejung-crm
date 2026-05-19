@@ -118,15 +118,19 @@ export function parseStudentsSearchParams(
     branch: typeof raw.branch === "string" ? raw.branch : undefined,
     grades: toArray(raw.grade).filter((g) => gradeWhitelist.has(g)),
     schoolLevels: toArray(raw.level).filter((l) => levelWhitelist.has(l)),
-    // 첫 진입(URL 에 ?status= 키 자체가 없음) 일 때는 "재원생" 만 default 로
-    // 적용해 초기 조회 비용을 낮춘다. 사용자가 다른 status 칩을 명시적으로
-    // 켜면 그 값들로 대체. 모든 status 칩을 끄면 다시 default(재원생)로 복귀.
-    statuses:
-      raw.status === undefined
-        ? ["재원생"]
-        : toArray(raw.status).filter((s) =>
-            ["재원생", "수강이력자", "수강 x", "탈퇴"].includes(s),
-          ),
+    // 재원 상태는 단일 선택 토글 (UI 의 4종 칩과 1:1 대응):
+    //   ?status 없음   → 기본 "재원생" 만 (첫 진입 비용 최소화)
+    //   ?status=재원생  → 재원생 1종
+    //   ?status=수강이력자 / 수강 x → 해당 1종
+    //   ?status=전체    → 재원생/수강이력자/수강 x 3종 (탈퇴 제외)
+    // 탈퇴 학생은 일반 운영 시야에서 제외 — 별도 운영 화면 필요 시 검토.
+    statuses: (() => {
+      if (raw.status === undefined) return ["재원생"];
+      const first = (Array.isArray(raw.status) ? raw.status[0] : raw.status) ?? "";
+      if (first === "전체") return ["재원생", "수강이력자", "수강 x"];
+      if (["재원생", "수강이력자", "수강 x"].includes(first)) return [first];
+      return ["재원생"];
+    })(),
     subjects: toArray(raw.subject).filter((s) => subjectWhitelist.has(s)),
     teachers: cleanFreeText(toArray(raw.teacher)),
     schools: cleanFreeText(toArray(raw.school)),

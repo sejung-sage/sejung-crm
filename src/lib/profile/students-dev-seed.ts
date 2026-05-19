@@ -311,8 +311,8 @@ export function isDevSeedMode(): boolean {
 
 // ─── F1-02 학생 상세용 시드 ─────────────────────────────────
 //
-// 빈 케이스(수강/출석/발송 모두 없음): DC0004(신규리드), SD0004(탈퇴),
-// SD0005(신규리드) 3명.
+// 빈 케이스(수강/출석/발송 모두 없음): DC0004(수강 x), SD0004(탈퇴),
+// SD0005(수강 x) 3명.
 // DC0005(수강이력자)는 과거 수강만, 최근 출석 없음.
 // DC0001·DC0002 만 발송 이력 보유, 나머지는 빈 케이스.
 
@@ -968,6 +968,7 @@ export const DEV_TEMPLATES: TemplateRow[] = [
     auto_captured: false,
     is_ad: false,
     byte_count: 260,
+    branch: "대치",
     created_by: null,
     created_at: "2026-02-20T09:00:00+09:00",
     updated_at: "2026-02-20T09:00:00+09:00",
@@ -983,6 +984,7 @@ export const DEV_TEMPLATES: TemplateRow[] = [
     auto_captured: false,
     is_ad: false,
     byte_count: 88,
+    branch: "대치",
     created_by: null,
     created_at: "2026-03-05T10:30:00+09:00",
     updated_at: "2026-03-05T10:30:00+09:00",
@@ -1002,6 +1004,7 @@ export const DEV_TEMPLATES: TemplateRow[] = [
     auto_captured: false,
     is_ad: true,
     byte_count: 420,
+    branch: "대치",
     created_by: null,
     created_at: "2026-03-25T14:00:00+09:00",
     updated_at: "2026-03-25T14:00:00+09:00",
@@ -1019,6 +1022,7 @@ export const DEV_TEMPLATES: TemplateRow[] = [
     auto_captured: false,
     is_ad: false,
     byte_count: 240,
+    branch: "대치",
     created_by: null,
     created_at: "2026-04-05T11:00:00+09:00",
     updated_at: "2026-04-05T11:00:00+09:00",
@@ -1034,6 +1038,7 @@ export const DEV_TEMPLATES: TemplateRow[] = [
     auto_captured: false,
     is_ad: false,
     byte_count: 150,
+    branch: "송도",
     created_by: null,
     created_at: "2026-04-10T09:30:00+09:00",
     updated_at: "2026-04-10T09:30:00+09:00",
@@ -1443,13 +1448,16 @@ export function listDevTemplates(args: {
   q?: string;
   type?: string;
   teacher_name?: string;
+  branch?: string;
 }): TemplateRow[] {
   const q = args.q?.trim().toLowerCase() ?? "";
   const type = args.type?.trim() ?? "";
   const teacher = args.teacher_name?.trim() ?? "";
+  const branch = args.branch?.trim() ?? "";
   return DEV_TEMPLATES.filter((t) => {
     if (type && t.type !== type) return false;
     if (teacher && t.teacher_name !== teacher) return false;
+    if (branch && t.branch !== branch) return false;
     if (q) {
       const hay = `${t.name} ${t.body}`.toLowerCase();
       if (!hay.includes(q)) return false;

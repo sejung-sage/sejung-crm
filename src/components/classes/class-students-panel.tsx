@@ -1,9 +1,11 @@
 import Link from "next/link";
 import type { ClassStudentRow } from "@/types/database";
-import { maskPhone } from "@/lib/phone";
+import { formatPhone, maskPhone } from "@/lib/phone";
 
 interface Props {
   students: ClassStudentRow[];
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
 /**
@@ -18,7 +20,7 @@ interface Props {
  *
  * Server Component — 한 강좌 수강생은 보통 30명 이하라 가상 스크롤 불필요.
  */
-export function ClassStudentsPanel({ students }: Props) {
+export function ClassStudentsPanel({ students, canRevealPhone = false }: Props) {
   if (students.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
@@ -72,7 +74,11 @@ export function ClassStudentsPanel({ students }: Props) {
                 {s.grade ?? "—"}
               </Td>
               <Td className="text-[color:var(--text-muted)] tabular-nums">
-                {s.parent_phone ? maskPhone(s.parent_phone) : "—"}
+                {s.parent_phone
+                  ? canRevealPhone
+                    ? formatPhone(s.parent_phone) || "—"
+                    : maskPhone(s.parent_phone)
+                  : "—"}
               </Td>
               <CountTd value={s.attended_count} />
               <CountTd value={s.absent_count} />

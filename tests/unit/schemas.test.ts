@@ -64,10 +64,20 @@ describe("parseStudentsSearchParams · URL → 입력", () => {
     expect(r.statuses).toEqual(["재원생"]);
   });
 
-  it("status 키 명시적 빈 배열 → 모든 status 노출 (default 미적용)", () => {
-    // URL 에 ?status=알수없음 처럼 화이트리스트 외 값만 있어도 키는 존재함
+  it("status 키 화이트리스트 외 값 → default '재원생' 으로 복귀", () => {
+    // 단일 선택 토글 (4종) 로 변경 — 화이트리스트 외 값은 default 적용.
     const r = parseStudentsSearchParams({ status: ["알수없음"] });
-    expect(r.statuses).toEqual([]);
+    expect(r.statuses).toEqual(["재원생"]);
+  });
+
+  it("status=전체 → 재원생/수강이력자/수강 x 3종 통합 (탈퇴 제외)", () => {
+    const r = parseStudentsSearchParams({ status: "전체" });
+    expect(r.statuses).toEqual(["재원생", "수강이력자", "수강 x"]);
+  });
+
+  it("status=수강이력자 → 단일 매칭", () => {
+    const r = parseStudentsSearchParams({ status: "수강이력자" });
+    expect(r.statuses).toEqual(["수강이력자"]);
   });
 
   it("단일 grade 문자열 → 배열로 (정규화 enum)", () => {
@@ -101,7 +111,8 @@ describe("parseStudentsSearchParams · URL → 입력", () => {
     expect(r.includeHidden).toBe(false);
   });
 
-  it("status 필터링 동작 — 화이트리스트 외 값 제거", () => {
+  it("status 다중값 → 단일 선택 토글로 첫 값만 사용", () => {
+    // 구 URL 호환: 옛 다중 status 가 남아있어도 첫 값만 골라 단일 선택으로 해석.
     const r = parseStudentsSearchParams({
       status: ["재원생", "알수없음"],
     });

@@ -25,9 +25,16 @@ interface Props {
   campaign: CampaignListItem;
   messages: CampaignMessageRow[];
   counts: CampaignMessageCounts;
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
-export function CampaignDetailView({ campaign, messages, counts }: Props) {
+export function CampaignDetailView({
+  campaign,
+  messages,
+  counts,
+  canRevealPhone = false,
+}: Props) {
   const isInFlight = campaign.status === "발송중";
 
   // 접수 성공 = sendon 큐에 들어간 건수 (vendor 응답 status=queued)
@@ -162,7 +169,7 @@ export function CampaignDetailView({ campaign, messages, counts }: Props) {
           </p>
         </div>
 
-        <CampaignMessagesTable rows={messages} />
+        <CampaignMessagesTable rows={messages} canRevealPhone={canRevealPhone} />
       </section>
     </div>
   );

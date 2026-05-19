@@ -1,14 +1,19 @@
 import type { MessageStatus, StudentMessageRow } from "@/types/database";
-import { maskPhone } from "@/lib/phone";
+import { formatPhone, maskPhone } from "@/lib/phone";
 
 interface Props {
   messages: StudentMessageRow[];
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
 /**
  * 학생 상세 · 발송 이력 패널.
  */
-export function StudentMessagesPanel({ messages }: Props) {
+export function StudentMessagesPanel({
+  messages,
+  canRevealPhone = false,
+}: Props) {
   if (messages.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
@@ -38,7 +43,9 @@ export function StudentMessagesPanel({ messages }: Props) {
             >
               <Td className="text-[color:var(--text)]">{m.campaign_title}</Td>
               <Td className="text-[color:var(--text-muted)] tabular-nums">
-                {maskPhone(m.phone) || "—"}
+                {canRevealPhone
+                  ? formatPhone(m.phone) || "—"
+                  : maskPhone(m.phone) || "—"}
               </Td>
               <Td>
                 <MessageStatusBadge status={m.status} />

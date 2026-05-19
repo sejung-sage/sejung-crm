@@ -1,18 +1,20 @@
 import type { StudentProfileRow } from "@/types/database";
-import { maskPhone } from "@/lib/phone";
+import { formatPhone, maskPhone } from "@/lib/phone";
 import { StudentStatusBadge } from "@/components/students/status-badge";
 import { BranchBadge } from "@/components/students/branch-badge";
 
 /**
  * 그룹 상세 하단 · 소속 학생 목록 (Server 렌더).
  * F1-01 students-table 과 유사한 스타일을 유지하되 컬럼을 그룹 맥락에 맞게 조정.
- * 학부모 연락처는 PRD 6.3 에 따라 마스킹 표시.
+ * 학부모 연락처는 PRD 6.3 에 따라 기본 마스킹, master 만 풀 노출.
  */
 interface Props {
   rows: StudentProfileRow[];
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
-export function GroupStudentsTable({ rows }: Props) {
+export function GroupStudentsTable({ rows, canRevealPhone = false }: Props) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-12 text-center">
@@ -66,7 +68,9 @@ export function GroupStudentsTable({ rows }: Props) {
                 <StudentStatusBadge status={r.status} />
               </Td>
               <Td className="text-[color:var(--text-muted)] tabular-nums">
-                {maskPhone(r.parent_phone) || "-"}
+                {canRevealPhone
+                  ? formatPhone(r.parent_phone) || "-"
+                  : maskPhone(r.parent_phone) || "-"}
               </Td>
               <Td className="text-[color:var(--text-muted)]">
                 {formatRecent(r)}

@@ -180,6 +180,7 @@ export default async function NewGroupPage({
         sample: initialPreview.sample,
       }}
       canPickBranch={canPickBranch}
+      canRevealPhone={canPickBranch}
     />
   );
 }

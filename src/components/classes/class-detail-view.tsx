@@ -8,6 +8,8 @@ import { ClassAttendanceGrid } from "@/components/classes/class-attendance-grid"
 
 interface Props {
   detail: ClassDetail;
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
 /**
@@ -20,7 +22,7 @@ interface Props {
  * 영역 간 정보 의존(명단의 학생을 격자에서 다시 찾아본다)이 강해
  * 한 페이지에 풀어두는 편이 운영자에게 더 자연스럽다.
  */
-export function ClassDetailView({ detail }: Props) {
+export function ClassDetailView({ detail, canRevealPhone = false }: Props) {
   return (
     <div className="max-w-7xl space-y-6">
       <nav aria-label="이동 경로">
@@ -46,7 +48,7 @@ export function ClassDetailView({ detail }: Props) {
         <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
           수강생 명단
         </h2>
-        <ClassStudentsPanel students={detail.students} />
+        <ClassStudentsPanel students={detail.students} canRevealPhone={canRevealPhone} />
       </section>
 
       <section className="space-y-3" aria-label="학생별 일자 출결">

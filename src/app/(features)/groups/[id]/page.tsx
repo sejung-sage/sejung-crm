@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { getGroup } from "@/lib/groups/get-group";
 import { listGroupStudents } from "@/lib/groups/list-group-students";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { GroupDetailView } from "@/components/groups/group-detail-view";
 
 /**
@@ -26,7 +27,11 @@ export default async function GroupDetailPage({
   const group = await getGroup(id);
   if (!group) notFound();
 
-  const studentsResult = await listGroupStudents(id, { page });
+  const [studentsResult, currentUser] = await Promise.all([
+    listGroupStudents(id, { page }),
+    getCurrentUser(),
+  ]);
+  const canRevealPhone = currentUser?.role === "master";
 
   return (
     <GroupDetailView
@@ -35,6 +40,7 @@ export default async function GroupDetailPage({
       studentsTotal={studentsResult.total}
       currentPage={page}
       pageSize={PAGE_SIZE}
+      canRevealPhone={canRevealPhone}
     />
   );
 }

@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getCampaign } from "@/lib/campaigns/get-campaign";
 import { listCampaignMessages } from "@/lib/campaigns/list-campaign-messages";
 import { getCampaignMessageCounts } from "@/lib/campaigns/get-campaign-message-counts";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { CampaignDetailView } from "@/components/campaigns/campaign-detail-view";
 
 /**
@@ -18,21 +19,25 @@ export default async function CampaignDetailPage({
 }) {
   const { id } = await params;
 
-  const [campaign, messages, counts] = await Promise.all([
+  const [campaign, messages, counts, currentUser] = await Promise.all([
     getCampaign(id),
     listCampaignMessages(id),
     getCampaignMessageCounts(id),
+    getCurrentUser(),
   ]);
 
   if (!campaign) {
     notFound();
   }
 
+  const canRevealPhone = currentUser?.role === "master";
+
   return (
     <CampaignDetailView
       campaign={campaign}
       messages={messages}
       counts={counts}
+      canRevealPhone={canRevealPhone}
     />
   );
 }

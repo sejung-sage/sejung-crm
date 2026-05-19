@@ -15,6 +15,7 @@ import {
 } from "@/app/(features)/groups/actions";
 import { BRANCHES } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
+import { formatPhone, maskPhone } from "@/lib/phone";
 import { BranchBadge } from "@/components/students/branch-badge";
 import { useToast } from "@/components/ui/toast";
 
@@ -55,6 +56,11 @@ interface Props {
    * 미지정 시 true (호환 default — 호출부에서 명시 권장).
    */
   canPickBranch?: boolean;
+  /**
+   * 학부모 연락처 풀 노출 권한. master 만 true.
+   * false 면 검색 결과·칩에서 010-****-1234 마스킹.
+   */
+  canRevealPhone?: boolean;
 }
 
 /**
@@ -120,6 +126,7 @@ export function GroupBuilder({
   initialPreview,
   mode,
   canPickBranch = true,
+  canRevealPhone = false,
 }: Props) {
   const router = useRouter();
   const { show: showToast } = useToast();
@@ -546,6 +553,7 @@ export function GroupBuilder({
               <DirectStudentPicker
                 branch={branch}
                 selected={includeStudents}
+                canRevealPhone={canRevealPhone}
                 onAdd={(s) =>
                   setIncludeStudents((prev) =>
                     prev.find((x) => x.id === s.id) ? prev : [...prev, s],
@@ -751,11 +759,13 @@ function DirectStudentPicker({
   selected,
   onAdd,
   onRemove,
+  canRevealPhone,
 }: {
   branch: string;
   selected: DirectStudent[];
   onAdd: (s: DirectStudent) => void;
   onRemove: (id: string) => void;
+  canRevealPhone: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<DirectStudent[]>([]);
@@ -855,7 +865,11 @@ function DirectStudentPicker({
                     </span>
                     <span className="text-[12px] text-[color:var(--text-muted)]">
                       {h.school ?? "—"} · {h.grade ?? "—"} ·{" "}
-                      {h.parent_phone ?? "연락처 없음"}
+                      {h.parent_phone
+                        ? canRevealPhone
+                          ? formatPhone(h.parent_phone) || h.parent_phone
+                          : maskPhone(h.parent_phone)
+                        : "연락처 없음"}
                     </span>
                     {already && (
                       <span className="ml-auto text-[12px] text-[color:var(--text-muted)]">
@@ -878,7 +892,11 @@ function DirectStudentPicker({
             >
               {s.name}
               <span className="text-[11px] text-[color:var(--text-muted)]">
-                ({s.parent_phone ?? "—"})
+                ({s.parent_phone
+                  ? canRevealPhone
+                    ? formatPhone(s.parent_phone) || s.parent_phone
+                    : maskPhone(s.parent_phone)
+                  : "—"})
               </span>
               <button
                 type="button"

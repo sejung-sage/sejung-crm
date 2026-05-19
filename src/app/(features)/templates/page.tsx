@@ -3,6 +3,7 @@ import {
   listUniqueTeachers,
 } from "@/lib/templates/list-templates";
 import { TemplateListQuerySchema } from "@/lib/schemas/template";
+import { applyBranchContextToParams } from "@/lib/auth/branch-context";
 import { TemplatesToolbar } from "@/components/templates/templates-toolbar";
 import { TemplatesTable } from "@/components/templates/templates-table";
 import { Pagination } from "@/components/students/pagination";
@@ -21,7 +22,7 @@ export default async function TemplatesPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const raw = await searchParams;
+  const raw = await applyBranchContextToParams(await searchParams);
 
   const pick = (v: string | string[] | undefined): string | undefined => {
     if (Array.isArray(v)) return v[0];
@@ -32,6 +33,7 @@ export default async function TemplatesPage({
     q: pick(raw.q) ?? "",
     type: pick(raw.type),
     teacher_name: pick(raw.teacher_name),
+    branch: pick(raw.branch),
     page: pick(raw.page) ?? 1,
   });
 

@@ -40,6 +40,7 @@ function listFromDevSeed(query: TemplateListQuery): ListTemplatesResult {
     q: query.q,
     type: query.type,
     teacher_name: query.teacher_name,
+    branch: query.branch,
   });
   // updated_at DESC
   const sorted = [...all].sort((a, b) =>
@@ -69,6 +70,9 @@ async function listFromSupabase(
   }
   if (query.teacher_name) {
     q = q.eq("teacher_name", query.teacher_name);
+  }
+  if (query.branch) {
+    q = q.eq("branch", query.branch);
   }
   if (query.q) {
     q = q.or(`name.ilike.%${query.q}%,body.ilike.%${query.q}%`);

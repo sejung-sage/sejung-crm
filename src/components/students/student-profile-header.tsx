@@ -7,13 +7,18 @@ import { PhoneReveal } from "@/components/students/phone-reveal";
 
 interface Props {
   profile: StudentProfileRow;
+  /** 학부모 연락처 풀 노출 권한. master 만 true. */
+  canRevealPhone?: boolean;
 }
 
 /**
  * 학생 상세 상단 프로필 헤더.
  * 이름·배지·메타정보·학부모 연락처·우측 문자 보내기 버튼.
  */
-export function StudentProfileHeader({ profile }: Props) {
+export function StudentProfileHeader({
+  profile,
+  canRevealPhone = false,
+}: Props) {
   // 메타에서 branch 는 이름 옆 배지로 강조하므로 텍스트 메타에서는 제외.
   const metaParts: string[] = [];
   if (profile.grade) metaParts.push(profile.grade);
@@ -44,7 +49,7 @@ export function StudentProfileHeader({ profile }: Props) {
             <span className="text-[13px] font-medium text-[color:var(--text-muted)] shrink-0">
               학부모 연락처
             </span>
-            <PhoneReveal phone={profile.parent_phone} />
+            <PhoneReveal phone={profile.parent_phone} canReveal={canRevealPhone} />
           </div>
         </div>
 

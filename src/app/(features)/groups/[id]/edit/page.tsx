@@ -44,6 +44,7 @@ export default async function EditGroupPage({
         sample: initialPreview.sample,
       }}
       canPickBranch={canPickBranch}
+      canRevealPhone={canPickBranch}
     />
   );
 }

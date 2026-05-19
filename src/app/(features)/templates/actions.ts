@@ -47,7 +47,7 @@ export type DeleteTemplateActionResult =
 
 const WRITE_ROLES = new Set<string>(["master", "admin"]);
 
-type AuthOk = { ok: true; userId: string };
+type AuthOk = { ok: true; userId: string; role: string; branch: string };
 type AuthFail = { ok: false; reason: string };
 
 async function assertWriteRole(): Promise<AuthOk | AuthFail> {
@@ -63,7 +63,7 @@ async function assertWriteRole(): Promise<AuthOk | AuthFail> {
 
   const { data, error } = await supabase
     .from("crm_users_profile")
-    .select("role, active")
+    .select("role, active, branch")
     .eq("user_id", user.id)
     .maybeSingle();
 
@@ -73,14 +73,26 @@ async function assertWriteRole(): Promise<AuthOk | AuthFail> {
   if (!data) {
     return { ok: false, reason: "계정 프로필이 없습니다" };
   }
-  const profile = data as { role?: string; active?: boolean };
+  const profile = data as {
+    role?: string;
+    active?: boolean;
+    branch?: string;
+  };
   if (!profile.active) {
     return { ok: false, reason: "비활성 계정은 사용할 수 없습니다" };
   }
   if (!profile.role || !WRITE_ROLES.has(profile.role)) {
     return { ok: false, reason: "권한이 없습니다 (master / admin 만 가능)" };
   }
-  return { ok: true, userId: user.id };
+  if (!profile.branch) {
+    return { ok: false, reason: "계정 분원 정보가 없습니다" };
+  }
+  return {
+    ok: true,
+    userId: user.id,
+    role: profile.role,
+    branch: profile.branch,
+  };
 }
 
 function zodErrorToReason(err: ZodError): string {
@@ -123,6 +135,7 @@ export async function createTemplateAction(
     auto_captured: false,
     is_ad: parsed.is_ad,
     byte_count: countEucKrBytes(parsed.body),
+    branch: auth.branch,
     created_by: auth.userId,
   };
 

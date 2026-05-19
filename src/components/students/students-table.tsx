@@ -1,11 +1,19 @@
+"use client";
+
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import type { Grade, StudentProfileRow } from "@/types/database";
-import { formatPhone } from "@/lib/phone";
+import { formatPhone, maskPhone } from "@/lib/phone";
 import { StudentStatusBadge } from "@/components/students/status-badge";
 import { BranchBadge } from "@/components/students/branch-badge";
 
 interface Props {
   rows: StudentProfileRow[];
+  /**
+   * 학부모 연락처 풀 노출 권한. master 만 true.
+   * false 면 010-****-1234 형태 마스킹.
+   */
+  canRevealPhone?: boolean;
 }
 
 /**
@@ -30,7 +38,8 @@ function isDimmed(grade: Grade | null): boolean {
  * 정렬 enum (출석률·수강·누적결제) 결과를 시각적으로 확인할 수 있도록
  * attendance_rate / enrollment_count 컬럼을 노출.
  */
-export function StudentsTable({ rows }: Props) {
+export function StudentsTable({ rows, canRevealPhone = false }: Props) {
+  const router = useRouter();
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
@@ -62,12 +71,34 @@ export function StudentsTable({ rows }: Props) {
         <tbody>
           {rows.map((r) => {
             const dim = isDimmed(r.grade);
+            const href = `/students/${r.id}`;
             return (
               <tr
                 key={r.id}
+                onClick={(e) => {
+                  // 셀 내부 a/button (이름 Link 등) 은 자체 클릭 그대로.
+                  const t = e.target as HTMLElement;
+                  if (t.closest("a, button")) return;
+                  // 텍스트 드래그 선택 중이면 무시 — 복사 의도 보존.
+                  const sel = window.getSelection();
+                  if (sel && sel.toString().length > 0) return;
+                  router.push(href);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    router.push(href);
+                  }
+                }}
+                role="link"
+                tabIndex={0}
+                aria-label={`${r.name} 학생 상세로 이동`}
                 className={`
                   border-b border-[color:var(--border)] last:border-b-0
                   hover:bg-[color:var(--bg-hover)] transition-colors
+                  cursor-pointer
+                  focus:outline-none focus-visible:bg-[color:var(--bg-hover)]
+                  focus-visible:ring-2 focus-visible:ring-[color:var(--action)]
                   ${dim ? "bg-[color:var(--bg-muted)]" : ""}
                 `}
               >
@@ -132,7 +163,9 @@ export function StudentsTable({ rows }: Props) {
                       : "text-[color:var(--text-muted)]"
                   }`}
                 >
-                  {formatPhone(r.parent_phone) || "-"}
+                  {canRevealPhone
+                    ? formatPhone(r.parent_phone) || "-"
+                    : maskPhone(r.parent_phone) || "-"}
                 </Td>
                 <Td
                   className={
