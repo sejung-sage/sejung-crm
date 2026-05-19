@@ -16,6 +16,7 @@ import {
   deleteGroupAction,
   deleteGroupsAction,
 } from "@/app/(features)/groups/actions";
+import { useToast } from "@/components/ui/toast";
 
 interface Props {
   rows: GroupListItem[];
@@ -36,6 +37,7 @@ interface Props {
  */
 export function GroupsTable({ rows }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<null | {
@@ -87,14 +89,15 @@ export function GroupsTable({ rows }: Props) {
   const confirmDelete = () => {
     if (!pendingDelete) return;
     setErrorMsg(null);
+    const target = pendingDelete;
     startTransition(async () => {
-      if (pendingDelete.kind === "single") {
-        const result = await deleteGroupAction(pendingDelete.id);
+      if (target.kind === "single") {
+        const result = await deleteGroupAction(target.id);
         if (result.status === "success") {
-          setNotice("그룹이 삭제되었습니다.");
+          showToast("success", "그룹이 삭제됐어요");
           setSelected((prev) => {
             const next = new Set(prev);
-            next.delete(pendingDelete.id);
+            next.delete(target.id);
             return next;
           });
           router.refresh();
@@ -104,11 +107,12 @@ export function GroupsTable({ rows }: Props) {
           );
         } else {
           setErrorMsg(result.reason);
+          showToast("error", `삭제 실패: ${result.reason}`);
         }
       } else {
-        const result = await deleteGroupsAction(pendingDelete.ids);
+        const result = await deleteGroupsAction(target.ids);
         if (result.status === "success") {
-          setNotice(`${result.count}개 그룹이 삭제되었습니다.`);
+          showToast("success", `${result.count}개 그룹을 삭제했어요`);
           setSelected(new Set());
           router.refresh();
         } else if (result.status === "dev_seed_mode") {
@@ -117,6 +121,7 @@ export function GroupsTable({ rows }: Props) {
           );
         } else {
           setErrorMsg(result.reason);
+          showToast("error", `삭제 실패: ${result.reason}`);
         }
       }
       setPendingDelete(null);

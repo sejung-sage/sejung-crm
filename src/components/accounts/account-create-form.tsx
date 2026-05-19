@@ -7,6 +7,7 @@ import { Mail, Loader2 } from "lucide-react";
 import type { UserRole } from "@/types/database";
 import { CreateAccountInputSchema } from "@/lib/schemas/auth";
 import { createAccountAction } from "@/app/(features)/accounts/actions";
+import { useToast } from "@/components/ui/toast";
 import { BRANCHES as BRANCH_OPTIONS } from "@/config/branches";
 
 interface Props {
@@ -46,6 +47,7 @@ export function AccountCreateForm({
   currentUserBranch,
 }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [isPending, startTransition] = useTransition();
 
   const roleOptions =
@@ -96,6 +98,7 @@ export function AccountCreateForm({
       });
 
       if (result.status === "success") {
+        showToast("success", `'${name.trim()}' 계정을 만들었어요`);
         router.push("/accounts");
         router.refresh();
       } else if (result.status === "dev_seed_mode") {
@@ -104,6 +107,7 @@ export function AccountCreateForm({
         );
       } else {
         setErrorMsg(result.reason);
+        showToast("error", `계정 생성 실패: ${result.reason}`);
       }
     });
   };

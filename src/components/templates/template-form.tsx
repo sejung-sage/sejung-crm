@@ -10,6 +10,7 @@ import {
   createTemplateAction,
   updateTemplateAction,
 } from "@/app/(features)/templates/actions";
+import { useToast } from "@/components/ui/toast";
 
 export interface TemplateFormInitial {
   name: string;
@@ -50,6 +51,7 @@ const TYPE_OPTIONS: Array<{
  */
 export function TemplateForm({ mode, templateId, initial }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [isPending, startTransition] = useTransition();
 
   const [name, setName] = useState(initial.name);
@@ -112,6 +114,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
       if (mode === "create") {
         const result = await createTemplateAction(payload);
         if (result.status === "success") {
+          showToast("success", `'${payload.name}' 템플릿을 만들었어요`);
           router.push(`/templates/${result.id}/edit`);
           router.refresh();
         } else if (result.status === "dev_seed_mode") {
@@ -120,6 +123,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           );
         } else {
           setErrorMsg(result.reason);
+          showToast("error", `템플릿 생성 실패: ${result.reason}`);
         }
       } else {
         if (!templateId) {

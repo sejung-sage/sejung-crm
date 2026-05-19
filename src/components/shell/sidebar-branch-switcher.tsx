@@ -16,6 +16,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Building2, Check } from "lucide-react";
 import { selectBranchAction } from "@/app/(features)/(auth)/actions";
+import { useToast } from "@/components/ui/toast";
 
 interface Props {
   /** 현재 cookie 값 — null 이면 "전체". */
@@ -25,6 +26,7 @@ interface Props {
 
 export function SidebarBranchSwitcher({ current, branches }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -38,7 +40,15 @@ export function SidebarBranchSwitcher({ current, branches }: Props) {
       formData.set("branch", value);
       const result = await selectBranchAction(formData);
       if (result.status === "success") {
+        showToast(
+          "success",
+          value === "전체"
+            ? "전체 분원으로 전환했어요"
+            : `'${value}' 분원으로 전환했어요`,
+        );
         router.refresh();
+      } else {
+        showToast("error", "분원 전환에 실패했어요. 다시 시도해 주세요.");
       }
     });
   };

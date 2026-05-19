@@ -11,6 +11,7 @@ import {
 } from "@/components/templates/template-type-badge";
 import { BYTE_LIMITS } from "@/lib/schemas/template";
 import { deleteTemplateAction } from "@/app/(features)/templates/actions";
+import { useToast } from "@/components/ui/toast";
 
 interface Props {
   rows: TemplateRow[];
@@ -28,6 +29,7 @@ interface Props {
  */
 export function TemplatesTable({ rows }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<null | {
     id: string;
@@ -53,10 +55,11 @@ export function TemplatesTable({ rows }: Props) {
   const confirmDelete = () => {
     if (!pendingDelete) return;
     setErrorMsg(null);
+    const target = pendingDelete;
     startTransition(async () => {
-      const result = await deleteTemplateAction(pendingDelete.id);
+      const result = await deleteTemplateAction(target.id);
       if (result.status === "success") {
-        setNotice("템플릿이 삭제되었습니다.");
+        showToast("success", `'${target.name}' 템플릿을 삭제했어요`);
         router.refresh();
       } else if (result.status === "dev_seed_mode") {
         setNotice(
@@ -64,6 +67,7 @@ export function TemplatesTable({ rows }: Props) {
         );
       } else {
         setErrorMsg(result.reason);
+        showToast("error", `삭제 실패: ${result.reason}`);
       }
       setPendingDelete(null);
     });

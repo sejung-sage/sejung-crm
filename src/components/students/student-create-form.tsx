@@ -11,6 +11,7 @@ import {
   type CreateStudentInput,
 } from "@/lib/schemas/student";
 import { createStudentAction } from "@/app/(features)/students/actions";
+import { useToast } from "@/components/ui/toast";
 
 const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드"] as const;
 
@@ -23,6 +24,7 @@ const STATUS_OPTIONS = ["재원생", "수강이력자", "신규리드"] as const
  */
 export function StudentCreateForm() {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -49,15 +51,18 @@ export function StudentCreateForm() {
     startTransition(async () => {
       const result = await createStudentAction(parsed.data);
       if (result.status === "success") {
+        showToast("success", `'${parsed.data.name}' 학생을 등록했어요`);
         router.push(`/students/${result.id}`);
         router.refresh();
         return;
       }
       if (result.status === "dev_seed_mode") {
         setError("개발 모드에서는 학생 등록이 차단됩니다");
+        showToast("error", "개발 모드에서는 학생 등록이 차단됩니다");
         return;
       }
       setError(result.reason);
+      showToast("error", `등록 실패: ${result.reason}`);
     });
   };
 

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { Cormorant_Garamond } from "next/font/google";
 import "./globals.css";
+import { ToastProvider } from "@/components/ui/toast";
 
 // 본문 전역 폰트 · Pretendard Variable (한글 가독성 우선)
 const pretendard = localFont({
@@ -41,7 +42,9 @@ export default function RootLayout({
       lang="ko"
       className={`${pretendard.variable} ${cormorant.variable} h-full antialiased`}
     >
-      <body className="min-h-full">{children}</body>
+      <body className="min-h-full">
+        <ToastProvider>{children}</ToastProvider>
+      </body>
     </html>
   );
 }

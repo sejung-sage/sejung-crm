@@ -9,6 +9,7 @@ import {
   deleteSchoolRegionAction,
 } from "@/app/(features)/regions/actions";
 import { REGION_OPTIONS } from "@/config/regions";
+import { useToast } from "@/components/ui/toast";
 
 interface Props {
   rows: SchoolRegionRow[];
@@ -32,6 +33,7 @@ type PendingDelete = { school: string; region: string };
  */
 export function RegionsTable({ rows, knownRegions }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [editing, setEditing] = useState<string | null>(null);
   const [rowState, setRowState] = useState<
     Record<string, "saving" | "ok" | string>
@@ -90,10 +92,12 @@ export function RegionsTable({ rows, knownRegions }: Props) {
   const confirmDelete = () => {
     if (!pendingDelete) return;
     setDeleteError(null);
+    const target = pendingDelete;
     startDelete(async () => {
-      const result = await deleteSchoolRegionAction(pendingDelete.school);
+      const result = await deleteSchoolRegionAction(target.school);
       if (result.status === "success") {
         setPendingDelete(null);
+        showToast("success", `'${target.school}' 매핑을 삭제했어요`);
         router.refresh();
       } else if (result.status === "dev_seed_mode") {
         setDeleteError("개발용 시드라 삭제되지 않습니다");

@@ -17,6 +17,7 @@ import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { loginAction, type LoginActionResult } from "@/app/(features)/(auth)/actions";
+import { useToast } from "@/components/ui/toast";
 
 type State = LoginActionResult | null;
 
@@ -33,6 +34,7 @@ function safeNextPath(next: string | undefined): string {
 
 export function LoginForm({ next }: { next?: string }) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [state, formAction, pending] = useActionState<State, FormData>(
     submit,
     null,
@@ -41,10 +43,11 @@ export function LoginForm({ next }: { next?: string }) {
   useEffect(() => {
     if (!state) return;
     if (state.status === "success") {
+      showToast("success", "로그인됐어요");
       router.push(safeNextPath(next));
       router.refresh();
     } else if (state.status === "success_master_select") {
-      // master 는 분원 선택 페이지로 이동. next 경로는 query 로 보존.
+      showToast("success", "로그인됐어요. 분원을 선택해 주세요.");
       const nextSafe = safeNextPath(next);
       const url =
         nextSafe === "/"
@@ -53,7 +56,7 @@ export function LoginForm({ next }: { next?: string }) {
       router.push(url);
       router.refresh();
     }
-  }, [state, next, router]);
+  }, [state, next, router, showToast]);
 
   return (
     <form action={formAction} className="flex flex-col gap-4" noValidate>

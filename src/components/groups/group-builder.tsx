@@ -16,6 +16,7 @@ import {
 import { BRANCHES } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
 import { BranchBadge } from "@/components/students/branch-badge";
+import { useToast } from "@/components/ui/toast";
 
 interface DirectStudent {
   id: string;
@@ -113,6 +114,7 @@ export function GroupBuilder({
   mode,
 }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
 
   // 폼 상태
   const [name, setName] = useState<string>(initial.name);
@@ -249,6 +251,7 @@ export function GroupBuilder({
           filters,
         });
         if (result.status === "success") {
+          showToast("success", `'${trimmed}' 그룹을 만들었어요`);
           router.push(`/groups/${result.id}`);
           router.refresh();
         } else if (result.status === "dev_seed_mode") {
@@ -257,6 +260,7 @@ export function GroupBuilder({
           );
         } else {
           setSubmitError(result.reason);
+          showToast("error", `그룹 생성 실패: ${result.reason}`);
         }
       } else {
         if (!groupId) {
@@ -270,6 +274,7 @@ export function GroupBuilder({
           filters,
         });
         if (result.status === "success") {
+          showToast("success", `'${trimmed}' 그룹을 수정했어요`);
           router.push(`/groups/${groupId}`);
           router.refresh();
         } else if (result.status === "dev_seed_mode") {
@@ -278,6 +283,7 @@ export function GroupBuilder({
           );
         } else {
           setSubmitError(result.reason);
+          showToast("error", `그룹 수정 실패: ${result.reason}`);
         }
       }
     });
