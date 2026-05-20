@@ -15,6 +15,7 @@ import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
 import { STUDENT_SORT_VALUES, type StudentSort } from "@/lib/schemas/student";
 import type { SchoolGroup } from "@/lib/profile/list-filter-options";
+import type { RegionOption } from "@/config/regions";
 
 /**
  * 학년·학교급 필터 옵션 (0012 정규화 enum 9종 대응).
@@ -114,6 +115,9 @@ export function StudentsFilters({
   totalCount,
   source,
   schoolGroups,
+  availableGrades,
+  availableSchoolLevels,
+  availableRegions,
   canPickBranch,
 }: {
   totalCount: number;
@@ -123,6 +127,12 @@ export function StudentsFilters({
    * 빈 그룹(해당 지역 학교 0개)도 포함될 수 있어 UI 에서 필터링.
    */
   schoolGroups: SchoolGroup[];
+  /** 현재 필터(branch+status+includeHidden) 매칭 학생을 가진 학년 set. UI 칩 가시화용. */
+  availableGrades: Grade[];
+  /** 매칭 학생을 가진 학교급 set. SegmentedControl 옵션 가시화용. */
+  availableSchoolLevels: SchoolLevel[];
+  /** 매칭 학생을 가진 지역 set. 지역 칩 가시화용. */
+  availableRegions: RegionOption[];
   /** master 만 분원 select 노출. 그 외는 사이드바 표시(분원: X)로 충분. */
   canPickBranch: boolean;
 }) {
@@ -407,7 +417,11 @@ export function StudentsFilters({
         <SegmentedControl
           ariaLabel="학교급 선택"
           value={level}
-          options={LEVEL_SEGMENTS}
+          options={LEVEL_SEGMENTS.filter(
+            (opt) =>
+              opt.value === "전체" ||
+              availableSchoolLevels.includes(opt.value as SchoolLevel),
+          )}
           onChange={setLevel}
         />
 
@@ -431,17 +445,22 @@ export function StudentsFilters({
         </select>
       </div>
 
-      {/* 학년 칩 + 졸업·미정 토글 — 학년은 현 학교급에 맞는 옵션만 노출 */}
+      {/* 학년 칩 + 졸업·미정 토글 — 학교급 매칭 ∩ 분원 매칭 학생 있는 학년만 노출.
+          단, 현재 선택된 grade 칩은 매칭 학생이 없어도 계속 보이게 유지(해제 가능). */}
       <div className="flex flex-wrap gap-x-6 gap-y-3 items-center pt-1">
         <FilterGroup label="학년">
-          {gradeOptionsForLevel(level).map((g) => (
-            <Chip
-              key={g}
-              label={g}
-              active={grades.includes(g)}
-              onClick={() => toggleValue("grade", g)}
-            />
-          ))}
+          {gradeOptionsForLevel(level)
+            .filter(
+              (g) => availableGrades.includes(g) || grades.includes(g),
+            )
+            .map((g) => (
+              <Chip
+                key={g}
+                label={g}
+                active={grades.includes(g)}
+                onClick={() => toggleValue("grade", g)}
+              />
+            ))}
         </FilterGroup>
 
         {/* 졸업·미정 포함 토글 */}
@@ -479,7 +498,11 @@ export function StudentsFilters({
         </FilterGroup>
 
         <FilterGroup label="지역">
-          {REGION_OPTIONS.map((r) => (
+          {REGION_OPTIONS.filter(
+            (r) =>
+              availableRegions.includes(r) ||
+              regions.includes(r),
+          ).map((r) => (
             <Chip
               key={r}
               label={r}
