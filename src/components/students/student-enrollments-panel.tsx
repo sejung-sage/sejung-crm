@@ -74,14 +74,57 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
                     sessions={e.class?.total_sessions ?? null}
                   />
                 </Td>
-                <Td className="text-[color:var(--text-muted)] tabular-nums">
-                  {e.paid_at ?? "—"}
+                <Td>
+                  <PaymentStatusCell paidAt={e.paid_at} />
                 </Td>
               </tr>
             );
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+/**
+ * 결제 상태 셀.
+ *  - paid_at 있음 → "결완" 칩 (회색 배경) + 결제일 (YYYY-MM-DD)
+ *  - paid_at 없음 → "미납" 칩 (강조 outline)
+ * 운영자가 한눈에 미납 학생을 식별할 수 있도록 시각 분리.
+ */
+function PaymentStatusCell({ paidAt }: { paidAt: string | null }) {
+  if (!paidAt) {
+    return (
+      <span
+        className="
+          inline-flex items-center px-2 py-0.5 rounded-full
+          text-[12px] font-medium border
+          border-[color:var(--danger,#dc2626)]
+          text-[color:var(--danger,#dc2626)]
+          bg-bg-card
+        "
+      >
+        미납
+      </span>
+    );
+  }
+  // ISO 또는 YYYY-MM-DD 모두 앞 10자만 잘라 노출.
+  const dateStr = paidAt.length >= 10 ? paidAt.slice(0, 10) : paidAt;
+  return (
+    <div className="flex flex-col items-start gap-0.5">
+      <span
+        className="
+          inline-flex items-center px-2 py-0.5 rounded-full
+          text-[12px] font-medium
+          bg-[color:var(--bg-muted)] text-[color:var(--text)]
+          border border-[color:var(--border)]
+        "
+      >
+        결완
+      </span>
+      <span className="text-[12px] text-[color:var(--text-muted)] tabular-nums">
+        {dateStr}
+      </span>
     </div>
   );
 }
