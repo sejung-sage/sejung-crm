@@ -16,6 +16,7 @@
  *    편의 함수이고, 보안 게이트는 middleware + Server Action 양쪽에서 이중으로 수행.
  */
 
+import { cache } from "react";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   DEV_VIRTUAL_MASTER,
@@ -23,7 +24,17 @@ import {
 } from "@/lib/profile/students-dev-seed";
 import type { CurrentUser, UserProfileRow } from "@/types/database";
 
-export async function getCurrentUser(): Promise<CurrentUser | null> {
+/**
+ * 같은 요청 내에서 다층 Server Component / Server Action 이 각자 호출해도
+ * Supabase 라운드트립은 1회로 dedupe (React `cache()`).
+ * 학생 명단·그룹 빌더·캠페인 등 페이지마다 다층으로 호출되던 auth.getUser +
+ * crm_users_profile 조회가 1번으로 줄어든다.
+ *
+ * 요청 단위 캐시이므로 같은 요청 내 권한 변경은 반영 안 됨 — middleware 가
+ * 매 요청 진입 시 권한 재검증하므로 보안상 문제 없음.
+ */
+export const getCurrentUser = cache(
+  async (): Promise<CurrentUser | null> => {
   // 1) dev-seed 모드 → 가상 master 즉시 반환
   if (isDevSeedMode()) {
     return DEV_VIRTUAL_MASTER;
@@ -85,4 +96,5 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
     active: profile.active,
     must_change_password: profile.must_change_password,
   };
-}
+  },
+);

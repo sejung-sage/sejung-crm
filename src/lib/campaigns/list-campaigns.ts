@@ -59,31 +59,46 @@ async function listFromSupabase(
   const from = (query.page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  let q = supabase
-    .from("crm_campaigns")
-    .select("*", { count: "exact" })
-    .order("created_at", { ascending: false });
+  // count 와 body 분리 병렬. select(*, count:exact) 는 body+count 가 같은 쿼리에
+  // 묶여 풀 스캔 비용 증가. head:exact 만 별도 호출하면 인덱스 only-scan.
+  // PostgREST 는 from() 직후엔 filter 가 없고 select() 이후 chain 만 가능.
+  const applyFilters = <
+    Q extends {
+      eq(col: string, val: string): Q;
+      ilike(col: string, val: string): Q;
+      gte(col: string, val: string): Q;
+      lte(col: string, val: string): Q;
+    },
+  >(
+    q: Q,
+  ): Q => {
+    let next = q;
+    if (query.status) next = next.eq("status", query.status);
+    if (query.q) next = next.ilike("title", `%${query.q}%`);
+    if (query.from) next = next.gte("sent_at", `${query.from}T00:00:00+09:00`);
+    if (query.to) next = next.lte("sent_at", `${query.to}T23:59:59+09:00`);
+    return next;
+  };
 
-  if (query.status) {
-    q = q.eq("status", query.status);
-  }
-  if (query.q) {
-    q = q.ilike("title", `%${query.q}%`);
-  }
-  if (query.from) {
-    q = q.gte("sent_at", `${query.from}T00:00:00+09:00`);
-  }
-  if (query.to) {
-    q = q.lte("sent_at", `${query.to}T23:59:59+09:00`);
-  }
+  const countQuery = applyFilters(
+    supabase
+      .from("crm_campaigns")
+      .select("id", { count: "exact", head: true }),
+  );
+  const dataQuery = applyFilters(supabase.from("crm_campaigns").select("*"))
+    .order("created_at", { ascending: false })
+    .range(from, to);
 
-  const { data, count, error } = await q.range(from, to);
-  if (error) {
-    throw new Error(`캠페인 목록 조회에 실패했습니다: ${error.message}`);
+  const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
+
+  if (dataResult.error) {
+    throw new Error(
+      `캠페인 목록 조회에 실패했습니다: ${dataResult.error.message}`,
+    );
   }
 
   // 조인·집계는 backend 가 완성 시 덮어씀. 우선 최소 형태로 변환.
-  const items: CampaignListItem[] = ((data ?? []) as unknown[]).map((r) => {
+  const items: CampaignListItem[] = ((dataResult.data ?? []) as unknown[]).map((r) => {
     const row = r as Record<string, unknown>;
     return {
       id: row.id as string,
@@ -111,5 +126,8 @@ async function listFromSupabase(
     };
   });
 
-  return { items, total: count ?? 0 };
+  return {
+    items,
+    total: countResult.error ? 0 : (countResult.count ?? 0),
+  };
 }

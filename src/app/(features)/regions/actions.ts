@@ -16,7 +16,7 @@
  * RLS 가 2차 방어. 본 파일은 1차 방어 (실패 시 RLS 까지 가지 않고 즉시 차단).
  */
 
-import { revalidatePath } from "next/cache";
+import { revalidatePath, revalidateTag } from "next/cache";
 import { ZodError } from "zod";
 import {
   SchoolRegionUpsertSchema,
@@ -170,6 +170,10 @@ export async function upsertSchoolRegionAction(
     const data = await upsertSchoolRegion(parsed);
     revalidatePath("/regions");
     revalidatePath("/students"); // 학생 region 도 함께 바뀌므로 리스트 캐시 무효화
+    // unstable_cache 의 school-regions 태그(list-students 의 region 매핑 캐시 +
+    // school-options) 즉시 무효화. 5분 TTL 기다리지 않고 다음 요청부터 새 매핑 반영.
+    revalidateTag("school-regions", { expire: 0 });
+    revalidateTag("school-options", { expire: 0 });
     return { status: "success", data };
   } catch (e) {
     if (e instanceof DevSeedReadOnlyError) {
@@ -205,6 +209,10 @@ export async function deleteSchoolRegionAction(
     await deleteSchoolRegion(trimmed);
     revalidatePath("/regions");
     revalidatePath("/students");
+    // unstable_cache 의 school-regions 태그(list-students 의 region 매핑) 즉시
+    // 무효화. school-options 도 학교 후보 풀에서 사라질 수 있어 같이 무효화.
+    revalidateTag("school-regions", { expire: 0 });
+    revalidateTag("school-options", { expire: 0 });
     return { status: "success" };
   } catch (e) {
     if (e instanceof DevSeedReadOnlyError) {

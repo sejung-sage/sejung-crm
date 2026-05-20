@@ -58,28 +58,45 @@ async function listFromSupabase(
   const from = (query.page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  let q = supabase
-    .from("crm_templates")
-    .select("*", { count: "exact" })
-    .order("updated_at", { ascending: false });
+  // count 와 body 분리 병렬. select(*, count:exact) 는 body+count 가 같은 쿼리에
+  // 묶여 풀 스캔 비용 증가. head:exact 만 별도 호출하면 인덱스 only-scan.
+  // PostgREST 는 from() 직후엔 filter 가 없고 select() 이후 chain 만 가능.
+  const applyFilters = <
+    Q extends {
+      eq(col: string, val: string): Q;
+      or(filter: string): Q;
+    },
+  >(
+    q: Q,
+  ): Q => {
+    let next = q;
+    if (query.type) next = next.eq("type", query.type);
+    if (query.branch) next = next.eq("branch", query.branch);
+    if (query.q) {
+      next = next.or(`name.ilike.%${query.q}%,body.ilike.%${query.q}%`);
+    }
+    return next;
+  };
 
-  if (query.type) {
-    q = q.eq("type", query.type);
-  }
-  if (query.branch) {
-    q = q.eq("branch", query.branch);
-  }
-  if (query.q) {
-    q = q.or(`name.ilike.%${query.q}%,body.ilike.%${query.q}%`);
-  }
+  const countQuery = applyFilters(
+    supabase
+      .from("crm_templates")
+      .select("id", { count: "exact", head: true }),
+  );
+  const dataQuery = applyFilters(supabase.from("crm_templates").select("*"))
+    .order("updated_at", { ascending: false })
+    .range(from, to);
 
-  const { data, count, error } = await q.range(from, to);
-  if (error) {
-    throw new Error(`템플릿 목록 조회에 실패했습니다: ${error.message}`);
+  const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
+
+  if (dataResult.error) {
+    throw new Error(
+      `템플릿 목록 조회에 실패했습니다: ${dataResult.error.message}`,
+    );
   }
 
   return {
-    items: (data ?? []) as TemplateRow[],
-    total: count ?? 0,
+    items: (dataResult.data ?? []) as TemplateRow[],
+    total: countResult.error ? 0 : (countResult.count ?? 0),
   };
 }

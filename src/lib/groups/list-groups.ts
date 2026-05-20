@@ -51,25 +51,45 @@ async function listFromSupabase(
   const from = (query.page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  let q = supabase
-    .from("crm_groups")
-    .select("*", { count: "exact" })
-    .order("last_sent_at", { ascending: false, nullsFirst: false });
+  // count 와 body 를 분리해 병렬 실행. 한 호출(select * with count:exact) 은
+  // body 행과 PG count(*) 가 같은 쿼리 안에서 실행되어 PostgREST max_rows cap·
+  // statement timeout 위험이 큰 데이터에서 증가. head:exact 카운트만 별도 호출하면
+  // PG planner 가 인덱스 only-scan 으로 처리 가능.
+  // PostgREST 는 from() 직후엔 filter 가 없고 select() 이후 chain 만 가능하므로
+  // select 직후 filter 적용하는 헬퍼로 통일.
+  const applyFilters = <
+    Q extends {
+      eq(col: string, val: string): Q;
+      ilike(col: string, val: string): Q;
+    },
+  >(
+    q: Q,
+  ): Q => {
+    let next = q;
+    if (query.branch) next = next.eq("branch", query.branch);
+    if (query.q) next = next.ilike("name", `%${query.q}%`);
+    return next;
+  };
 
-  if (query.branch) {
-    q = q.eq("branch", query.branch);
-  }
-  if (query.q) {
-    q = q.ilike("name", `%${query.q}%`);
-  }
+  const countQuery = applyFilters(
+    supabase
+      .from("crm_groups")
+      .select("id", { count: "exact", head: true }),
+  );
+  const dataQuery = applyFilters(supabase.from("crm_groups").select("*"))
+    .order("last_sent_at", { ascending: false, nullsFirst: false })
+    .range(from, to);
 
-  const { data, count, error } = await q.range(from, to);
-  if (error) {
-    throw new Error(`발송 그룹 목록 조회에 실패했습니다: ${error.message}`);
+  const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
+
+  if (dataResult.error) {
+    throw new Error(
+      `발송 그룹 목록 조회에 실패했습니다: ${dataResult.error.message}`,
+    );
   }
 
   return {
-    items: (data ?? []) as GroupListItem[],
-    total: count ?? 0,
+    items: (dataResult.data ?? []) as GroupListItem[],
+    total: countResult.error ? 0 : (countResult.count ?? 0),
   };
 }
