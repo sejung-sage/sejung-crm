@@ -82,38 +82,6 @@ function sanitizeSearchTerm(s: string): string {
 }
 
 /**
- * 'YYYY-MM-DD' 날짜 문자열의 한글 요일을 반환한다.
- *
- * UTC midnight 으로 파싱한 뒤 KST(Asia/Seoul) 타임존의 weekday(short)를 뽑는다.
- * 시각 정보가 없는 날짜라 timezone shift 로 하루가 어긋나지 않으며, weekday(short)
- * 의 ko-KR 출력은 한 글자(월/화/수/목/금/토/일)로 schedule_days substring 매칭과
- * 1:1 호환된다.
- */
-function weekdayKoFromDateString(dateStr: string): string {
-  const d = new Date(`${dateStr}T00:00:00Z`);
-  return new Intl.DateTimeFormat("ko-KR", {
-    timeZone: "Asia/Seoul",
-    weekday: "short",
-  }).format(d);
-}
-
-/**
- * 'YYYY-MM' 월 문자열의 1일·말일을 'YYYY-MM-DD' 로 반환한다.
- *
- * UTC 기준으로 계산해 timezone 이슈를 피한다 — 월의 1일/말일 자체는 KST/UTC 가
- * 같으므로 문제 없음. 말일은 다음 달 0일(Date) 트릭으로 계산.
- */
-function monthBoundsUtc(monthStr: string): { firstDay: string; lastDay: string } {
-  const [y, m] = monthStr.split("-").map((s) => Number.parseInt(s, 10));
-  const firstDay = `${monthStr}-01`;
-  const last = new Date(Date.UTC(y, m, 0)); // 다음 달 0일 = 이번 달 말일
-  const dd = String(last.getUTCDate()).padStart(2, "0");
-  const mm = String(m).padStart(2, "0");
-  const lastDay = `${y}-${mm}-${dd}`;
-  return { firstDay, lastDay };
-}
-
-/**
  * "오늘"의 KST 날짜 문자열을 'YYYY-MM-DD' 형태로 반환한다.
  *
  * Node 서버는 보통 UTC 로 동작 → `new Date().toISOString().slice(0,10)` 만
@@ -163,17 +131,35 @@ async function listFromSupabase(
   const from = (page - 1) * pageSize;
   const to = from + pageSize - 1;
 
+  // (0) 기간 필터 (startDate/endDate) 가 있으면 aca_tickets 에서 그 기간 안에
+  //     class_date(=수업 회차 예정일) 가 1건이라도 있는 distinct aca_class_id 셋을
+  //     먼저 모은 뒤, classes 쿼리의 .in('aca_class_id', ids) 로 좁힌다.
+  //     운영 기간(start_date/end_date) 무관 — ticket 실제 존재 기준.
+  //     셋이 비면 즉시 0건 반환 (불필요한 추가 쿼리 회피).
+  let ticketClassIds: string[] | undefined;
+  if (filters.startDate || filters.endDate) {
+    ticketClassIds = await fetchClassIdsInTicketDateRange(supabase, filters);
+    if (ticketClassIds.length === 0) {
+      return { rows: [], total: 0, page, pageSize };
+    }
+  }
+
   // (1) 카운트 쿼리 + (2) 페이지 쿼리 — 같은 필터를 양쪽에 동일 적용.
   const countQuery = applyClassFilters(
     supabase
       .from("crm_classes")
       .select("id", { count: "exact", head: true }),
     filters,
+    ticketClassIds,
   );
 
   // 정렬은 DB 측(applyClassesSort) 적용 후 .range() 로 페이지 자르기.
   const pageQuery = applyClassesSort(
-    applyClassFilters(supabase.from("crm_classes").select("*"), filters),
+    applyClassFilters(
+      supabase.from("crm_classes").select("*"),
+      filters,
+      ticketClassIds,
+    ),
     filters.sort,
   ).range(from, to);
 
@@ -227,10 +213,16 @@ async function listFromSupabase(
  *
  * 제네릭으로 쿼리 빌더 타입을 보존해 호출부의 .order/.range/.select 가
  * 그대로 이어지도록 한다 (any 미사용).
+ *
+ * `ticketClassIds` (optional):
+ *  - startDate/endDate 가 있을 때 호출부가 미리 aca_tickets 에서 모은 distinct
+ *    aca_class_id 셋. 여기서는 단순 .in() 로 좁힌다 (좁힘 결과 0 인 경우는
+ *    호출부에서 이미 early-return 처리).
  */
 function applyClassFilters<Q extends ClassQueryBuilder>(
   query: Q,
   filters: ClassFilters,
+  ticketClassIds?: readonly string[],
 ): Q {
   let q = query;
 
@@ -248,10 +240,13 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     q = q.eq("active", true) as Q;
   }
 
-  // 진행/종강 상태 필터 — 오늘(KST) 기준 derive (앱 레이어 통일 룰).
+  // 진행/설명회/종강 상태 필터 — 오늘(KST) 기준 derive (앱 레이어 통일 룰).
   //  - "progressing" : (end_date IS NULL OR end_date >= 오늘)
   //                    AND name 이 종강 prefix 4종 중 하나로 시작하지 않음
+  //                    AND subject <> '설명회'
+  //  - "seminar"     : subject = '설명회' 만 (toggle 신규)
   //  - "graduated"   : end_date < 오늘 OR name 이 종강 prefix 4종 중 하나로 시작함
+  //                    (호환 — UI 토글에 미노출, 외부 링크 호환만)
   //  - "all"         : 필터 미적용 (분기 진입 안 함)
   //
   // 종강/폐강 prefix 가드:
@@ -270,9 +265,6 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
   // graduated 분기의 name 패턴은 괄호가 PostgREST reserved char (,.():) 라
   // .or() 표현식에서 따옴표로 감싸 logical operator 로 오인되는 것을 막는다
   // (PostgREST 공식 가이드라인).
-  //
-  // (prefix 4종 운영 분포 — 2026-05-07 진단:
-  //   "(종)..." 1,993건 / "종)..." 197건 / "(폐)..." 8건 / "폐)..." 10건)
   if (filters.status === "progressing") {
     const today = todayKstDateString();
     q = q.or(`end_date.is.null,end_date.gte.${today}`) as Q;
@@ -282,6 +274,11 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     // 설명회·간담회 (subject='설명회' 0058+0062) 는 진행 중 강좌가 아님.
     // "전체" 토글에서는 노출. NULL subject 는 미분류라 일단 진행 중에 포함.
     q = q.or("subject.is.null,subject.neq.설명회") as Q;
+  } else if (filters.status === "seminar") {
+    // 설명회 토글 — subject = '설명회' 만. 종강/폐강 prefix 가드는 적용하지 않는다
+    // (설명회 자체가 1회성 이벤트라 "종강" 개념 약함). 운영 의도는 "지금까지 잡힌
+    // 모든 설명회/간담회" 를 한 화면에서 보는 것.
+    q = q.eq("subject", "설명회") as Q;
   } else if (filters.status === "graduated") {
     const today = todayKstDateString();
     const orParts = [
@@ -291,53 +288,11 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     q = q.or(orParts.join(",")) as Q;
   }
 
-  // 일자/월 기준 운영 강좌 필터 — "그 날짜/월에 수업이 잡혀 있는 강좌".
-  // schema 단계에서 mutually exclusive 보장 (date 우선) 이므로 여기선 elseif.
-  //
-  // 공통: start_date 가 NULL 인 강좌(백필 누락 ≈ 15%) 는 운영 기간 미상이라
-  // 보수적으로 제외한다 — 일/월 필터를 켰다는 건 "이 시점에 진행되고 있는"
-  // 강좌만 보겠다는 의도이고, 기간을 모르는 강좌를 거기 섞으면 노이즈.
-  // schedule_days 가 NULL 인 행도 같은 이유로 제외 (요일 정보 없으면 매칭 불가).
-  //
-  // 종강/폐강 prefix 가드:
-  //   end_date 가 NULL 이거나 "2050-01-01" 미정 placeholder 로 백필된 종강 강좌가
-  //   `end_date IS NULL OR end_date >= date` 절을 통과해 결과에 새는 이슈 방지.
-  //   이름이 "(종)/종)/(폐)/폐)" 4종 prefix 로 시작하면 운영 기간 정합과 무관하게
-  //   "그 시점에 운영 안 함" 으로 간주 — applyClassFilters status=progressing 의
-  //   가드와 동일 정책으로 일관.
-  //
-  // 일 모드 (date='YYYY-MM-DD'):
-  //   - start_date <= date
-  //   - end_date IS NULL OR end_date >= date
-  //   - schedule_days 가 그 날짜의 KST 요일을 포함 (substring)
-  //   - 이름에 종강/폐강 prefix 없음
-  //
-  // 월 모드 (month='YYYY-MM'):
-  //   - start_date <= 그 달 말일  (운영 기간이 그 월 시작 전에 시작)
-  //   - end_date IS NULL OR end_date >= 그 달 1일  (운영 기간이 그 월 종료 후까지 지속)
-  //   - schedule_days IS NOT NULL — 한 달이면 어떤 요일이든 4~5번 나타나므로
-  //     별도 요일 매칭은 생략 (false negative 방지: "토요일만 있는 반" 도 5월 안에 5번 등장).
-  //   - 이름에 종강/폐강 prefix 없음
-  if (filters.date) {
-    const weekday = weekdayKoFromDateString(filters.date);
-    q = q.not("start_date", "is", null) as Q;
-    q = q.lte("start_date", filters.date) as Q;
-    q = q.or(`end_date.is.null,end_date.gte.${filters.date}`) as Q;
-    q = q.not("schedule_days", "is", null) as Q;
-    // weekday 는 "월/화/수/목/금/토/일" 한 글자 — .ilike 메타문자 인젝션 X.
-    q = q.ilike("schedule_days", `%${weekday}%`) as Q;
-    for (const prefix of GRADUATED_NAME_PREFIXES) {
-      q = q.not("name", "ilike", `${prefix}%`) as Q;
-    }
-  } else if (filters.month) {
-    const { firstDay, lastDay } = monthBoundsUtc(filters.month);
-    q = q.not("start_date", "is", null) as Q;
-    q = q.lte("start_date", lastDay) as Q;
-    q = q.or(`end_date.is.null,end_date.gte.${firstDay}`) as Q;
-    q = q.not("schedule_days", "is", null) as Q;
-    for (const prefix of GRADUATED_NAME_PREFIXES) {
-      q = q.not("name", "ilike", `${prefix}%`) as Q;
-    }
+  // 기간 필터 — startDate/endDate 가 있으면 호출부가 미리 모아둔 ticketClassIds
+  // (그 기간 안에 class_date 가 1건이라도 있는 강좌 셋) 로 좁힌다.
+  // (caller 가 빈 셋이면 early-return 하므로 여기서 빈 .in 호출은 발생 안 함)
+  if (ticketClassIds && ticketClassIds.length > 0) {
+    q = q.in("aca_class_id", ticketClassIds) as Q;
   }
 
   // 강사명 다중 필터 — classes.teacher_name 정확 일치 (IN).
@@ -533,6 +488,90 @@ function applyEnrolledCountSortInPage(
     if (av === bv) return cmpName(a, b);
     return asc ? av - bv : bv - av;
   });
+}
+
+/**
+ * 기간 필터(startDate/endDate) 가 켜진 경우 aca_tickets 에서 그 기간 안에
+ * class_date(=수업 회차 예정일) 가 1건이라도 있는 distinct aca_class_id 셋을 모은다.
+ *
+ * 핵심:
+ *  - aca_tickets.class_date >= startDate AND class_date <= endDate
+ *  - 한쪽만 있으면 그쪽만 (반대편 무한대)
+ *  - aca_class_id IS NOT NULL (NULL 은 매칭 불가)
+ *  - 분원 좁힘이 있으면 aca_tickets.branch 에도 동일 적용 (RLS 와 별도로 명시 필터)
+ *
+ * 규모 가정:
+ *  - 분원 1개 ticket ≈ 1만~22만행. 기간 좁히면 보통 수천~수만행으로 줄어듦.
+ *  - distinct aca_class_id 는 보통 수십~수백건 — IN 절 URL 한도(약 16KB) 안에 충분.
+ *  - PostgREST `.select('col', { distinct: true })` 는 미지원이라 페이지네이션 +
+ *    JS Set dedup 으로 처리. 안전상한 10,000 distinct id 까지.
+ */
+async function fetchClassIdsInTicketDateRange(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  filters: ClassFilters,
+): Promise<string[]> {
+  const PAGE_SIZE = 1000;
+  const MAX_PAGES = 50; // 5만 행 안전상한. distinct class_id 셋은 보통 훨씬 작음.
+  const MAX_DISTINCT = 10_000;
+
+  const classIdSet = new Set<string>();
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const from = page * PAGE_SIZE;
+    const to = from + PAGE_SIZE - 1;
+
+    let q = supabase
+      .from("aca_tickets")
+      .select("aca_class_id")
+      .not("aca_class_id", "is", null)
+      .range(from, to);
+
+    if (filters.startDate) {
+      q = q.gte("class_date", filters.startDate);
+    }
+    if (filters.endDate) {
+      q = q.lte("class_date", filters.endDate);
+    }
+    // 분원 좁힘은 ticket 측에도 적용 — RLS 가 분원별 가시성을 가르더라도
+    // 명시 필터를 함께 둬 RLS 비활성 환경/디버그에서도 일관성을 유지.
+    if (filters.branch && filters.branch !== "") {
+      q = q.eq("branch", filters.branch);
+    }
+
+    const { data, error } = await q;
+    if (error) {
+      throw new Error(
+        `기간 필터(티켓 매칭)에 실패했습니다: ${error.message}`,
+      );
+    }
+
+    const rows = (data ?? []) as Array<{ aca_class_id: string | null }>;
+    if (rows.length === 0) break;
+
+    for (const row of rows) {
+      if (
+        typeof row.aca_class_id === "string" &&
+        row.aca_class_id.length > 0
+      ) {
+        classIdSet.add(row.aca_class_id);
+        if (classIdSet.size >= MAX_DISTINCT) {
+          // 안전상한 — distinct class_id 가 1만건을 넘으면 PostgREST URL 한도
+          // 위험 + 사실상 필터 의미 약화. 운영적으로 도달 어려운 경계.
+          // 콘솔에 경고만 남기고 현 셋을 반환.
+          // eslint-disable-next-line no-console
+          console.warn(
+            `[list-classes] ticket date-range distinct class_id 셋이 ${MAX_DISTINCT}건을 초과해 절단됩니다. startDate=${filters.startDate ?? "-"} endDate=${filters.endDate ?? "-"} branch=${filters.branch ?? "-"}`,
+          );
+          return [...classIdSet];
+        }
+      }
+    }
+
+    // 마지막 페이지 (rows < PAGE_SIZE) 면 조기 종료.
+    if (rows.length < PAGE_SIZE) break;
+  }
+
+  return [...classIdSet];
 }
 
 /**

@@ -94,50 +94,59 @@ export const ClassFiltersSchema = z.object({
    */
   active: z.coerce.boolean().optional().default(true),
   /**
-   * 진행/종강 상태 필터. 기본 "all" (필터 미적용).
+   * 진행/설명회 상태 필터. 기본 "all" (필터 미적용).
    *
-   * 앱 레이어 derive 룰 (오늘 KST 기준):
-   *  - "progressing" : end_date IS NULL OR end_date >= 오늘
-   *  - "graduated"   : end_date < 오늘
-   *  - "all"         : 필터 미적용
+   * 토글 3종 (UI 노출):
+   *  - "all"         : 필터 미적용 (전체)
+   *  - "progressing" : 진행 중 — end_date IS NULL OR end_date >= 오늘
+   *                    AND 종강/폐강 prefix(4종) 미시작
+   *                    AND subject <> '설명회'
+   *  - "seminar"     : 설명회 — subject = '설명회' 만
+   *
+   * 호환 유지:
+   *  - "graduated"   : 종강 강좌 — 외부 직딥 링크/북마크 호환을 위해 enum 에 남김.
+   *                    end_date < 오늘 OR 이름 prefix(4종) 매칭. 토글 UI 에는 미노출.
    *
    * (0020 마이그레이션 후 백필 분포: NULL 440 / 미정(>=2050) 695 /
    *  종강(<오늘) 1,782 / 진행 중(명시) 2 — "미정" 행도 진행 중으로 분류됨.)
    */
   status: z
-    .enum(["all", "progressing", "graduated"])
+    .enum(["all", "progressing", "graduated", "seminar"])
     .optional()
     .default("all"),
   /**
-   * 일자 기준 운영 강좌 필터 — "그 날짜에 수업이 잡혀 있는 강좌".
+   * 기간 필터 시작일 — "이 날짜 이상에 ticket(=수업 회차 예정일) 이 잡힌 강좌".
    *
-   * 형식: 'YYYY-MM-DD' (예: '2026-05-07'). schema 단계에서 정규식 검증.
+   * 형식: 'YYYY-MM-DD'. schema 단계에서 정규식 검증.
    * 매칭 룰 (앱 레이어):
-   *  - start_date IS NOT NULL AND start_date <= date
-   *  - end_date IS NULL OR end_date >= date
-   *  - schedule_days IS NOT NULL AND schedule_days ILIKE '%{KST 요일}%'
+   *  - aca_tickets.class_date >= startDate 를 만족하는 distinct aca_class_id 셋
+   *  - 그 셋을 classes 의 aca_class_id 에 IN 매칭
    *
-   * `month` 와 mutually exclusive — 둘 다 들어오면 `date` 우선 (parse 단계에서 month 제거).
-   * start_date 백필이 안 된 강좌(약 15%)는 운영 기간 미상이라 보수적으로 제외.
+   * `endDate` 와 함께 또는 단독 사용 가능 (한쪽만 들어와도 무한 끝까지).
+   * classes.start_date/end_date 운영기간 백필과 무관 — ticket 실존 기준 매칭.
    */
-  date: z
+  startDate: z
     .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/u, "날짜 형식이 올바르지 않습니다 (YYYY-MM-DD).")
+    .regex(
+      /^\d{4}-\d{2}-\d{2}$/u,
+      "시작일 형식이 올바르지 않습니다 (YYYY-MM-DD).",
+    )
     .optional(),
   /**
-   * 월 기준 운영 강좌 필터 — "그 월에 수업이 진행되는 강좌".
+   * 기간 필터 종료일 — "이 날짜 이하에 ticket(=수업 회차 예정일) 이 잡힌 강좌".
    *
-   * 형식: 'YYYY-MM' (예: '2026-05'). schema 단계에서 정규식 검증.
+   * 형식: 'YYYY-MM-DD'. schema 단계에서 정규식 검증.
    * 매칭 룰 (앱 레이어):
-   *  - start_date IS NOT NULL AND start_date <= 해당 월 말일
-   *  - end_date IS NULL OR end_date >= 해당 월 1일
-   *  - schedule_days IS NOT NULL (요일은 한 달이면 4~5번 등장하므로 별도 매칭 X)
+   *  - aca_tickets.class_date <= endDate 를 만족하는 distinct aca_class_id 셋
    *
-   * `date` 와 mutually exclusive — date 가 우선.
+   * `startDate` 와 함께 또는 단독 사용 가능 (한쪽만 들어와도 무한 처음부터).
    */
-  month: z
+  endDate: z
     .string()
-    .regex(/^\d{4}-\d{2}$/u, "월 형식이 올바르지 않습니다 (YYYY-MM).")
+    .regex(
+      /^\d{4}-\d{2}-\d{2}$/u,
+      "종료일 형식이 올바르지 않습니다 (YYYY-MM-DD).",
+    )
     .optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
@@ -158,7 +167,10 @@ export type ClassFilters = z.infer<typeof ClassFiltersSchema>;
  *   ?day=화&day=목                   → days (다중)
  *   ?active=0                        → active=false (그 외에는 항상 true)
  *   ?status=progressing              → status=progressing (화이트리스트 외엔 all)
- *   ?status=graduated                → status=graduated
+ *   ?status=seminar                  → status=seminar
+ *   ?status=graduated                → status=graduated (호환용 · UI 노출 X)
+ *   ?start=2026-05-01                → startDate (기간 필터 시작일)
+ *   ?end=2026-05-31                  → endDate   (기간 필터 종료일)
  *   ?sort=enrolled_count_desc        → sort (화이트리스트 외엔 default)
  *   ?page=1                          → page
  *   ?size=20                         → pageSize
@@ -200,10 +212,12 @@ export function parseClassSearchParams(
   const active = includeInactive ? false : true;
 
   // status 는 화이트리스트 검사 후 통과. 그 외(미지정 포함)는 undefined → 스키마 default("all").
+  // "graduated" 는 외부 링크/북마크 호환을 위해 화이트리스트에 남기되 토글 UI 에선 미노출.
   const statusWhitelist: ReadonlySet<string> = new Set([
     "all",
     "progressing",
     "graduated",
+    "seminar",
   ]);
   const statusRaw = typeof raw.status === "string" ? raw.status : undefined;
   const status =
@@ -217,18 +231,22 @@ export function parseClassSearchParams(
   // days 는 z.enum 화이트리스트로 안전. 미리 한 번 거르고 Zod 에 위임.
   const dayWhitelist: ReadonlySet<string> = new Set(CLASS_DAY_VALUES);
 
-  // date / month 형식 가드 — Zod 정규식이 한 번 더 검증하므로 여기서는
-  // string 타입만 좁힌다. 둘 다 들어오면 date 우선 (month 무시).
-  const dateRaw =
-    typeof raw.date === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(raw.date)
-      ? raw.date
-      : undefined;
-  const monthRaw =
-    typeof raw.month === "string" && /^\d{4}-\d{2}$/u.test(raw.month)
-      ? raw.month
-      : undefined;
-  const date = dateRaw;
-  const month = dateRaw ? undefined : monthRaw;
+  // startDate / endDate 형식 가드 — Zod 정규식이 한 번 더 검증하므로 여기서는
+  // string 타입만 좁힌다. 한쪽만 들어와도 OK (반대편은 무한대 의미).
+  // URL 키는 짧게 `start` / `end` 로 통일. 한 번 더 호환을 위해 `startDate` /
+  // `endDate` 도 받음 (form submit 등에서 동일 키 사용 케이스 대비).
+  const pickDate = (
+    primary: string | string[] | undefined,
+    fallback?: string | string[] | undefined,
+  ): string | undefined => {
+    const cand = typeof primary === "string" ? primary : undefined;
+    if (cand && /^\d{4}-\d{2}-\d{2}$/u.test(cand)) return cand;
+    const fb = typeof fallback === "string" ? fallback : undefined;
+    if (fb && /^\d{4}-\d{2}-\d{2}$/u.test(fb)) return fb;
+    return undefined;
+  };
+  const startDate = pickDate(raw.start, raw.startDate);
+  const endDate = pickDate(raw.end, raw.endDate);
 
   return ClassFiltersSchema.parse({
     search: typeof raw.q === "string" ? raw.q : "",
@@ -238,8 +256,8 @@ export function parseClassSearchParams(
     days: toArray(raw.day).filter((d) => dayWhitelist.has(d)),
     active,
     status,
-    date,
-    month,
+    startDate,
+    endDate,
     page: raw.page ?? 1,
     pageSize: raw.size ?? 20,
     sort,

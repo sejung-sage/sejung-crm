@@ -11,6 +11,7 @@ import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 /**
  * 'YYYY-MM-DD' → "5월 7일 (목)" 한글 라벨.
  * UTC midnight 으로 파싱 후 KST 로컬라이즈 — Asia/Seoul 가 +09:00 이라 동일 날짜.
+ * 기간(시작/종료) 헤더 라벨에 재사용.
  */
 function formatKoDateLabel(dateStr: string): string {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -22,10 +23,27 @@ function formatKoDateLabel(dateStr: string): string {
   }).format(d);
 }
 
-/** 'YYYY-MM' → "5월". 분기/연도 정보는 헤더에서 생략 (행정 운영은 당해년 위주). */
-function formatKoMonthLabel(monthStr: string): string {
-  const [, m] = monthStr.split("-");
-  return `${Number.parseInt(m, 10)}월`;
+/**
+ * 기간 헤더 라벨 — 시작/종료 조합별 4가지 케이스.
+ *  - 둘 다: "5월 1일 (목) ~ 5월 7일 (수) 진행 강좌 "
+ *  - 시작만: "5월 1일 (목) 이후 진행 강좌 "
+ *  - 종료만: "5월 7일 (수) 이전 진행 강좌 "
+ *  - 둘 다 비어있음: "총 "
+ */
+function formatRangeHeader(
+  startDate: string | undefined,
+  endDate: string | undefined,
+): string {
+  if (startDate && endDate) {
+    return `${formatKoDateLabel(startDate)} ~ ${formatKoDateLabel(endDate)} 진행 강좌 `;
+  }
+  if (startDate) {
+    return `${formatKoDateLabel(startDate)} 이후 진행 강좌 `;
+  }
+  if (endDate) {
+    return `${formatKoDateLabel(endDate)} 이전 진행 강좌 `;
+  }
+  return "총 ";
 }
 
 /**
@@ -51,7 +69,7 @@ export default async function ClassesPage({
   // 강좌 6,000 규모라 한 번의 distinct 스캔으로 충분 (학생 리스트 패턴 미러).
   const [result, filterOptions, currentUser] = await Promise.all([
     listClasses(filters),
-    listClassFilterOptions(filters.branch),
+    listClassFilterOptions(filters),
     getCurrentUser(),
   ]);
   const devMode = isDevSeedMode();
@@ -84,13 +102,9 @@ export default async function ClassesPage({
         </div>
       )}
 
-      {/* 결과 수 + 활성 일자 안내 */}
+      {/* 결과 수 + 활성 기간 안내 */}
       <p className="text-[13px] text-[color:var(--text-muted)]">
-        {filters.date
-          ? `${formatKoDateLabel(filters.date)} 진행 강좌 `
-          : filters.month
-            ? `${formatKoMonthLabel(filters.month)} 진행 강좌 `
-            : "총 "}
+        {formatRangeHeader(filters.startDate, filters.endDate)}
         <strong className="text-[color:var(--text)]">
           {result.total.toLocaleString()}
         </strong>

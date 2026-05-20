@@ -27,7 +27,7 @@ import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
  *  - ?teacher=A&teacher=B             : 강사 (다중)
  *  - ?day=월&day=수                   : 요일 (다중)
  *  - ?sort=enrolled_count_desc        : 정렬 (단일)
- *  - ?status=progressing|graduated|all : 진행/종강 (단일, default all)
+ *  - ?status=all|progressing|seminar : 진행 상태 (단일, default all)
  *
  * 분원 변경 시 강사 선택은 자동 초기화 (분원이 바뀌면 강사 풀이 달라지므로).
  * 필터 변경 시 page 는 항상 1 로 리셋.
@@ -79,20 +79,23 @@ const SORT_LABELS: Record<ClassSort, string> = {
 };
 
 /**
- * 진행/종강 status segment 라벨.
+ * 진행 상태 status segment 라벨.
  * URL 미존재 → backend default "all" 동작 (전체 노출).
- * 사용자가 명시적으로 선택해야 필터 적용 — 작업지시 결정 (a) 채택.
+ * 작업지시 (2026-05): 라벨/순서 "전체 · 진행중 · 설명회" 로 재편.
+ *  - 전체     : ?status=all (또는 ?status 미지정)
+ *  - 진행중   : ?status=progressing
+ *  - 설명회   : ?status=seminar  (backend schema 에서 'seminar' enum 추가됨)
  */
-type StatusSegment = "all" | "progressing" | "graduated";
+type StatusSegment = "all" | "progressing" | "seminar";
 const STATUS_SEGMENTS: ReadonlyArray<{ value: StatusSegment; label: string }> = [
-  { value: "progressing", label: "진행 중만" },
   { value: "all", label: "전체" },
-  { value: "graduated", label: "종강" },
+  { value: "progressing", label: "진행중" },
+  { value: "seminar", label: "설명회" },
 ];
 const STATUS_WHITELIST: ReadonlySet<string> = new Set([
   "all",
   "progressing",
-  "graduated",
+  "seminar",
 ]);
 
 const SORT_WHITELIST: ReadonlySet<string> = new Set(CLASS_SORT_VALUES);
@@ -153,32 +156,25 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
   // 기본은 off → 운영 시야에는 active=true 만 보임.
   const includeInactive = searchParams.get("inactive") === "1";
 
-  // 일자/월 필터 — mutually exclusive. 둘 다 들어오면 date 우선 (서버 schema 와 동일).
-  const dateRaw = searchParams.get("date") ?? "";
-  const monthRaw = searchParams.get("month") ?? "";
-  const dateValid = /^\d{4}-\d{2}-\d{2}$/.test(dateRaw) ? dateRaw : "";
-  const monthValid = /^\d{4}-\d{2}$/.test(monthRaw) ? monthRaw : "";
-  // UI 모드: 'day' (날짜 picker) / 'month' (월 picker). URL 우선순위에 맞춰 해석.
-  const dateMode: "day" | "month" = dateValid
-    ? "day"
-    : monthValid
-      ? "month"
-      : "day";
-  const dateValue = dateValid;
-  const monthValue = monthValid;
+  // 기간 필터 — 시작일(start) ~ 종료일(end). 둘 다 비어 있을 수 있고,
+  // 한쪽만 들어와도 허용 (open-ended range). backend 는 이 범위에 ticket(class_date)
+  // 가 1건이라도 있는 강좌만 반환.
+  const startRaw = searchParams.get("start") ?? "";
+  const endRaw = searchParams.get("end") ?? "";
+  const startValue = /^\d{4}-\d{2}-\d{2}$/.test(startRaw) ? startRaw : "";
+  const endValue = /^\d{4}-\d{2}-\d{2}$/.test(endRaw) ? endRaw : "";
 
-  // "오늘" 의 KST 'YYYY-MM-DD' / 'YYYY-MM' — 빠른 선택 + 헤더 라벨용.
+  // "오늘" 의 KST 'YYYY-MM-DD' — 빠른 선택 버튼용.
   // 매 렌더마다 동일하므로 useMemo. SSR/CSR 경계는 toolbar 가 client 컴포넌트라
   // 신경 쓸 필요 없고, 자정 경계에 새로 마운트되면 자연스럽게 갱신됨.
-  const { todayDate, todayMonth } = useMemo(() => {
+  const todayDate = useMemo(() => {
     const fmt = new Intl.DateTimeFormat("en-CA", {
       timeZone: "Asia/Seoul",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
     });
-    const ymd = fmt.format(new Date()); // 'YYYY-MM-DD'
-    return { todayDate: ymd, todayMonth: ymd.slice(0, 7) };
+    return fmt.format(new Date()); // 'YYYY-MM-DD'
   }, []);
 
   const updateParams = useCallback(
@@ -254,46 +250,41 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
   };
 
   /**
-   * 일/월 모드 토글 — date·month 는 mutually exclusive 라 모드 전환 시 반대 키 제거.
-   * 토글만으로는 입력값이 비어 있을 수 있으므로 URL 만 정리하고 입력은 그대로 둔다
-   * (사용자가 picker 에 값을 채워야 적용됨).
+   * 기간 필터 — 시작일/종료일은 서로 독립. 한쪽만 비어 있어도 허용.
+   * 값이 'YYYY-MM-DD' 정규식에 맞을 때만 URL 에 set, 아니면 unset.
    */
-  const onDateModeChange = (mode: "day" | "month") => {
+  const onStartChange = (value: string) => {
     updateParams((p) => {
-      if (mode === "day") {
-        p.delete("month");
-      } else {
-        p.delete("date");
-      }
-    });
-  };
-
-  const onDateChange = (value: string) => {
-    updateParams((p) => {
-      p.delete("month");
       if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
-        p.set("date", value);
+        p.set("start", value);
       } else {
-        p.delete("date");
+        p.delete("start");
       }
     });
   };
 
-  const onMonthChange = (value: string) => {
+  const onEndChange = (value: string) => {
     updateParams((p) => {
-      p.delete("date");
-      if (value && /^\d{4}-\d{2}$/.test(value)) {
-        p.set("month", value);
+      if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+        p.set("end", value);
       } else {
-        p.delete("month");
+        p.delete("end");
       }
     });
   };
 
-  const onClearDate = () => {
+  /** "오늘" 빠른 버튼 — 시작=종료=오늘 으로 한 번에 셋. */
+  const onSetTodayRange = () => {
     updateParams((p) => {
-      p.delete("date");
-      p.delete("month");
+      p.set("start", todayDate);
+      p.set("end", todayDate);
+    });
+  };
+
+  const onClearDateRange = () => {
+    updateParams((p) => {
+      p.delete("start");
+      p.delete("end");
     });
   };
 
@@ -318,8 +309,8 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
     teachers.length > 0 ||
     days.length > 0 ||
     status !== "all" ||
-    dateValue !== "" ||
-    monthValue !== "" ||
+    startValue !== "" ||
+    endValue !== "" ||
     includeInactive;
 
   const clearAll = () => {
@@ -330,8 +321,8 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
       p.delete("teacher");
       p.delete("day");
       p.delete("status");
-      p.delete("date");
-      p.delete("month");
+      p.delete("start");
+      p.delete("end");
       p.delete("inactive");
       p.delete("active");
       // 정렬은 의도적으로 유지 — 사용자가 명시적으로 바꾼 보기 옵션.
@@ -464,7 +455,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
         </div>
       </div>
 
-      {/* 2행: 일자 필터 (특정 날짜·월에 운영 중인 강좌만) */}
+      {/* 2행: 기간 필터 (시작일 ~ 종료일 사이에 수업이 1건이라도 있는 강좌) */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 pt-1">
         <span className="inline-flex items-center gap-1.5 text-[13px] font-medium text-[color:var(--text-muted)] shrink-0">
           <CalendarDays
@@ -472,79 +463,50 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
             strokeWidth={1.75}
             aria-hidden
           />
-          진행 일자
+          기간
         </span>
 
-        <div
-          role="radiogroup"
-          aria-label="일자 단위"
-          className="inline-flex items-stretch h-10 rounded-lg bg-bg-card border border-[color:var(--border)] overflow-hidden"
+        <input
+          type="date"
+          aria-label="시작일 선택"
+          value={startValue}
+          max="2999-12-31"
+          onChange={(e) => onStartChange(e.target.value)}
+          className="
+            h-10 min-w-44 rounded-lg px-3
+            bg-bg-card border border-[color:var(--border)]
+            text-[14px] text-[color:var(--text)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+            cursor-pointer
+          "
+        />
+
+        <span
+          aria-hidden
+          className="text-[14px] text-[color:var(--text-muted)] select-none"
         >
-          {(["day", "month"] as const).map((mode, idx) => {
-            const active = dateMode === mode;
-            return (
-              <button
-                key={mode}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => onDateModeChange(mode)}
-                className={`
-                  px-3 text-[14px] font-medium transition-colors
-                  focus:outline-none focus:ring-1 focus:ring-[color:var(--border-strong)]
-                  ${idx > 0 ? "border-l border-[color:var(--border)]" : ""}
-                  ${
-                    active
-                      ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
-                      : "bg-bg-card text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
-                  }
-                `}
-              >
-                {mode === "day" ? "하루" : "월"}
-              </button>
-            );
-          })}
-        </div>
+          ~
+        </span>
 
-        {dateMode === "day" ? (
-          <input
-            type="date"
-            aria-label="날짜 선택"
-            value={dateValue}
-            max="2999-12-31"
-            onChange={(e) => onDateChange(e.target.value)}
-            className="
-              h-10 min-w-44 rounded-lg px-3
-              bg-bg-card border border-[color:var(--border)]
-              text-[15px] text-[color:var(--text)]
-              focus:outline-none focus:border-[color:var(--border-strong)]
-              cursor-pointer
-            "
-          />
-        ) : (
-          <input
-            type="month"
-            aria-label="월 선택"
-            value={monthValue}
-            onChange={(e) => onMonthChange(e.target.value)}
-            className="
-              h-10 min-w-44 rounded-lg px-3
-              bg-bg-card border border-[color:var(--border)]
-              text-[15px] text-[color:var(--text)]
-              focus:outline-none focus:border-[color:var(--border-strong)]
-              cursor-pointer
-            "
-          />
-        )}
+        <input
+          type="date"
+          aria-label="종료일 선택"
+          value={endValue}
+          max="2999-12-31"
+          onChange={(e) => onEndChange(e.target.value)}
+          className="
+            h-10 min-w-44 rounded-lg px-3
+            bg-bg-card border border-[color:var(--border)]
+            text-[14px] text-[color:var(--text)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+            cursor-pointer
+          "
+        />
 
-        {/* 빠른 선택: 오늘 / 이번 달 — 모드에 따라 적절한 키만 채움. */}
+        {/* 빠른 선택: 오늘 — 시작=종료=오늘 한 번에 셋. */}
         <button
           type="button"
-          onClick={() =>
-            dateMode === "day"
-              ? onDateChange(todayDate)
-              : onMonthChange(todayMonth)
-          }
+          onClick={onSetTodayRange}
           className="
             inline-flex items-center h-10 px-3 rounded-lg
             text-[14px] font-medium
@@ -555,14 +517,14 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
             transition-colors
           "
         >
-          {dateMode === "day" ? "오늘" : "이번 달"}
+          오늘
         </button>
 
-        {(dateValue || monthValue) && (
+        {(startValue || endValue) && (
           <button
             type="button"
-            onClick={onClearDate}
-            aria-label="일자 필터 해제"
+            onClick={onClearDateRange}
+            aria-label="기간 필터 초기화"
             className="
               inline-flex items-center gap-1 h-8 px-2 rounded-md
               text-[13px] text-[color:var(--text-muted)]
@@ -572,7 +534,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
             "
           >
             <X className="size-3.5" strokeWidth={1.75} aria-hidden />
-            일자 필터 해제
+            초기화
           </button>
         )}
       </div>
