@@ -53,6 +53,7 @@ function withNormalizedFilters(row: GroupRow): GroupRow {
       schools: [],
       subjects: [],
       regions: [],
+      statuses: [],
       includeStudentIds: [],
     },
   };

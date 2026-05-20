@@ -151,6 +151,7 @@ export default async function NewGroupPage({
     schools: [],
     subjects: [],
     regions: [],
+    statuses: [],
     includeStudentIds: prefill ? prefill.recipients.map((r) => r.id) : [],
   };
 

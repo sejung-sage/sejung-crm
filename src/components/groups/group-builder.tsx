@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Search, X } from "lucide-react";
 import type { GroupFilters } from "@/lib/schemas/group";
-import type { Grade, Subject } from "@/types/database";
+import type { Grade, StudentStatus, Subject } from "@/types/database";
 import type { CountRecipientsResult } from "@/lib/groups/count-recipients";
 import {
   countRecipientsAction,
@@ -89,6 +89,14 @@ const SUBJECT_OPTIONS: Subject[] = [
   "기타",
 ];
 
+/**
+ * 발송 그룹의 재원 상태 옵션 (다중 선택).
+ * 학생 명단의 4종 토글과 달리 빈 배열 = default '재원생' 시맨틱 — 수신자
+ * 산정 단(count-recipients · apply-filters)에서 빈 배열을 ['재원생']로 대체.
+ * 탈퇴는 안전 정책상 어떤 경우에도 자동 제외 → 옵션에서 노출하지 않는다.
+ */
+const STATUS_OPTIONS: StudentStatus[] = ["재원생", "수강이력자", "수강 x"];
+
 // 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용 —
 // 학생 명단·그룹 빌더·매핑 admin 모두 동일 출처.
 const LEVEL_SEGMENTS: ReadonlyArray<{
@@ -100,7 +108,6 @@ const LEVEL_SEGMENTS: ReadonlyArray<{
   { value: "중", label: "중등" },
   { value: "초", label: "초등" },
 ];
-const SCHOOL_VISIBLE_LIMIT = 8;
 const DEBOUNCE_MS = 300;
 
 /**
@@ -144,7 +151,14 @@ export function GroupBuilder({
   const [includeStudents, setIncludeStudents] = useState<DirectStudent[]>(
     initial.filters.includeStudents ?? [],
   );
-  const [showAllSchools, setShowAllSchools] = useState<boolean>(false);
+  // 재원 상태 — 다중 선택. 빈 배열 = default 재원생 만 (수신자 산정 단에서 처리).
+  // 옛 그룹 JSONB 에 statuses 키 없으면 빈 배열 → 기존 동작 보존.
+  const [statuses, setStatuses] = useState<StudentStatus[]>(
+    initial.filters.statuses ?? [],
+  );
+  // 학교 검색어 — 학생 명단 SchoolSearchPanel 과 동일한 패턴.
+  // schoolOptions 가 수천개 단위라 더보기/접기 대신 검색+스크롤로 전환.
+  const [schoolQuery, setSchoolQuery] = useState("");
 
   // 학교급 세그먼티드 토글. 초기값은 기존에 선택된 학년에서 추론.
   const [level, setLevel] = useState<"전체" | "초" | "중" | "고">(() => {
@@ -186,9 +200,10 @@ export function GroupBuilder({
         SUBJECT_OPTIONS.includes(s as Subject),
       ),
       regions,
+      statuses,
       includeStudentIds: includeStudents.map((s) => s.id),
     }),
-    [grades, schools, subjects, regions, includeStudents],
+    [grades, schools, subjects, regions, statuses, includeStudents],
   );
 
   // filters/branch 변경 시 디바운스 카운트 호출
@@ -219,17 +234,6 @@ export function GroupBuilder({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [filters, branch]);
-
-  // 학교 표시 후보
-  const visibleSchools = useMemo(() => {
-    // 기존에 선택된 학교는 리스트에 없더라도 항상 보여줘야 함
-    const base = schoolOptions.slice();
-    for (const s of schools) {
-      if (!base.includes(s)) base.push(s);
-    }
-    if (showAllSchools) return base;
-    return base.slice(0, SCHOOL_VISIBLE_LIMIT);
-  }, [schoolOptions, schools, showAllSchools]);
 
   const toggleFromList = <T,>(
     list: T[],
@@ -475,32 +479,36 @@ export function GroupBuilder({
               label="학교"
               hint={schools.length === 0 ? "선택 안 함 = 전 학교" : undefined}
             >
+              <GroupSchoolSearchPanel
+                schoolOptions={schoolOptions}
+                selected={schools}
+                query={schoolQuery}
+                onQueryChange={setSchoolQuery}
+                onToggle={(s) =>
+                  toggleFromList(schools, s, (next) => setSchools(next))
+                }
+              />
+            </Field>
+
+            <Field
+              label="재원 상태"
+              hint={
+                statuses.length === 0
+                  ? "선택 안 함 = 재원생 (기본)"
+                  : statuses.join(" · ")
+              }
+            >
               <div className="flex flex-wrap gap-1.5">
-                {visibleSchools.map((s) => (
+                {STATUS_OPTIONS.map((s) => (
                   <Chip
                     key={s}
                     label={s}
-                    active={schools.includes(s)}
+                    active={statuses.includes(s)}
                     onClick={() =>
-                      toggleFromList(schools, s, (next) => setSchools(next))
+                      toggleFromList(statuses, s, (next) => setStatuses(next))
                     }
                   />
                 ))}
-                {schoolOptions.length > SCHOOL_VISIBLE_LIMIT && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllSchools((v) => !v)}
-                    className="
-                      inline-flex items-center h-8 px-3 rounded-full
-                      text-[13px] text-[color:var(--text-muted)]
-                      hover:text-[color:var(--text)]
-                      hover:bg-[color:var(--bg-hover)]
-                      transition-colors
-                    "
-                  >
-                    {showAllSchools ? "접기" : "더보기"}
-                  </button>
-                )}
               </div>
             </Field>
 
@@ -746,6 +754,115 @@ function Chip({
     >
       {label}
     </button>
+  );
+}
+
+/**
+ * 발송 그룹 학교 검색·선택 패널.
+ *
+ * 학생 명단의 SchoolSearchPanel 과 유사하지만 그룹 빌더는 schoolOptions
+ * 를 단일 string[] 로 받기 때문에 (지역 그룹 정보 없음) 평면 리스트로 렌더.
+ *
+ * 검색어 부분일치 + 스크롤 컨테이너 + 선택된 학교 카운트.
+ * 선택된 학교가 schoolOptions 에 없어도 항상 보이도록 머지 후 렌더.
+ */
+function GroupSchoolSearchPanel({
+  schoolOptions,
+  selected,
+  query,
+  onQueryChange,
+  onToggle,
+}: {
+  schoolOptions: string[];
+  selected: string[];
+  query: string;
+  onQueryChange: (q: string) => void;
+  onToggle: (s: string) => void;
+}) {
+  const normalized = query.trim().toLowerCase();
+  // 선택된 학교는 옵션에 없어도 칩으로 보여줘야 함 — 머지.
+  const merged = (() => {
+    const set = new Set(schoolOptions);
+    for (const s of selected) set.add(s);
+    return Array.from(set);
+  })();
+  const filtered =
+    normalized.length === 0
+      ? merged
+      : merged.filter((s) => s.toLowerCase().includes(normalized));
+
+  return (
+    <div className="space-y-2">
+      <label className="relative block">
+        <span className="sr-only">학교 검색</span>
+        <Search
+          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="학교명 검색 (예: 휘문, 단대부)"
+          className="
+            w-full h-10 rounded-lg pl-9 pr-9
+            bg-bg-card border border-[color:var(--border)]
+            text-[14px] text-[color:var(--text)]
+            placeholder:text-[color:var(--text-dim)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+          "
+        />
+        {query.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onQueryChange("")}
+            aria-label="검색어 지우기"
+            className="
+              absolute right-2 top-1/2 -translate-y-1/2
+              inline-flex items-center justify-center size-6 rounded-md
+              text-[color:var(--text-muted)] hover:text-[color:var(--text)]
+              hover:bg-[color:var(--bg-hover)]
+            "
+          >
+            <X className="size-4" strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
+      </label>
+
+      <p className="text-[12px] text-[color:var(--text-muted)]">
+        {normalized.length > 0
+          ? `검색 결과 ${filtered.length.toLocaleString()}개`
+          : `총 ${merged.length.toLocaleString()}개 학교`}
+        {selected.length > 0 && (
+          <>
+            <span className="mx-1.5 text-[color:var(--text-dim)]">·</span>
+            <span>선택 {selected.length}개</span>
+          </>
+        )}
+      </p>
+
+      <div className="max-h-[360px] overflow-y-auto pr-1 rounded-lg bg-[color:var(--bg-muted)] p-3">
+        {filtered.length === 0 ? (
+          <p className="text-[13px] text-[color:var(--text-muted)] py-2 text-center">
+            {normalized.length > 0
+              ? `"${query.trim()}" 와(과) 일치하는 학교가 없습니다.`
+              : "표시할 학교가 없습니다."}
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {filtered.map((s) => (
+              <Chip
+                key={s}
+                label={s}
+                active={selected.includes(s)}
+                onClick={() => onToggle(s)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 

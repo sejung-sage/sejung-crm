@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GradeSchema, SubjectSchema } from "./common";
+import { GradeSchema, StudentStatusSchema, SubjectSchema } from "./common";
 
 /**
  * 발송 그룹(F2) Zod 스키마
@@ -41,6 +41,16 @@ export const GroupFiltersSchema = z.object({
    * 없어도 getGroup 에서 parse 시점에 빈 배열로 채워진다.
    */
   regions: z.array(z.string().trim().min(1).max(30)).default([]),
+  /**
+   * 재원 상태 (다중 선택). 빈 배열이면 default = ['재원생'] 매칭 (안전한 기본).
+   * 학생 명단 필터의 "전체" 와 동일한 효과를 내려면 ['재원생','수강이력자','수강 x'] 셋
+   * 모두 명시. 탈퇴 학생은 어떤 경우에도 자동 제외 (수신자 안전 정책).
+   *
+   * 백워드 호환: 옛 그룹 JSONB 에 statuses 키가 없으면 빈 배열로 채워지고,
+   * 수신자 산정 단에서 default '재원생' 으로 처리 — 즉 기존 그룹의 의미가
+   * 그대로 유지된다.
+   */
+  statuses: z.array(StudentStatusSchema).default([]),
   /**
    * 명시적으로 추가한 학생 ID 목록. 조건(grades/schools/subjects) 결과와
    * union 되어 최종 수신자에 포함된다. 본인 폰 테스트 또는 특정 학생 1~몇명

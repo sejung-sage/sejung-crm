@@ -150,6 +150,7 @@ async function countFromSupabase(
     selectExpr: string,
     options: { count?: "exact"; head?: boolean } = {},
   ): StudentsQuery {
+    // 안전 정책: 탈퇴 학생은 status 필터 선택과 무관하게 항상 차단.
     let q = supabase
       .from("crm_students")
       .select(selectExpr, options)
@@ -158,6 +159,11 @@ async function countFromSupabase(
     if (branch) {
       q = q.eq("branch", branch);
     }
+
+    // 재원 상태 필터 — 빈 배열이면 default '재원생' 만.
+    const wantedStatuses =
+      filters.statuses.length > 0 ? filters.statuses : ["재원생"];
+    q = q.in("status", wantedStatuses);
 
     if (allowedStudentIds) {
       q = q.in("id", allowedStudentIds);

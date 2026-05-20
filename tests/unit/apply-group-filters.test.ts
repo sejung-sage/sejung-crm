@@ -20,7 +20,9 @@ import type { GroupFilters } from "@/lib/schemas/group";
  * (default-hide 졸업·미정 은 list-students 계층에서 처리. 그룹 발송에선 적용 안 됨.)
  */
 
-const emptyFilters: GroupFilters = { grades: [], schools: [], subjects: [], regions: [], includeStudentIds: [] };
+// emptyFilters 의 의도는 "조건 없음 → 모든 status (탈퇴 제외) 통과". statuses default 가
+// 빈 배열 → ['재원생'] 1종으로 좁혀지므로, 옛 시맨틱을 보존하려면 3종 풀로 명시.
+const emptyFilters: GroupFilters = { grades: [], schools: [], subjects: [], regions: [], statuses: ["재원생", "수강이력자", "수강 x"], includeStudentIds: [] };
 
 describe("applyGroupFiltersDev · 분원·자동제외", () => {
   it("branch='대치' 이면 송도 학생 제외", () => {
@@ -155,7 +157,7 @@ describe("applyGroupFiltersDev · 복합 필터", () => {
   it("grades=[2] + schools=['휘문고'] + subjects=['수학'] · DC0001 1명만", () => {
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
-      { grades: ["고2"], schools: ["휘문고"], subjects: ["수학"], regions: [], includeStudentIds: [] },
+      { grades: ["고2"], schools: ["휘문고"], subjects: ["수학"], regions: [], statuses: [], includeStudentIds: [] },
       "대치",
     );
     expect(r.length).toBe(1);
@@ -165,16 +167,35 @@ describe("applyGroupFiltersDev · 복합 필터", () => {
   it("grades=[2] + schools=['중동고'] · 대치 중동고 고2 없음 → 0명", () => {
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
-      { grades: ["고2"], schools: ["중동고"], subjects: [], regions: [], includeStudentIds: [] },
+      { grades: ["고2"], schools: ["중동고"], subjects: [], regions: [], statuses: [], includeStudentIds: [] },
       "대치",
     );
     expect(r.length).toBe(0);
   });
 
-  it("빈 필터(모두 빈 배열)는 분원·탈퇴·수신거부만 적용 → 대치 8명", () => {
+  it("빈 statuses 는 default '재원생' 1종 → 대치 재원생 4명", () => {
+    // statuses 도입(0019) 이전 시맨틱: 빈 배열 = 모든 status (탈퇴 제외) = 대치 8명.
+    // 신 시맨틱: 빈 statuses → default '재원생' 만. 옛 의미를 원하면 3종 풀로 명시.
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
-      { grades: [], schools: [], subjects: [], regions: [], includeStudentIds: [] },
+      { grades: [], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [] },
+      "대치",
+    );
+    expect(r.length).toBe(4);
+    expect(r.every((p) => p.status === "재원생")).toBe(true);
+  });
+
+  it("statuses 풀 명시(3종) → 옛 빈필터 시맨틱과 동일하게 대치 8명", () => {
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        grades: [],
+        schools: [],
+        subjects: [],
+        regions: [],
+        statuses: ["재원생", "수강이력자", "수강 x"],
+        includeStudentIds: [],
+      },
       "대치",
     );
     expect(r.length).toBe(8);

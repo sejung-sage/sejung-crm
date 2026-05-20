@@ -48,7 +48,7 @@ export function applyGroupFiltersDev(
     // 1) 분원
     if (branchTrim && p.branch !== branchTrim) return false;
 
-    // 2) 비활성(탈퇴) 제외
+    // 2) 비활성(탈퇴) 제외 — 안전 정책상 status 필터 값과 무관하게 항상 차단.
     if (p.status === "탈퇴") return false;
 
     // 3) 수신거부 제외 (학부모 연락처 기준)
@@ -59,7 +59,12 @@ export function applyGroupFiltersDev(
       return includeSet.has(p.id);
     }
 
-    // 5) 조건 절 (직접 선택이 비어있을 때만)
+    // 5) 재원 상태 — 빈 배열이면 default '재원생' 만 (학생 명단 default 와 동일).
+    const wantedStatuses =
+      filters.statuses.length > 0 ? filters.statuses : ["재원생"];
+    if (!wantedStatuses.includes(p.status)) return false;
+
+    // 6) 조건 절 (직접 선택이 비어있을 때만)
     if (filters.grades.length > 0) {
       if (p.grade === null) return false;
       if (!filters.grades.includes(p.grade)) return false;

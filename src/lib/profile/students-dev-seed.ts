@@ -875,7 +875,7 @@ export const DEV_GROUPS: GroupRow[] = [
     id: "dev-group-1",
     name: "대치 고2 전체",
     branch: "대치",
-    filters: { grades: ["고2"], schools: [], subjects: [], regions: [], includeStudentIds: [] },
+    filters: { grades: ["고2"], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [] },
     // DC0001(고2 재원)·DC0002(고2 재원) 2명. 탈퇴 제외 후 2.
     recipient_count: 2,
     last_sent_at: "2026-04-15T14:00:00+09:00",
@@ -889,7 +889,7 @@ export const DEV_GROUPS: GroupRow[] = [
     id: "dev-group-2",
     name: "대치 수학 수강생",
     branch: "대치",
-    filters: { grades: [], schools: [], subjects: ["수학"], regions: [], includeStudentIds: [] },
+    filters: { grades: [], schools: [], subjects: ["수학"], regions: [], statuses: [], includeStudentIds: [] },
     // DC0001·DC0003 이 수학 수강. 현실 수치로 5 (실제 시드 외 추정 수강생 포함).
     recipient_count: 5,
     last_sent_at: "2026-04-08T10:30:00+09:00",
@@ -903,7 +903,7 @@ export const DEV_GROUPS: GroupRow[] = [
     id: "dev-group-3",
     name: "송도 고3 과탐",
     branch: "송도",
-    filters: { grades: ["고3"], schools: [], subjects: ["과탐"], regions: [], includeStudentIds: [] },
+    filters: { grades: ["고3"], schools: [], subjects: ["과탐"], regions: [], statuses: [], includeStudentIds: [] },
     // 시드 내 해당자 0 이나 현실 수강생 가정 3.
     recipient_count: 3,
     last_sent_at: null,
@@ -916,7 +916,7 @@ export const DEV_GROUPS: GroupRow[] = [
     id: "dev-group-4",
     name: "대치 휘문고 국어",
     branch: "대치",
-    filters: { grades: [], schools: ["휘문고"], subjects: ["국어"], regions: [], includeStudentIds: [] },
+    filters: { grades: [], schools: ["휘문고"], subjects: ["국어"], regions: [], statuses: [], includeStudentIds: [] },
     // 휘문고 × 국어 교차. 현실 수치로 4.
     recipient_count: 4,
     last_sent_at: null,
