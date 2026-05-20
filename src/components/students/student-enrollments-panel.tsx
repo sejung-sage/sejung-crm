@@ -8,18 +8,27 @@ interface Props {
 /**
  * 학생 상세 · 수강 이력 패널.
  *
- * enrollments.amount 는 회차당 금액. 강좌 마스터(class)가 매칭되면
- * 회차 수와 곱해 총액을 메인으로 노출, 회당 단가는 서브 라인에 표기.
+ * 행 정렬: 진행 중 위 → end_date 최신 순.
+ *   진행 중 판정: end_date IS NULL || end_date(YYYY-MM-DD 앞 10자) >= today.
+ *   '2050-01-01' sentinel 도 자연스럽게 진행 중으로 잡힘.
  *
  * 선생님·과목 표시 우선순위:
  *   1) enrollments.teacher_name / subject (ETL 가 항상 NULL — placeholder)
  *   2) classes 마스터 (aca_class_id join)
  *   3) course_name 자유형 파싱 (`parseCourseName`) — 강좌 매칭 실패 시 noise 감축
  *   4) "—"
- *
- * (3) 은 ETL 데이터 정합성과 별개로 화면 즉시 개선용 fallback. 정확도는
- * `parse-course-name.ts` 의 보수적 패턴에 의존 — 모호하면 null 반환 → "—".
  */
+function todayStr(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function isOngoingEnrollment(endDate: string | null): boolean {
+  if (!endDate) return true;
+  const end = endDate.length >= 10 ? endDate.slice(0, 10) : endDate;
+  return end >= todayStr();
+}
+
 export function StudentEnrollmentsPanel({ enrollments }: Props) {
   if (enrollments.length === 0) {
     return (
@@ -30,6 +39,16 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
       </div>
     );
   }
+
+  // 진행 중 위로 → end_date 내림차순. NULL end_date 는 진행 중 그룹 안에서 위.
+  const sorted = [...enrollments].sort((a, b) => {
+    const ao = isOngoingEnrollment(a.end_date);
+    const bo = isOngoingEnrollment(b.end_date);
+    if (ao !== bo) return ao ? -1 : 1;
+    const ad = a.end_date ?? "";
+    const bd = b.end_date ?? "";
+    return bd.localeCompare(ad);
+  });
 
   return (
     <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
@@ -44,7 +63,7 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
           </tr>
         </thead>
         <tbody>
-          {enrollments.map((e) => {
+          {sorted.map((e) => {
             const parsed = parseCourseName(e.course_name);
             const teacher =
               e.teacher_name ?? e.class?.teacher_name ?? parsed.teacher ?? "—";
@@ -54,12 +73,18 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
               e.class?.subject_raw ??
               parsed.subject ??
               "—";
+            const ongoing = isOngoingEnrollment(e.end_date);
             return (
               <tr
                 key={e.id}
                 className="border-b border-[color:var(--border)] last:border-b-0"
               >
-                <Td className="text-[color:var(--text)]">{e.course_name}</Td>
+                <Td className="text-[color:var(--text)]">
+                  <div className="flex items-center gap-2">
+                    <ProgressBadge ongoing={ongoing} />
+                    <span>{e.course_name}</span>
+                  </div>
+                </Td>
                 <Td className="text-[color:var(--text-muted)]">{teacher}</Td>
                 <Td className="text-center text-[color:var(--text-muted)]">
                   {subject}
@@ -76,6 +101,38 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * 강좌 진행 상태 배지 — 출석 탭의 ProgressBadge 와 동일 톤.
+ * 운영자가 두 패널 사이 시각 일관성으로 같은 의미라 즉시 인식.
+ */
+function ProgressBadge({ ongoing }: { ongoing: boolean }) {
+  if (ongoing) {
+    return (
+      <span
+        className="
+          inline-flex shrink-0 items-center px-2 py-0.5 rounded-full
+          text-[11px] font-medium
+          bg-[color:var(--action)] text-[color:var(--action-text)]
+        "
+      >
+        진행 중
+      </span>
+    );
+  }
+  return (
+    <span
+      className="
+        inline-flex shrink-0 items-center px-2 py-0.5 rounded-full
+        text-[11px] font-medium
+        bg-[color:var(--bg-muted)] text-[color:var(--text-muted)]
+        border border-[color:var(--border)]
+      "
+    >
+      완료
+    </span>
   );
 }
 
