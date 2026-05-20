@@ -83,6 +83,9 @@ export default async function StudentsPage({
           totalCount={result.total}
           source={result.source}
           schoolGroups={filterOptions.schoolGroups}
+          availableGrades={filterOptions.availableGrades}
+          availableSchoolLevels={filterOptions.availableSchoolLevels}
+          availableRegions={filterOptions.availableRegions}
           canPickBranch={canPickBranch}
         />
 
