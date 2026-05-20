@@ -5,6 +5,10 @@ import {
   DEV_STUDENT_PROFILES,
   isDevSeedMode,
 } from "./students-dev-seed";
+import { HIDDEN_GRADES_BY_DEFAULT } from "@/lib/schemas/common";
+import type { ListStudentsInput } from "@/lib/schemas/student";
+
+const CACHE_SECONDS = 300;
 
 /**
  * 학생 리스트 필터의 학교 옵션을 prefetch 한다.
@@ -18,15 +22,23 @@ import {
  *  - 매핑(school_regions) 에 없거나 5종 외 지역이면 '기타' 그룹으로.
  *  - `schools` 평탄 배열은 호환 유지(콤보박스 등 다른 잠재 소비처 대비).
  *
- * 성능 (2026-05-13 핫픽스 유지):
+ * 좁힘 정책 (2026-05-20):
+ *  학교 옵션은 학생 명단 결과와 일치하도록 동일 필터를 적용해 distinct school 만
+ *  노출. branch + grade + schoolLevel + status + includeHidden 적용.
+ *  region 은 예외 — 그 필터로 학교 옵션을 좁히면 region 칩 해제 전엔 다른 지역
+ *  학교를 검색해도 못 찾는 UX 함정이 생긴다 (region 칩은 학교 그룹 분류 자체에
+ *  사용되므로 칩 클릭 시 자동으로 패널이 reorder 됨).
+ *  schools 도 적용 안 함 (선택한 학교만 남으면 다른 학교 추가 못 함).
+ *
+ * 성능:
  *  - students 테이블에서 school 컬럼만 직접 조회 (무거운 student_profiles 뷰 회피).
- *  - service client + `unstable_cache(60s)`. branch 별 키.
+ *  - service client. 필터가 많은 조합이라 unstable_cache 효과 작음 → 매번 페치.
+ *  - 0046 인덱스(branch+status+school_level+grade) 활용해 distinct 1초 이내.
  *  - school_regions 매핑은 한 번 조회 (매핑 수 수십~수백 행, 가벼움).
  */
 
 const PAGE_SIZE = 1000;
 const MAX_PAGES = 10; // 안전상한 — 1만 행까지. branch 필터 적용 시 충분.
-const CACHE_SECONDS = 60;
 
 // 지역 옵션 SSOT 사용 — UI 칩과 동일 순서/내용 보장.
 import {

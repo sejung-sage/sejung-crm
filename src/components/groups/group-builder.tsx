@@ -127,6 +127,55 @@ const LEVEL_SEGMENTS: ReadonlyArray<{
 const DEBOUNCE_MS = 300;
 
 /**
+ * 학교명에서 학교급(고/중/초) 추론.
+ *  - 끝 "고" 또는 "여고" / "고등학교" → 고
+ *  - 끝 "중" 또는 "여중" → 중
+ *  - 끝 "초" 또는 "초등" 포함 → 초
+ *  - 그 외 → 기타
+ */
+function inferSchoolLevel(school: string): "고" | "중" | "초" | "기타" {
+  const s = school.trim();
+  if (s.endsWith("고") || s.endsWith("여고") || s.includes("고등학교")) return "고";
+  if (s.endsWith("초") || s.includes("초등")) return "초";
+  if (s.endsWith("중") || s.endsWith("여중")) return "중";
+  return "기타";
+}
+
+/**
+ * 학년 선택값에서 허용 학교급 set 추론.
+ *  - 학년 미선택 → null (필터 없음, 모든 학교 노출)
+ *  - 고1/고2/고3/재수/졸업/미정 포함 → "고"
+ *  - 중1/중2/중3 포함 → "중"
+ *  - 초등 포함 → "초"
+ *  - 기타 학교급은 항상 함께 노출 (level 추론 실패한 안전망)
+ */
+function gradesToSchoolLevels(
+  grades: Grade[],
+): Array<"고" | "중" | "초" | "기타"> | null {
+  if (grades.length === 0) return null;
+  const levels = new Set<"고" | "중" | "초" | "기타">();
+  for (const g of grades) {
+    if (
+      g === "고1" ||
+      g === "고2" ||
+      g === "고3" ||
+      g === "재수" ||
+      g === "졸업" ||
+      g === "미정"
+    ) {
+      levels.add("고");
+    } else if (g === "중1" || g === "중2" || g === "중3") {
+      levels.add("중");
+    } else if (g === "초등") {
+      levels.add("초");
+    }
+  }
+  // level 추론 실패한 학교는 안전상 항상 포함.
+  levels.add("기타");
+  return Array.from(levels);
+}
+
+/**
  * F2-02 · 발송 그룹 세그먼트 빌더 (Client Component).
  *
  * 좌측 패널: 그룹명 · 분원 · 학년(다중) · 학교(다중 토글) · 과목(다중 토글)
@@ -547,6 +596,7 @@ export function GroupBuilder({
               <GroupSchoolSearchPanel
                 schoolOptions={schoolOptions}
                 selected={schools}
+                grades={grades}
                 query={schoolQuery}
                 onQueryChange={setSchoolQuery}
                 onToggle={(s) =>
@@ -883,12 +933,14 @@ function Chip({
 function GroupSchoolSearchPanel({
   schoolOptions,
   selected,
+  grades,
   query,
   onQueryChange,
   onToggle,
 }: {
   schoolOptions: string[];
   selected: string[];
+  grades: Grade[];
   query: string;
   onQueryChange: (q: string) => void;
   onToggle: (s: string) => void;
@@ -900,10 +952,21 @@ function GroupSchoolSearchPanel({
     for (const s of selected) set.add(s);
     return Array.from(set);
   })();
+  // 학년 선택에 맞춰 학교 후보 좁히기 — 고/중/초 학교명 끝글자로 추론.
+  // 선택된 학교는 학년과 무관히 항상 노출 (탈선 방지).
+  const allowedLevels = gradesToSchoolLevels(grades);
+  const levelFiltered =
+    allowedLevels === null
+      ? merged
+      : merged.filter(
+          (s) =>
+            selected.includes(s) ||
+            allowedLevels.includes(inferSchoolLevel(s)),
+        );
   const filtered =
     normalized.length === 0
-      ? merged
-      : merged.filter((s) => s.toLowerCase().includes(normalized));
+      ? levelFiltered
+      : levelFiltered.filter((s) => s.toLowerCase().includes(normalized));
 
   return (
     <div className="space-y-2">

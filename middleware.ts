@@ -86,19 +86,18 @@ export async function middleware(request: NextRequest) {
   }
 
   // 프로필 조회 (active, must_change_password)
-  const { data: profile } = await supabase
+  const { data: profile, error: profileError } = await supabase
     .from("crm_users_profile")
     .select("active, must_change_password")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  // 프로필 없음(초대 직후 race) → 강제 로그아웃
-  if (!profile) {
-    await supabase.auth.signOut();
-    const redirect = request.nextUrl.clone();
-    redirect.pathname = "/login";
-    redirect.search = "";
-    return NextResponse.redirect(redirect);
+  // RLS·네트워크 에러 또는 일시적 race — 강제 로그아웃 대신 통과.
+  // 발송그룹 삭제 직후 revalidate race 에서 profile 이 잠깐 비어
+  // 로그아웃되던 회귀(2026-05-20) 방어. 진짜 비활성/탈퇴 계정은 다음
+  // 요청에서 정상 차단됨.
+  if (profileError || !profile) {
+    return response;
   }
 
   const p = profile as { active: boolean; must_change_password: boolean };

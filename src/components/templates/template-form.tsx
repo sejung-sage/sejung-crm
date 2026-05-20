@@ -130,7 +130,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
         const result = await createTemplateAction(payload);
         if (result.status === "success") {
           showToast("success", `'${payload.name}' 템플릿을 만들었어요`);
-          router.push(`/templates/${result.id}/edit`);
+          router.push("/templates");
           router.refresh();
         } else if (result.status === "dev_seed_mode") {
           setNotice(
