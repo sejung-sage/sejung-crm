@@ -451,6 +451,10 @@ export interface SchoolRegionRow {
 /**
  * 학생 상세 페이지 발송 이력 조인 행.
  * messages × campaigns 조인 결과를 가볍게 표현.
+ *
+ * 0027~ 캠페인 본문 스냅샷(body/subject/type) 도입 후, 학생 상세에서
+ * accordion 으로 본문·유형·작성자를 펼쳐 볼 수 있도록 확장.
+ * body/type 은 옛 캠페인엔 NULL 가능. sender_name 은 매핑 실패 시 NULL.
  */
 export interface StudentMessageRow {
   id: string;
@@ -459,6 +463,15 @@ export interface StudentMessageRow {
   sent_at: string | null;
   campaign_title: string;
   campaign_id: string;
+  /** 캠페인 본문 스냅샷. 0027 이전 캠페인은 NULL. */
+  campaign_body: string | null;
+  /** 발송 유형. NULL 가능 (옛 캠페인). */
+  campaign_type: "SMS" | "LMS" | "ALIMTALK" | null;
+  /**
+   * 발송자 이름 (crm_users_profile.name).
+   * created_by NULL · 사용자 프로필 미매칭 · 시스템 발송 등 매핑 실패 시 NULL.
+   */
+  sender_name: string | null;
 }
 
 /**

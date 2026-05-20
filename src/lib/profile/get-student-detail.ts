@@ -100,7 +100,7 @@ async function getFromSupabase(
     supabase
       .from("crm_messages")
       .select(
-        "id, phone, status, sent_at, campaign_id, campaigns:campaign_id(title)",
+        "id, phone, status, sent_at, campaign_id, campaigns:campaign_id(title, body, type, created_by)",
       )
       .eq("student_id", studentId)
       .order("sent_at", { ascending: false, nullsFirst: false }),
@@ -139,7 +139,7 @@ async function getFromSupabase(
     ?.aca2000_id ?? null;
   const enrollmentsRaw = (enrollmentsRes.data ?? []) as EnrollmentRow[];
   const attendancesRawDb = (attendancesRes.data ?? []) as AttendanceRow[];
-  const messages = mapMessageRows(messagesRes.data ?? []);
+  const messages = await mapMessageRows(supabase, messagesRes.data ?? []);
 
   // 비-방배 분원(대치/반포/송도)은 source 의 V_Attend_List 에 결석만 기록되고
   // 실제 수업 출석은 aca_tickets.used_at(수강권 사용) 으로 표현된다.
@@ -346,6 +346,13 @@ async function attachAttendanceClassLookup(
 
 // ─── 내부 유틸 ───────────────────────────────────────────────
 
+type RawCampaignJoin = {
+  title: string;
+  body: string | null;
+  type: "SMS" | "LMS" | "ALIMTALK" | null;
+  created_by: string | null;
+};
+
 type RawMessageJoinRow = {
   id: string;
   phone: string;
@@ -353,32 +360,75 @@ type RawMessageJoinRow = {
   sent_at: string | null;
   campaign_id: string;
   // Supabase 조인은 관계 형태에 따라 객체 또는 배열로 반환될 수 있음
-  campaigns: { title: string } | { title: string }[] | null;
+  campaigns: RawCampaignJoin | RawCampaignJoin[] | null;
 };
 
-function mapMessageRows(rows: unknown[]): StudentMessageRow[] {
-  return rows.map((raw) => {
+/**
+ * messages × campaigns 조인 결과를 StudentMessageRow 로 매핑한다.
+ *
+ * `campaigns.created_by` 는 auth.users(id) FK 라 PostgREST 의 nested select 로
+ * 사용자 이름까지 한 번에 가져올 수 없다(외부 schema). 대신 1차 결과에서
+ * uuid 집합을 모아 crm_users_profile.name 을 한 쿼리로 조회한 뒤 매핑.
+ */
+async function mapMessageRows(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  rows: unknown[],
+): Promise<StudentMessageRow[]> {
+  const joins = rows.map((raw) => {
     const row = raw as RawMessageJoinRow;
-    const campaignTitle = extractCampaignTitle(row.campaigns);
-    return {
-      id: row.id,
-      phone: row.phone,
-      status: row.status,
-      sent_at: row.sent_at,
-      campaign_id: row.campaign_id,
-      campaign_title: campaignTitle,
-    };
+    return { row, campaign: extractCampaign(row.campaigns) };
   });
+
+  const senderIds = Array.from(
+    new Set(
+      joins
+        .map((j) => j.campaign?.created_by)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  );
+
+  const senderMap = new Map<string, string>();
+  if (senderIds.length > 0) {
+    const { data, error } = await supabase
+      .from("crm_users_profile")
+      .select("user_id, name")
+      .in("user_id", senderIds);
+    if (error) {
+      // 발송자 이름 매핑 실패는 치명적이지 않다 — 로그만 남기고 "-" 로 진행.
+      // (학생 상세 페이지 전체를 막을 정도의 문제가 아님)
+      console.warn(
+        `[get-student-detail] 발송자 이름 조회 실패: ${error.message}`,
+      );
+    } else {
+      for (const u of (data ?? []) as Array<{ user_id: string; name: string }>) {
+        senderMap.set(u.user_id, u.name);
+      }
+    }
+  }
+
+  return joins.map(({ row, campaign }) => ({
+    id: row.id,
+    phone: row.phone,
+    status: row.status,
+    sent_at: row.sent_at,
+    campaign_id: row.campaign_id,
+    campaign_title: campaign?.title ?? "",
+    campaign_body: campaign?.body ?? null,
+    campaign_type: campaign?.type ?? null,
+    sender_name: campaign?.created_by
+      ? (senderMap.get(campaign.created_by) ?? null)
+      : null,
+  }));
 }
 
-function extractCampaignTitle(
+function extractCampaign(
   campaigns: RawMessageJoinRow["campaigns"],
-): string {
-  if (!campaigns) return "";
+): RawCampaignJoin | null {
+  if (!campaigns) return null;
   if (Array.isArray(campaigns)) {
-    return campaigns[0]?.title ?? "";
+    return campaigns[0] ?? null;
   }
-  return campaigns.title ?? "";
+  return campaigns;
 }
 
 function compareEnrollmentsDesc(a: EnrollmentRow, b: EnrollmentRow): number {

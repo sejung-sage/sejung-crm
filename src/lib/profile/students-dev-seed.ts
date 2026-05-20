@@ -808,6 +808,11 @@ export const DEV_STUDENT_MESSAGES: StudentMessageRow[] = [
     sent_at: "2026-03-01T10:00:00+09:00",
     campaign_title: "2026년 3월 개강 안내",
     campaign_id: "dev-CMP-0001",
+    campaign_body:
+      "안녕하세요 세정학원입니다.\n2026년 3월 정규 수업 개강 안내드립니다.\n" +
+      "수업 시간표는 학부모 앱에서 확인 가능합니다. 문의: 02-555-1234",
+    campaign_type: "LMS",
+    sender_name: "개발용 마스터",
   },
   {
     id: "dev-MSG-0002",
@@ -816,6 +821,10 @@ export const DEV_STUDENT_MESSAGES: StudentMessageRow[] = [
     sent_at: "2026-04-18T15:00:00+09:00",
     campaign_title: "4월 내신 대비 특강 안내",
     campaign_id: "dev-CMP-0002",
+    campaign_body:
+      "[광고] 4월 내신 대비 특강 모집중입니다.\n토요일 오후 2시 ~ 5시, 대치관 201호.\n무료 080-XXX-XXXX 수신거부",
+    campaign_type: "LMS",
+    sender_name: "김원장",
   },
   // 이서연 · 1건
   {
@@ -825,6 +834,11 @@ export const DEV_STUDENT_MESSAGES: StudentMessageRow[] = [
     sent_at: "2026-03-01T10:00:00+09:00",
     campaign_title: "2026년 3월 개강 안내",
     campaign_id: "dev-CMP-0001",
+    campaign_body:
+      "안녕하세요 세정학원입니다.\n2026년 3월 정규 수업 개강 안내드립니다.\n" +
+      "수업 시간표는 학부모 앱에서 확인 가능합니다. 문의: 02-555-1234",
+    campaign_type: "LMS",
+    sender_name: "개발용 마스터",
   },
 ];
 
