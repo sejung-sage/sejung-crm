@@ -34,9 +34,17 @@ export default async function StudentsPage({
   const input = parseStudentsSearchParams(raw);
 
   // 학생 리스트 + 학교 옵션 prefetch 를 병렬 실행.
+  // 학교 옵션은 학생 명단과 동일 필터(branch/grade/level/status/includeHidden)
+  // 적용 후 distinct school 만 노출 — region/schools 는 자기 자신 좁히기 방지.
   const [result, filterOptions, currentUser] = await Promise.all([
     listStudents(input),
-    listStudentFilterOptions(input.branch),
+    listStudentFilterOptions({
+      branch: input.branch,
+      grades: input.grades,
+      schoolLevels: input.schoolLevels,
+      statuses: input.statuses,
+      includeHidden: input.includeHidden,
+    }),
     getCurrentUser(),
   ]);
   const canPickBranch = currentUser?.role === "master";

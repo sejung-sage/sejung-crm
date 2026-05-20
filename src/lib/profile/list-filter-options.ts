@@ -66,24 +66,49 @@ export interface StudentFilterOptions {
   schoolGroups: SchoolGroup[];
 }
 
+/**
+ * 학교 옵션 좁힘에 사용할 필터 셋.
+ * ListStudentsInput 전체가 아니라 학교 옵션과 의미 있는 필드만 명시.
+ * region/schools 는 의도적으로 제외 — 자기 자신을 좁히는 모순 회피.
+ */
+export interface StudentFilterOptionsInput {
+  branch?: string;
+  grades?: ListStudentsInput["grades"];
+  schoolLevels?: ListStudentsInput["schoolLevels"];
+  statuses?: ListStudentsInput["statuses"];
+  includeHidden?: boolean;
+}
+
 export async function listStudentFilterOptions(
-  branch: string | undefined,
+  input: StudentFilterOptionsInput | string | undefined,
 ): Promise<StudentFilterOptions> {
+  // 호환: 옛 호출부가 branch 문자열만 넘기는 케이스도 지원.
+  const normalized: StudentFilterOptionsInput =
+    typeof input === "string" || input === undefined
+      ? { branch: input }
+      : input;
   if (isDevSeedMode()) {
-    return collectFromDevSeed(branch);
+    return collectFromDevSeed(normalized);
   }
-  // unstable_cache 키에 undefined 가 들어가면 안 되어서 sentinel 변환.
-  return cachedCollectFromSupabase(branch ?? "__all__");
+  // 필터 조합을 캐시 키로 직렬화 — 같은 조합 재접근 시 hit.
+  const cacheKey = JSON.stringify({
+    b: normalized.branch ?? "__all__",
+    g: normalized.grades ?? [],
+    l: normalized.schoolLevels ?? [],
+    s: normalized.statuses ?? [],
+    h: normalized.includeHidden ?? false,
+  });
+  return cachedCollectFromSupabase(cacheKey, normalized);
 }
 
 async function collectFromSupabase(
-  branch: string | undefined,
+  input: StudentFilterOptionsInput,
 ): Promise<StudentFilterOptions> {
-  // service client — 쿠키 의존 없음. unstable_cache 와 호환.
-  // students.school / school_regions 만 노출하므로 RLS 우회 영향 없음.
+  // service client — 쿠키 의존 없음 + unstable_cache 호환.
   const supabase = createSupabaseServiceClient();
 
   // 1) 학생 테이블에서 학교명 distinct (1만 행 cap 페이지네이션).
+  //    학생 명단의 list-students 와 동일 필터 적용 — region/schools 만 제외.
   const schoolSet = new Set<string>();
   for (let page = 0; page < MAX_PAGES; page++) {
     const from = page * PAGE_SIZE;
@@ -93,15 +118,34 @@ async function collectFromSupabase(
       .from("crm_students")
       .select("school")
       .not("school", "is", null)
+      .neq("status", "탈퇴") // 안전 정책상 탈퇴 학생 학교는 옵션에서 제외.
       .range(from, to);
 
-    if (branch && branch !== "전체") {
-      query = query.eq("branch", branch);
+    if (input.branch && input.branch !== "전체") {
+      query = query.eq("branch", input.branch);
+    }
+    if (input.grades && input.grades.length > 0) {
+      query = query.in("grade", input.grades);
+    }
+    if (input.schoolLevels && input.schoolLevels.length > 0) {
+      query = query.in("school_level", input.schoolLevels);
+    }
+    if (input.statuses && input.statuses.length > 0) {
+      query = query.in("status", input.statuses);
+    }
+    if (
+      input.includeHidden !== true &&
+      (!input.grades || input.grades.length === 0)
+    ) {
+      query = query.not(
+        "grade",
+        "in",
+        `(${HIDDEN_GRADES_BY_DEFAULT.join(",")})`,
+      );
     }
 
     const { data, error } = await query;
     if (error) {
-      // 옵션 prefetch 실패는 페이지를 깨면 안 된다 — 빈 옵션 fallback.
       return { teachers: [], schools: [], schoolGroups: emptyGroups() };
     }
 
@@ -131,25 +175,46 @@ async function collectFromSupabase(
   return buildOptions(schoolSet, schoolToRegion);
 }
 
+// cacheKey 를 첫 인자로 받아 unstable_cache 가 키로 인식. input 은 본문에서 사용.
 const cachedCollectFromSupabase = unstable_cache(
-  async (branchKey: string): Promise<StudentFilterOptions> => {
-    const branch = branchKey === "__all__" ? undefined : branchKey;
-    return collectFromSupabase(branch);
-  },
-  ["student-school-options"],
+  async (
+    _cacheKey: string,
+    input: StudentFilterOptionsInput,
+  ): Promise<StudentFilterOptions> => collectFromSupabase(input),
+  ["student-school-options-v2"],
   { revalidate: CACHE_SECONDS, tags: ["student-school-options"] },
 );
 
 function collectFromDevSeed(
-  branch: string | undefined,
+  input: StudentFilterOptionsInput,
 ): StudentFilterOptions {
   const schoolSet = new Set<string>();
-  const profiles =
-    branch && branch !== "전체"
-      ? DEV_STUDENT_PROFILES.filter((r) => r.branch === branch)
-      : DEV_STUDENT_PROFILES;
+  const filtered = DEV_STUDENT_PROFILES.filter((r) => {
+    if (r.status === "탈퇴") return false;
+    if (input.branch && input.branch !== "전체" && r.branch !== input.branch) {
+      return false;
+    }
+    if (input.grades && input.grades.length > 0) {
+      if (!r.grade || !input.grades.includes(r.grade)) return false;
+    }
+    if (input.schoolLevels && input.schoolLevels.length > 0) {
+      if (!r.school_level || !input.schoolLevels.includes(r.school_level)) {
+        return false;
+      }
+    }
+    if (input.statuses && input.statuses.length > 0) {
+      if (!input.statuses.includes(r.status)) return false;
+    }
+    if (
+      input.includeHidden !== true &&
+      (!input.grades || input.grades.length === 0)
+    ) {
+      if (r.grade && HIDDEN_GRADES_BY_DEFAULT.includes(r.grade)) return false;
+    }
+    return true;
+  });
 
-  for (const r of profiles) {
+  for (const r of filtered) {
     if (typeof r.school === "string" && r.school.trim().length > 0) {
       schoolSet.add(r.school.trim());
     }
