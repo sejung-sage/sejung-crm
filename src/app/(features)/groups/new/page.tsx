@@ -1,6 +1,7 @@
 import { GroupBuilder } from "@/components/groups/group-builder";
 import { countRecipients } from "@/lib/groups/count-recipients";
 import { getSchoolOptions } from "@/lib/groups/school-options";
+import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { getClassDetail } from "@/lib/classes/get-class-detail";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -156,11 +157,15 @@ export default async function NewGroupPage({
     excludeStudentIds: [],
   };
 
-  const [initialPreview, schoolOptions, currentUser] = await Promise.all([
-    countRecipients(initialFilters, branch),
-    getSchoolOptions(branch),
-    getCurrentUser(),
-  ]);
+  const [initialPreview, schoolOptions, filterOptions, currentUser] =
+    await Promise.all([
+      countRecipients(initialFilters, branch),
+      getSchoolOptions(branch),
+      // 그룹은 모든 status(탈퇴 제외) + 졸업·미정 학생도 발송 대상 가능 →
+      // includeHidden=true 로 옵션 추출. statuses 는 빈 배열 = 전체 매칭.
+      listStudentFilterOptions({ branch, includeHidden: true }),
+      getCurrentUser(),
+    ]);
 
   // 분원 칩 변경 권한: master 만 다른 분원 그룹 생성 가능.
   const canPickBranch = currentUser?.role === "master";
@@ -183,6 +188,8 @@ export default async function NewGroupPage({
       }}
       canPickBranch={canPickBranch}
       canRevealPhone={canPickBranch}
+      availableGrades={filterOptions.availableGrades}
+      availableRegions={filterOptions.availableRegions}
     />
   );
 }

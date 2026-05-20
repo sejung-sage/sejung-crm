@@ -3,6 +3,7 @@ import { GroupBuilder } from "@/components/groups/group-builder";
 import { getGroup } from "@/lib/groups/get-group";
 import { countRecipients } from "@/lib/groups/count-recipients";
 import { getSchoolOptions } from "@/lib/groups/school-options";
+import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { getCurrentUser } from "@/lib/auth/current-user";
 
 /**
@@ -20,11 +21,16 @@ export default async function EditGroupPage({
   const group = await getGroup(id);
   if (!group) notFound();
 
-  const [initialPreview, schoolOptions, currentUser] = await Promise.all([
-    countRecipients(group.filters, group.branch),
-    getSchoolOptions(group.branch),
-    getCurrentUser(),
-  ]);
+  const [initialPreview, schoolOptions, filterOptions, currentUser] =
+    await Promise.all([
+      countRecipients(group.filters, group.branch),
+      getSchoolOptions(group.branch),
+      listStudentFilterOptions({
+        branch: group.branch,
+        includeHidden: true,
+      }),
+      getCurrentUser(),
+    ]);
 
   // 분원 칩 변경 권한: master 만 분원 이동 가능 (운영 관리). 그 외는 잠금.
   const canPickBranch = currentUser?.role === "master";
@@ -48,6 +54,8 @@ export default async function EditGroupPage({
       oldFilters={group.filters}
       canPickBranch={canPickBranch}
       canRevealPhone={canPickBranch}
+      availableGrades={filterOptions.availableGrades}
+      availableRegions={filterOptions.availableRegions}
     />
   );
 }

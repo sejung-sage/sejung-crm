@@ -77,6 +77,13 @@ interface Props {
    * false 면 검색 결과·칩에서 010-****-1234 마스킹.
    */
   canRevealPhone?: boolean;
+  /**
+   * 그룹의 branch 에 매칭되는 학생을 가진 학년·지역 set.
+   * UI 학년 칩·지역 칩 가시화에 사용. 현재 선택된 칩은 매칭 없어도 유지.
+   * 미전달 시 (옛 호출부 호환) 전체 옵션 노출.
+   */
+  availableGrades?: Grade[];
+  availableRegions?: string[];
 }
 
 /**
@@ -201,6 +208,8 @@ export function GroupBuilder({
   initialDiff,
   canPickBranch = true,
   canRevealPhone = false,
+  availableGrades,
+  availableRegions,
 }: Props) {
   const router = useRouter();
   const { show: showToast } = useToast();
@@ -497,9 +506,15 @@ export function GroupBuilder({
               hint={grades.length === 0 ? "선택 안 함 = 전 학년" : undefined}
             >
               <div className="space-y-2.5">
-                {/* 학년 칩 — 항상 7종 노출 (학교급 토글 제거 2026-05-20) */}
+                {/* 학년 칩 — 분원 매칭 학생 있는 학년만 (availableGrades) ∩ 7종.
+                    현재 선택된 grade 는 매칭 없어도 유지 (해제 가능). */}
                 <div className="flex flex-wrap gap-1.5">
-                  {GRADE_OPTIONS_ALL.map((g) => (
+                  {GRADE_OPTIONS_ALL.filter(
+                    (g) =>
+                      !availableGrades ||
+                      availableGrades.includes(g) ||
+                      grades.includes(g),
+                  ).map((g) => (
                     <Chip
                       key={g}
                       label={g}
@@ -511,36 +526,48 @@ export function GroupBuilder({
                   ))}
                 </div>
 
-                {/* 졸업·미정 expand */}
-                <div className="pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setShowHiddenGrades((v) => !v)}
-                    aria-expanded={showHiddenGrades}
-                    className="
-                      inline-flex items-center gap-1
-                      text-[12px] text-[color:var(--text-muted)]
-                      hover:text-[color:var(--text)]
-                      transition-colors
-                    "
-                  >
-                    {showHiddenGrades ? "− 졸업·미정 숨기기" : "+ 졸업·미정 포함"}
-                  </button>
-                  {showHiddenGrades && (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      {GRADE_OPTIONS_HIDDEN.map((g) => (
-                        <Chip
-                          key={g}
-                          label={g}
-                          active={grades.includes(g)}
-                          onClick={() =>
-                            toggleFromList(grades, g, (next) => setGrades(next))
-                          }
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {/* 졸업·미정 expand — availableGrades 에 졸업/미정 있을 때만 노출 */}
+                {(!availableGrades ||
+                  GRADE_OPTIONS_HIDDEN.some(
+                    (g) => availableGrades.includes(g) || grades.includes(g),
+                  )) && (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowHiddenGrades((v) => !v)}
+                      aria-expanded={showHiddenGrades}
+                      className="
+                        inline-flex items-center gap-1
+                        text-[12px] text-[color:var(--text-muted)]
+                        hover:text-[color:var(--text)]
+                        transition-colors
+                      "
+                    >
+                      {showHiddenGrades ? "− 졸업·미정 숨기기" : "+ 졸업·미정 포함"}
+                    </button>
+                    {showHiddenGrades && (
+                      <div className="mt-2 flex flex-wrap gap-1.5">
+                        {GRADE_OPTIONS_HIDDEN.filter(
+                          (g) =>
+                            !availableGrades ||
+                            availableGrades.includes(g) ||
+                            grades.includes(g),
+                        ).map((g) => (
+                          <Chip
+                            key={g}
+                            label={g}
+                            active={grades.includes(g)}
+                            onClick={() =>
+                              toggleFromList(grades, g, (next) =>
+                                setGrades(next),
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </Field>
 
@@ -587,7 +614,12 @@ export function GroupBuilder({
               hint={regions.length === 0 ? "선택 안 함 = 전 지역" : undefined}
             >
               <div className="flex flex-wrap gap-1.5">
-                {REGION_OPTIONS.map((r) => (
+                {REGION_OPTIONS.filter(
+                  (r) =>
+                    !availableRegions ||
+                    availableRegions.includes(r) ||
+                    regions.includes(r),
+                ).map((r) => (
                   <Chip
                     key={r}
                     label={r}
