@@ -1,6 +1,7 @@
 import type {
   AttendanceStatus,
   AttendanceWithClass,
+  ExpectedSession,
 } from "@/types/database";
 import { AttendanceStatusChip } from "@/components/students/attendance-status-chip";
 
@@ -8,6 +9,12 @@ interface Props {
   // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
   // 강좌별 mini timeline 은 과거→최근 오름차순으로 펼쳐야 가독성이 좋다.
   attendances: AttendanceWithClass[];
+  /**
+   * 결제완료 ticket 의 강좌×예정 회차. 비-방배 분원에서만 비어있지 않음.
+   * column 펼침 기준 = attendance.attended_at ∪ expectedSessions.class_date
+   * → "결제 8회 = column 8개" 진척도 표시.
+   */
+  expectedSessions?: ExpectedSession[];
   /**
    * 학생 분원. "방배" 면 chip 이 5종 raw 표시, 그 외이면 결석 외 모두 출석 chip
    * (`attendance-policy` 단일 정책).
@@ -29,8 +36,12 @@ interface Props {
  * `<details>` 요소 사용 — 키보드 접근성·스크린리더·CSS open state 모두 무료.
  * Server Component (상태 없음).
  */
-export function StudentAttendancesPanel({ attendances, branch }: Props) {
-  if (attendances.length === 0) {
+export function StudentAttendancesPanel({
+  attendances,
+  expectedSessions = [],
+  branch,
+}: Props) {
+  if (attendances.length === 0 && expectedSessions.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
@@ -40,7 +51,7 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
     );
   }
 
-  const groups = buildGroups(attendances);
+  const groups = buildGroups(attendances, expectedSessions);
 
   return (
     <section aria-label="출석 (강좌별)" className="space-y-3">
@@ -73,7 +84,14 @@ function CourseAccordion({
   group: GroupRow;
   branch?: string | null;
 }) {
-  const dates = Array.from(group.byDate.keys()).sort();
+  // column dates = attendance row 일자 ∪ 결제완료 ticket 의 class_date.
+  // expectedDates 가 비어있으면 (방배 등) attendance row 만 펼쳐짐.
+  const dates = Array.from(
+    new Set<string>([
+      ...group.byDate.keys(),
+      ...group.expectedDates,
+    ]),
+  ).sort();
 
   return (
     <details className="group rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
@@ -169,11 +187,20 @@ function CourseAccordion({
                       key={iso}
                       className="px-1 py-3 text-center align-middle"
                     >
-                      {status && (
+                      {status ? (
                         <AttendanceStatusChip
                           status={status}
                           branch={branch}
                         />
+                      ) : (
+                        // 결제는 했으나 attendance row 없는 회차 — 빈 점.
+                        <span
+                          className="text-[color:var(--text-dim)]"
+                          aria-label="예정 회차 (출결 미기록)"
+                          title="예정 회차"
+                        >
+                          ·
+                        </span>
                       )}
                     </td>
                   );
@@ -216,6 +243,11 @@ interface GroupRow {
   note: string | null;
   counts: Record<AttendanceStatus | "총", number>;
   byDate: Map<string, AttendanceStatus>;
+  /**
+   * 이 강좌의 결제완료 ticket 예정 회차 일자 (YYYY-MM-DD).
+   * column 펼침 시 byDate.keys() 와 union. 비-방배 + ticket 있는 경우만 채워짐.
+   */
+  expectedDates: Set<string>;
 }
 
 const UNMATCHED_KEY = "__unmatched__";
@@ -233,7 +265,10 @@ const COUNT_COLUMNS: {
   { key: "보강", label: "보", aria: "보강" },
 ];
 
-function buildGroups(attendances: AttendanceWithClass[]): GroupRow[] {
+function buildGroups(
+  attendances: AttendanceWithClass[],
+  expectedSessions: ExpectedSession[],
+): GroupRow[] {
   const groupMap = new Map<string, GroupRow>();
   for (const a of attendances) {
     const key = a.aca_class_id ?? UNMATCHED_KEY;
@@ -244,6 +279,7 @@ function buildGroups(attendances: AttendanceWithClass[]): GroupRow[] {
         ...buildGroupHeader(a),
         counts: { 총: 0, 출석: 0, 지각: 0, 결석: 0, 조퇴: 0, 보강: 0 },
         byDate: new Map<string, AttendanceStatus>(),
+        expectedDates: new Set<string>(),
       };
       groupMap.set(key, g);
     }
@@ -251,6 +287,28 @@ function buildGroups(attendances: AttendanceWithClass[]): GroupRow[] {
     g.byDate.set(a.attended_at, a.status);
     g.counts[a.status] += 1;
     g.counts["총"] += 1;
+  }
+
+  // expectedSessions 머지 — attendance 가 한 건도 없는 강좌도 그룹 생성.
+  // 그 경우 group header 는 강좌 마스터 fallback (이름 없으면 ID slice).
+  for (const s of expectedSessions) {
+    const key = s.aca_class_id;
+    let g = groupMap.get(key);
+    if (!g) {
+      // attendance 0건 + ticket 만 있는 강좌. class lookup 이 없으니
+      // placeholder header — 사용자 보고용으론 "강좌 #xxxxxxxx" 로 표시됨.
+      g = {
+        key,
+        title: `강좌 #${key.slice(-8)}`,
+        subtitle: null,
+        note: "(출결 0건 · 예정 회차만)",
+        counts: { 총: 0, 출석: 0, 지각: 0, 결석: 0, 조퇴: 0, 보강: 0 },
+        byDate: new Map<string, AttendanceStatus>(),
+        expectedDates: new Set<string>(),
+      };
+      groupMap.set(key, g);
+    }
+    g.expectedDates.add(s.class_date);
   }
 
   // 정렬 — 총 카운트 DESC, 같으면 강좌명 ko 정렬. unmatched 는 맨 아래.

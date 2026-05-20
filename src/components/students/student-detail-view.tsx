@@ -47,6 +47,7 @@ export function StudentDetailView({ detail, canRevealPhone = false }: Props) {
         attendancesPanel={
           <StudentAttendancesPanel
             attendances={detail.attendances}
+            expectedSessions={detail.expectedSessions}
             branch={detail.profile.branch}
           />
         }

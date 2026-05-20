@@ -513,6 +513,20 @@ export type AttendanceWithClass = AttendanceRow & {
 };
 
 /**
+ * 결제완료 ticket 의 예정 회차 (강좌 × 수업 예정일).
+ *
+ * aca_tickets.payment_state='결제완료' 행마다 1개 — 매주 같은 요일로 펼쳐진다.
+ * 학생 상세 출석 격자에서 "결제 8회 = column 8개" 진척도 표시용.
+ *
+ * 비-방배 분원에서만 채워진다. 방배는 attendance row 가 정확해 빈 배열.
+ */
+export interface ExpectedSession {
+  aca_class_id: string;
+  /** 'YYYY-MM-DD' (aca_tickets.class_date 의 날짜 부분). */
+  class_date: string;
+}
+
+/**
  * 학생 상세 페이지 data loader 반환 통합 타입.
  * /students/[id] 의 프로필·수강이력·출석·발송이력 4개 영역 원본.
  */
@@ -521,6 +535,11 @@ export type StudentDetail = {
   enrollments: EnrollmentWithClass[];
   attendances: AttendanceWithClass[];
   messages: StudentMessageRow[];
+  /**
+   * 결제완료 ticket 의 강좌 × 예정 회차 리스트.
+   * 비-방배 분원 + ticket 존재 시에만 비어있지 않음. 빈 배열 default.
+   */
+  expectedSessions: ExpectedSession[];
 };
 
 // ─── 강좌 상세(/classes/[id]) 조인 타입 ─────────────────────

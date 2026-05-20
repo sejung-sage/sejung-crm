@@ -6,6 +6,7 @@ import type {
   EnrollmentClassLookup,
   EnrollmentRow,
   EnrollmentWithClass,
+  ExpectedSession,
   StudentDetail,
   StudentMessageRow,
   StudentProfileRow,
@@ -57,7 +58,8 @@ async function getFromDevSeed(
     compareMessagesDesc,
   );
 
-  return { profile, enrollments, attendances, messages };
+  // dev-seed 는 ticket 데이터를 시드하지 않으므로 expectedSessions 는 빈 배열.
+  return { profile, enrollments, attendances, messages, expectedSessions: [] };
 }
 
 async function getFromSupabase(
@@ -148,14 +150,15 @@ async function getFromSupabase(
   // 방배는 5종 status 가 완전히 기록되므로 ticket 데이터를 섞으면 카운트가
   // 이중 집계됨 — 그래서 분원 가드를 둔다.
   let attendancesRaw: AttendanceRow[] = attendancesRawDb;
+  let expectedSessions: ExpectedSession[] = [];
   if (!isStrictAttendanceBranch(profile.branch) && acaStudentId) {
+    // 결제완료 ticket 한 번에 조회 — used_at 사용분 (가상 attendance) 과
+    // 전체 회차 (expectedSessions) 모두 같은 풀에서 파생.
     const ticketsRes = await supabase
       .from("aca_tickets")
-      .select("id, aca_class_id, used_at, created_at, updated_at")
+      .select("id, aca_class_id, used_at, class_date, created_at, updated_at")
       .eq("aca_student_id", acaStudentId)
-      .eq("payment_state", "결제완료")
-      .not("used_at", "is", null)
-      .lt("used_at", "2050-01-01");
+      .eq("payment_state", "결제완료");
 
     if (ticketsRes.error) {
       throw new Error(
@@ -166,17 +169,25 @@ async function getFromSupabase(
     const ticketRows = (ticketsRes.data ?? []) as Array<{
       id: string;
       aca_class_id: string | null;
-      used_at: string;
+      used_at: string | null;
+      class_date: string | null;
       created_at: string;
       updated_at: string;
     }>;
 
-    const ticketAsAttendance: AttendanceRow[] = ticketRows.map((t) => ({
+    // (1) 실제 사용된 ticket → 가상 attendance row.
+    // 보강 며칠 차이 케이스에서 column 과 cell 이 어긋나지 않도록
+    // attended_at = class_date (없으면 used_at) 로 통일.
+    const usedTickets = ticketRows.filter(
+      (t) => t.used_at !== null && t.used_at < "2050-01-01",
+    );
+    const ticketAsAttendance: AttendanceRow[] = usedTickets.map((t) => ({
       id: t.id,
       student_id: studentId,
       enrollment_id: null,
-      // attended_at 컬럼은 DATE 라 ticket.used_at(timestamptz) 의 날짜 부분만 사용.
-      attended_at: toDateOnly(t.used_at),
+      // class_date 우선 (그 회차의 예정 수업일) — 컬럼 매칭용.
+      // class_date 가 NULL 이면 fallback 으로 used_at 날짜 부분.
+      attended_at: t.class_date ?? toDateOnly(t.used_at as string),
       status: "출석",
       aca_attendance_id: null,
       aca_class_id: t.aca_class_id,
@@ -186,6 +197,23 @@ async function getFromSupabase(
     attendancesRaw = [...attendancesRawDb, ...ticketAsAttendance].sort(
       compareAttendancesDesc,
     );
+
+    // (2) expectedSessions — 결제완료 ticket 의 class_date 전체.
+    // 미사용 / 결제전 / 사용분 구분 없이 "결제된 모든 회차" 가 column 으로
+    // 펼쳐져 진척도(예: 7회 중 1회 출석) 가 한눈에 보임.
+    // aca_class_id 가 NULL 이거나 class_date 가 NULL 인 행은 매칭 불가라 제외.
+    expectedSessions = ticketRows
+      .filter(
+        (t): t is typeof t & { aca_class_id: string; class_date: string } =>
+          typeof t.aca_class_id === "string" &&
+          t.aca_class_id.length > 0 &&
+          typeof t.class_date === "string" &&
+          t.class_date.length > 0,
+      )
+      .map((t) => ({
+        aca_class_id: t.aca_class_id,
+        class_date: toDateOnly(t.class_date),
+      }));
   }
 
   // 강좌 마스터 lookup — aca_class_id 로 묶어 1쿼리, 그 다음 머지.
@@ -197,7 +225,7 @@ async function getFromSupabase(
     attendancesRaw,
   );
 
-  return { profile, enrollments, attendances, messages };
+  return { profile, enrollments, attendances, messages, expectedSessions };
 }
 
 /**
