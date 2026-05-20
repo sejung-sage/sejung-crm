@@ -103,10 +103,13 @@ function CourseAccordion({
           focus-visible:outline-none focus-visible:bg-[color:var(--bg-muted)]
         "
       >
-        {/* 좌측: 강좌 메타 */}
+        {/* 좌측: 강좌 메타 + 진행 상태 칩 */}
         <div className="min-w-0 flex-1">
-          <div className="text-[14px] font-medium text-[color:var(--text)] truncate">
-            {group.title}
+          <div className="flex items-center gap-2">
+            <ProgressBadge ongoing={group.isOngoing} />
+            <span className="text-[14px] font-medium text-[color:var(--text)] truncate">
+              {group.title}
+            </span>
           </div>
           {group.subtitle && (
             <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)] truncate">
@@ -234,6 +237,39 @@ function ChevronIcon({ className }: { className?: string }) {
   );
 }
 
+/**
+ * 강좌 진행 상태 배지.
+ *  - 진행 중: 검정 배경 (action 색) — 운영자가 한눈에 식별
+ *  - 완료:    회색 outline — 시각적으로 dim
+ */
+function ProgressBadge({ ongoing }: { ongoing: boolean }) {
+  if (ongoing) {
+    return (
+      <span
+        className="
+          inline-flex shrink-0 items-center px-2 py-0.5 rounded-full
+          text-[11px] font-medium
+          bg-[color:var(--action)] text-[color:var(--action-text)]
+        "
+      >
+        진행 중
+      </span>
+    );
+  }
+  return (
+    <span
+      className="
+        inline-flex shrink-0 items-center px-2 py-0.5 rounded-full
+        text-[11px] font-medium
+        bg-[color:var(--bg-muted)] text-[color:var(--text-muted)]
+        border border-[color:var(--border)]
+      "
+    >
+      완료
+    </span>
+  );
+}
+
 // ─── 그룹 빌드 ────────────────────────────────────────────
 
 interface GroupRow {
@@ -248,6 +284,10 @@ interface GroupRow {
    * column 펼침 시 byDate.keys() 와 union. 비-방배 + ticket 있는 경우만 채워짐.
    */
   expectedDates: Set<string>;
+  /** 강좌 진행 상태 — 마지막 일자(출결 ∪ 예정)가 today 이상이면 ongoing. */
+  isOngoing: boolean;
+  /** 강좌의 마지막 일자 (YYYY-MM-DD). 정렬 보조 키. */
+  lastDate: string | null;
 }
 
 const UNMATCHED_KEY = "__unmatched__";
@@ -279,6 +319,8 @@ function buildGroups(
         counts: { 총: 0, 출석: 0, 지각: 0, 결석: 0, 조퇴: 0, 보강: 0 },
         byDate: new Map<string, AttendanceStatus>(),
         expectedDates: new Set<string>(),
+        isOngoing: false,
+        lastDate: null,
       };
       groupMap.set(key, g);
     }
@@ -304,16 +346,40 @@ function buildGroups(
         counts: { 총: 0, 출석: 0, 지각: 0, 결석: 0, 조퇴: 0, 보강: 0 },
         byDate: new Map<string, AttendanceStatus>(),
         expectedDates: new Set<string>(),
+        isOngoing: false,
+        lastDate: null,
       };
       groupMap.set(key, g);
     }
     g.expectedDates.add(s.class_date);
   }
 
-  // 정렬 — 총 카운트 DESC, 같으면 강좌명 ko 정렬. unmatched 는 맨 아래.
+  // group 별 진행 상태 산출 — 출결 ∪ 예정 회차의 max 일자 vs today.
+  // YYYY-MM-DD 문자열 비교가 사전순=시간순이라 별도 Date 변환 불필요.
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  for (const g of groupMap.values()) {
+    let maxDate: string | null = null;
+    for (const d of g.byDate.keys()) {
+      if (!maxDate || d > maxDate) maxDate = d;
+    }
+    for (const d of g.expectedDates) {
+      if (!maxDate || d > maxDate) maxDate = d;
+    }
+    g.lastDate = maxDate;
+    g.isOngoing = maxDate !== null && maxDate >= todayStr;
+  }
+
+  // 정렬 — 진행 중 위로 → 마지막 일자 최신 순 → 총 카운트 DESC → 이름.
+  // unmatched 는 맨 아래.
   return Array.from(groupMap.values()).sort((a, b) => {
     if (a.key === UNMATCHED_KEY) return 1;
     if (b.key === UNMATCHED_KEY) return -1;
+    if (a.isOngoing !== b.isOngoing) return a.isOngoing ? -1 : 1;
+    // lastDate 내림차순 (최신이 위).
+    const ad = a.lastDate ?? "";
+    const bd = b.lastDate ?? "";
+    if (ad !== bd) return bd.localeCompare(ad);
     const dt = b.counts["총"] - a.counts["총"];
     if (dt !== 0) return dt;
     return a.title.localeCompare(b.title, "ko");
