@@ -123,10 +123,18 @@ function CourseAccordion({
           )}
         </div>
 
-        {/* 카운트 chip 묶음 */}
+        {/* 카운트 chip 묶음.
+            "총" 은 결제 ticket 회차 수 — expectedDates.size 가 우선 (비-방배에서
+            ticket 데이터 있는 경우). ticket 정보 없는 강좌는 attendance row 수로
+            fallback. 운영자 관점: 학생이 "산 회차 수" 가 분모로 노출되어야 자연스러움. */}
         <div className="flex items-center gap-3 text-[12px] tabular-nums whitespace-nowrap">
           {COUNT_COLUMNS.map((col) => {
-            const v = group.counts[col.key];
+            const v =
+              col.key === "총"
+                ? group.expectedDates.size > 0
+                  ? group.expectedDates.size
+                  : group.counts["총"]
+                : group.counts[col.key];
             const dim = v === 0;
             return (
               <span
