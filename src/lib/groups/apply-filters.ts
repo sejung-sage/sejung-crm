@@ -68,9 +68,12 @@ export function applyGroupFiltersDev(
       return includeSet.has(p.id);
     }
 
-    // 5) 재원 상태 — 빈 배열이면 default '재원생' 만 (학생 명단 default 와 동일).
+    // 5) 재원 상태 — 빈 배열이면 default '탈퇴 빼고 전체' (재원생/수강이력자/수강 x).
+    // 옛 그룹 JSONB 호환성을 위해 빈 배열의 시맨틱은 "조건 없음" = 전체로 해석.
     const wantedStatuses =
-      filters.statuses.length > 0 ? filters.statuses : ["재원생"];
+      filters.statuses.length > 0
+        ? filters.statuses
+        : ["재원생", "수강이력자", "수강 x"];
     if (!wantedStatuses.includes(p.status)) return false;
 
     // 6) 조건 절 (직접 선택이 비어있을 때만)

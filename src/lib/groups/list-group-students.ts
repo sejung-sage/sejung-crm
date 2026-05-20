@@ -71,11 +71,12 @@ export async function listGroupStudents(
       .neq("status", "탈퇴")
       .eq("branch", group.branch);
 
-    // 재원 상태 — count-recipients 와 동일하게 빈 배열이면 default '재원생'.
+    // 재원 상태 — count-recipients 와 동일. 빈 배열 default = 탈퇴 빼고 전체.
+    // 옛 그룹 JSONB 호환 (statuses 키 부재 = "전체" 의미).
     const wantedStatuses =
       group.filters.statuses.length > 0
         ? group.filters.statuses
-        : ["재원생"];
+        : ["재원생", "수강이력자", "수강 x"];
     q = q.in("status", wantedStatuses);
 
     // includeStudentIds 가 있으면 조건 무시.

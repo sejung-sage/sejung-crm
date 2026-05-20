@@ -173,16 +173,16 @@ describe("applyGroupFiltersDev · 복합 필터", () => {
     expect(r.length).toBe(0);
   });
 
-  it("빈 statuses 는 default '재원생' 1종 → 대치 재원생 4명", () => {
-    // statuses 도입(0019) 이전 시맨틱: 빈 배열 = 모든 status (탈퇴 제외) = 대치 8명.
-    // 신 시맨틱: 빈 statuses → default '재원생' 만. 옛 의미를 원하면 3종 풀로 명시.
+  it("빈 statuses 는 default '탈퇴 빼고 전체' (3종) → 대치 8명", () => {
+    // 옛 그룹 JSONB 호환을 위해 빈 statuses 의 시맨틱을 "조건 없음 = 전체" 로 복원.
+    // 재원생/수강이력자/수강 x 모두 매칭. 탈퇴는 안전 정책상 항상 차단.
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
       { grades: [], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [] },
       "대치",
     );
-    expect(r.length).toBe(4);
-    expect(r.every((p) => p.status === "재원생")).toBe(true);
+    expect(r.length).toBe(8);
+    expect(r.every((p) => p.status !== "탈퇴")).toBe(true);
   });
 
   it("statuses 풀 명시(3종) → 옛 빈필터 시맨틱과 동일하게 대치 8명", () => {

@@ -322,9 +322,12 @@ function buildQuery(
   if (build.statusMode === "withdrawn") {
     q = q.eq("status", "탈퇴");
   } else {
-    // 탈퇴 안전 차단 + statuses 적용 (빈 배열 → default 재원생)
+    // 탈퇴 안전 차단 + statuses 적용. 빈 배열 default = 탈퇴 빼고 전체.
+    // count-recipients · apply-filters 와 동일 시맨틱.
     const wantedStatuses: StudentStatus[] =
-      f.statuses.length > 0 ? f.statuses : ["재원생"];
+      f.statuses.length > 0
+        ? f.statuses
+        : ["재원생", "수강이력자", "수강 x"];
     q = q.in("status", wantedStatuses);
     // wantedStatuses 에 '탈퇴' 가 들어와도 명시적으로 차단 (안전 정책).
     q = q.neq("status", "탈퇴");

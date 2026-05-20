@@ -149,9 +149,14 @@ async function countFromSupabase(
       q = q.eq("branch", branch);
     }
 
-    // 재원 상태 필터 — 빈 배열이면 default '재원생' 만.
+    // 재원 상태 필터 — 빈 배열이면 default 는 탈퇴 제외 전체 (재원생/수강이력자/수강 x).
+    // 옛 그룹 JSONB 에 statuses 키가 없으면 빈 배열로 채워지는데, 그 그룹의 의미는
+    // "탈퇴 빼고 전체" 였으므로 default 도 동일하게 잡아야 옛 그룹 카운트가 보존된다.
+    // 사용자가 명시적으로 좁히려면 그룹 빌더에서 칩을 골라야 한다.
     const wantedStatuses =
-      filters.statuses.length > 0 ? filters.statuses : ["재원생"];
+      filters.statuses.length > 0
+        ? filters.statuses
+        : ["재원생", "수강이력자", "수강 x"];
     q = q.in("status", wantedStatuses);
 
     if (allowedStudentIds) {
