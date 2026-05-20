@@ -81,18 +81,19 @@ async function listFromSupabase(
   const from = (input.page - 1) * input.pageSize;
   const to = from + input.pageSize - 1;
 
-  // ─── region 필터 → 학교 list 변환 ──────────────────────────
-  // count 쿼리는 students 베이스라 sr.region 컬럼이 없다. school_regions 를
-  // 한 번 조회해서 student.school IN (...) 형태로 변환.
+  // ─── region 필터 → view 경로 위임 ─────────────────────────
+  // region 매핑 학교가 수십~수백 개 단위라 school IN/NOT IN 인자가 PostgREST
+  // URL 한계(~8KB) 초과 가능. 3+ region 선택 시 'IN' 인자가 매핑 학교 합집합으로
+  // 폭주해 발생한 회귀(현장 사례) → region 필터가 있으면 무조건 view 의 region
+  // 컬럼 IN 으로 직접 매칭.
   //
-  // 단, region='기타' 가 포함된 경우 NOT IN 인자가 매핑 학교 전체로 폭주해
-  // PostgREST URL 한계(~8KB) 초과 에러. 그 케이스는 view 의 region 컬럼 IN 으로
-  // 직접 매칭 — count·data 모두 student_profiles 사용.
-  const hasEtcRegion = input.regions.includes("기타");
-  if (hasEtcRegion) {
+  // 비용 트레이드: view 풀 집계 GROUP BY (6만 학생) 1~5초. region 필터 빈도가
+  // 낮아 운영상 허용 범위.
+  if (input.regions.length > 0) {
     return await fetchViaView({ supabase, input, from, to });
   }
-  const regionPlan = await resolveRegionToSchools(input.regions);
+  // 그 아래 흐름은 region 필터가 없는 케이스만 도달. regionPlan 은 항상 null.
+  const regionPlan: RegionPlan | null = null;
 
   // ─── count 쿼리 (students 베이스, head + exact) ───────────
   // 핫픽스 (2026-05-15):
