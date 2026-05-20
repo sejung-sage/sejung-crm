@@ -19,9 +19,9 @@ import {
 } from "@/lib/profile/students-dev-seed";
 import { applyGroupFiltersDev } from "./apply-filters";
 import { getGroup } from "./get-group";
+import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
 
 const PAGE_SIZE = 50;
-const SAFE_PHONE_PATTERN = /^[\d-]+$/;
 
 export interface ListGroupStudentsQuery {
   page?: number;
@@ -57,21 +57,8 @@ export async function listGroupStudents(
 
   const supabase = await createSupabaseServerClient();
 
-  // 수신거부 phone 선페치
-  const { data: unsubRows, error: unsubError } = await supabase
-    .from("crm_unsubscribes")
-    .select("phone");
-  if (unsubError) {
-    throw new Error(
-      `수신거부 목록 조회에 실패했습니다: ${unsubError.message}`,
-    );
-  }
-  const safeUnsubPhones = (unsubRows ?? [])
-    .map((r) => (r as { phone: string }).phone)
-    .filter(
-      (v): v is string =>
-        typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
-    );
+  // 수신거부 phone — React cache 공유.
+  const safeUnsubPhones = await getUnsubscribedPhones();
 
   // count + page 두 쿼리. count-recipients.ts 와 동일 분기 정책.
   const buildQuery = (
@@ -83,6 +70,13 @@ export async function listGroupStudents(
       .select(selectExpr, options)
       .neq("status", "탈퇴")
       .eq("branch", group.branch);
+
+    // 재원 상태 — count-recipients 와 동일하게 빈 배열이면 default '재원생'.
+    const wantedStatuses =
+      group.filters.statuses.length > 0
+        ? group.filters.statuses
+        : ["재원생"];
+    q = q.in("status", wantedStatuses);
 
     // includeStudentIds 가 있으면 조건 무시.
     if (group.filters.includeStudentIds.length > 0) {
@@ -100,6 +94,12 @@ export async function listGroupStudents(
       if (group.filters.regions.length > 0) {
         q = q.in("region", group.filters.regions);
       }
+    }
+
+    // 그룹 단건 삭제(2026-05-19) — 명시 제외 학생.
+    const excludeIds = group.filters.excludeStudentIds ?? [];
+    if (excludeIds.length > 0) {
+      q = q.not("id", "in", `(${excludeIds.join(",")})`);
     }
 
     // 수신거부 SQL 단 제외

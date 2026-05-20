@@ -1,3 +1,4 @@
+import { unstable_cache } from "next/cache";
 import {
   createSupabaseServerClient,
   createSupabaseServiceClient,
@@ -10,6 +11,45 @@ import {
   DEV_STUDENT_PROFILES,
   isDevSeedMode,
 } from "./students-dev-seed";
+
+/**
+ * school_regions 매핑은 거의 정적 (운영자가 가끔 수동 갱신).
+ * region → schools 변환을 매 요청마다 페치하지 않도록 service client + 300s 캐시.
+ *
+ * 캐시 무효화: /regions admin 페이지의 upsert/delete server action 에서
+ * revalidateTag("school-regions") 호출 (이미 적용된 곳은 그대로 두고,
+ * 누락 시점에는 5분 지연 허용 — 운영상 학교명 매핑 변경이 즉시 반영될 필요 없음).
+ */
+const cachedRegionToSchools = unstable_cache(
+  async (regions: string[]): Promise<{ explicit: string[]; all: string[] }> => {
+    const serviceSupabase = createSupabaseServiceClient();
+    const knownRegions = regions.filter((r) => r !== "기타");
+    const includeEtc = regions.includes("기타");
+
+    const [explicitRes, allRes] = await Promise.all([
+      knownRegions.length > 0
+        ? serviceSupabase
+            .from("crm_school_regions")
+            .select("school")
+            .in("region", knownRegions)
+        : Promise.resolve({ data: [] as Array<{ school: string }> }),
+      includeEtc
+        ? serviceSupabase.from("crm_school_regions").select("school")
+        : Promise.resolve({ data: [] as Array<{ school: string }> }),
+    ]);
+
+    return {
+      explicit: ((explicitRes.data ?? []) as Array<{ school: string }>).map(
+        (r) => r.school,
+      ),
+      all: ((allRes.data ?? []) as Array<{ school: string }>).map(
+        (r) => r.school,
+      ),
+    };
+  },
+  ["list-students-region-mapping-v1"],
+  { revalidate: 300, tags: ["school-regions"] },
+);
 
 export interface ListStudentsResult {
   rows: StudentProfileRow[];
@@ -211,6 +251,8 @@ function isStudentsColumnSort(sort: StudentSort): boolean {
     case "attendance_desc":
     case "attendance_asc":
     case "enrollment_count_desc":
+    case "active_enrollment_count_desc":
+    case "absent_count_desc":
     case "total_paid_desc":
       return false;
   }
@@ -371,34 +413,17 @@ async function resolveRegionToSchools(
 ): Promise<RegionPlan | null> {
   if (regions.length === 0) return null;
 
-  // service client — school_regions 조회 (RLS 없음, 학교명/지역만).
-  const serviceSupabase = createSupabaseServiceClient();
+  // 캐시화된 region → schools 매핑. 운영 중 학교명 변경은 빈도가 낮아 5분 캐시로
+  // 충분. /regions admin 액션에서 revalidateTag("school-regions") 가능.
+  // 정렬된 normalized key 로 캐시 hit-rate 향상.
+  const normalized = [...regions].sort();
+  const { explicit, all } = await cachedRegionToSchools(normalized);
 
-  const includeEtc = regions.includes("기타");
-  const knownRegions = regions.filter((r) => r !== "기타");
-
-  let explicitSchools: string[] = [];
-  if (knownRegions.length > 0) {
-    const { data } = await serviceSupabase
-      .from("crm_school_regions")
-      .select("school")
-      .in("region", knownRegions);
-    explicitSchools = ((data ?? []) as Array<{ school: string }>).map(
-      (r) => r.school,
-    );
-  }
-
-  let allMappedSchools: string[] = [];
-  if (includeEtc) {
-    const { data } = await serviceSupabase
-      .from("crm_school_regions")
-      .select("school");
-    allMappedSchools = ((data ?? []) as Array<{ school: string }>).map(
-      (r) => r.school,
-    );
-  }
-
-  return { explicitSchools, includeEtc, allMappedSchools };
+  return {
+    explicitSchools: explicit,
+    includeEtc: regions.includes("기타"),
+    allMappedSchools: all,
+  };
 }
 
 /**
@@ -518,6 +543,22 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
     case "enrollment_count_desc":
       return tieBreaker(
         query.order("enrollment_count", {
+          ascending: false,
+          nullsFirst: false,
+        }) as Q,
+      );
+    case "active_enrollment_count_desc":
+      // 0060 view 추가 컬럼 — 진행 중 강좌가 많은 학생부터.
+      return tieBreaker(
+        query.order("active_enrollment_count", {
+          ascending: false,
+          nullsFirst: false,
+        }) as Q,
+      );
+    case "absent_count_desc":
+      // 0060 view 추가 컬럼 — 결석이 잦은 학생부터(상담 우선순위 도출).
+      return tieBreaker(
+        query.order("absent_count", {
           ascending: false,
           nullsFirst: false,
         }) as Q,
@@ -724,6 +765,22 @@ function sortDevRows(
     case "enrollment_count_desc":
       sorted.sort((a, b) => {
         const c = cmpNumber(a.enrollment_count, b.enrollment_count, false);
+        return c !== 0 ? c : cmpRegisteredDesc(a, b);
+      });
+      break;
+    case "active_enrollment_count_desc":
+      sorted.sort((a, b) => {
+        const c = cmpNumber(
+          a.active_enrollment_count,
+          b.active_enrollment_count,
+          false,
+        );
+        return c !== 0 ? c : cmpRegisteredDesc(a, b);
+      });
+      break;
+    case "absent_count_desc":
+      sorted.sort((a, b) => {
+        const c = cmpNumber(a.absent_count, b.absent_count, false);
         return c !== 0 ? c : cmpRegisteredDesc(a, b);
       });
       break;

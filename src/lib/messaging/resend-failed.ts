@@ -23,6 +23,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCampaign } from "@/lib/campaigns/get-campaign";
+import { getUnsubscribedPhones } from "./unsubscribed-phones";
 import { getTemplate } from "@/lib/templates/get-template";
 import type { SendCampaignResult } from "./send-campaign";
 
@@ -111,19 +112,16 @@ export async function resendFailedMessages(
     status: "재원생",
   }));
 
-  // 최신 unsubscribes 조회
-  const { data: unsubData, error: unsubError } = await supabase
-    .from("crm_unsubscribes")
-    .select("phone");
-  if (unsubError) {
+  // 수신거부 phone — React cache dedupe.
+  let unsubscribedPhones: string[];
+  try {
+    unsubscribedPhones = await getUnsubscribedPhones();
+  } catch (e) {
     return {
       status: "failed",
-      reason: `수신거부 목록 조회에 실패했습니다: ${unsubError.message}`,
+      reason: e instanceof Error ? e.message : "수신거부 목록 조회에 실패했습니다",
     };
   }
-  const unsubscribedPhones = (unsubData ?? [])
-    .map((r) => (r as { phone: string }).phone)
-    .filter((v): v is string => typeof v === "string" && v.length > 0);
 
   const guarded = applyAllGuards({
     body: template.body,

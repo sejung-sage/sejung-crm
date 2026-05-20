@@ -34,6 +34,7 @@ import {
 import { calculateCost } from "./calculate-cost";
 import type { SmsCostBreakdown } from "./cost-rates";
 import type { GroupRow } from "@/types/database";
+import { getUnsubscribedPhones } from "./unsubscribed-phones";
 
 export type PreviewExclusionReason = "탈퇴학생" | "수신거부";
 
@@ -73,10 +74,6 @@ export interface PreviewRecipientsInput {
 }
 
 const SAMPLE_LIMIT = 5;
-
-/** 수신거부 phone 값에 허용할 문자 패턴 (숫자/하이픈만).
- *  PostgREST `.or(...)` 인자로 박을 때 메타문자 인젝션 방지. */
-const SAFE_PHONE_PATTERN = /^[\d-]+$/;
 
 export async function previewRecipients(
   input: PreviewRecipientsInput,
@@ -156,21 +153,8 @@ async function previewFromSupabase(
   const finalBody = insertUnsubscribeFooter(withAdTag, input.isAd);
   const quiet = checkQuietHours(input.scheduledAt ?? new Date(), input.isAd);
 
-  // 1) 수신거부 phone 목록 선(先)페치 — SQL 절 인자로 사용.
-  const { data: unsubRows, error: unsubError } = await supabase
-    .from("crm_unsubscribes")
-    .select("phone");
-  if (unsubError) {
-    throw new Error(
-      `수신거부 목록 조회에 실패했습니다: ${unsubError.message}`,
-    );
-  }
-  const safeUnsubPhones = (unsubRows ?? [])
-    .map((r) => (r as { phone: string }).phone)
-    .filter(
-      (v): v is string =>
-        typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
-    );
+  // 1) 수신거부 phone 목록 — React cache 로 같은 요청 내 dedupe.
+  const safeUnsubPhones = await getUnsubscribedPhones();
 
   // 2) 4건 병렬 — eligible count / sample / 탈퇴 count / 수신거부 count.
   //    head:exact count 는 body 안 받아 빠름 (PostgREST max_rows cap 무관).

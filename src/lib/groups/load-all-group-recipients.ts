@@ -25,12 +25,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGroup } from "./get-group";
+import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
 import type { Database, StudentStatus } from "@/types/database";
 
 /** PostgREST `max_rows` cap (supabase/config.toml). 이보다 크게 잡으면 cap 으로
  *  잘려 early break 회귀가 발생한다. */
 const CHUNK_SIZE = 1_000;
-const SAFE_PHONE_PATTERN = /^[\d-]+$/;
 
 export interface GroupRecipient {
   id: string;
@@ -47,19 +47,8 @@ export async function loadAllGroupRecipients(
   const group = await getGroup(groupId);
   if (!group) return [];
 
-  // 1) unsubscribes 1회만 페치
-  const { data: unsubRows, error: unsubError } = await supabase
-    .from("crm_unsubscribes")
-    .select("phone");
-  if (unsubError) {
-    throw new Error(`수신거부 목록 조회 실패: ${unsubError.message}`);
-  }
-  const safeUnsubPhones = (unsubRows ?? [])
-    .map((r) => (r as { phone: string }).phone)
-    .filter(
-      (v): v is string =>
-        typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
-    );
+  // 1) 수신거부 phone — React cache dedupe (preview/count-recipients 와 공유).
+  const safeUnsubPhones = await getUnsubscribedPhones();
 
   // 2) student_profiles 를 청크 range 페치
   const collected: GroupRecipient[] = [];
@@ -73,6 +62,13 @@ export async function loadAllGroupRecipients(
       .select("id, name, parent_phone, status")
       .neq("status", "탈퇴")
       .eq("branch", group.branch);
+
+    // 재원 상태 — count-recipients 와 동일하게 빈 배열이면 default '재원생'.
+    const wantedStatuses =
+      group.filters.statuses.length > 0
+        ? group.filters.statuses
+        : ["재원생"];
+    q = q.in("status", wantedStatuses);
 
     if (group.filters.includeStudentIds.length > 0) {
       q = q.in("id", group.filters.includeStudentIds);
@@ -89,6 +85,12 @@ export async function loadAllGroupRecipients(
       if (group.filters.regions.length > 0) {
         q = q.in("region", group.filters.regions);
       }
+    }
+
+    // 그룹 단건 삭제(2026-05-19) — 명시 제외 학생.
+    const excludeIds = group.filters.excludeStudentIds ?? [];
+    if (excludeIds.length > 0) {
+      q = q.not("id", "in", `(${excludeIds.join(",")})`);
     }
 
     if (safeUnsubPhones.length > 0) {
