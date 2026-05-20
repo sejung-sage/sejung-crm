@@ -408,6 +408,49 @@ export async function countRecipientsAction(
   }
 }
 
+// ─── groupBuilderFilterOptionsAction ──────────────────────
+// 그룹 빌더의 학교/학년/지역 칩 옵션을 statuses 등 다른 칩 토글에 맞춰 좁힘.
+// listStudentFilterOptions 의 client 노출 래퍼 — RLS 통과 위해 server.
+
+import {
+  listStudentFilterOptions,
+  type StudentFilterOptions,
+} from "@/lib/profile/list-filter-options";
+import type { StudentStatus } from "@/types/database";
+
+export type GroupBuilderFilterOptionsResult =
+  | { status: "success"; data: StudentFilterOptions }
+  | { status: "failed"; reason: string };
+
+export async function groupBuilderFilterOptionsAction(
+  branch: unknown,
+  statuses: unknown,
+): Promise<GroupBuilderFilterOptionsResult> {
+  if (typeof branch !== "string") {
+    return { status: "failed", reason: "분원 값이 올바르지 않습니다" };
+  }
+  const allowedStatuses: StudentStatus[] = ["재원생", "수강이력자", "수강 x"];
+  const cleanStatuses = Array.isArray(statuses)
+    ? statuses.filter((s): s is StudentStatus =>
+        typeof s === "string" &&
+        (allowedStatuses as ReadonlyArray<string>).includes(s),
+      )
+    : [];
+
+  try {
+    const data = await listStudentFilterOptions({
+      branch: branch || undefined,
+      statuses: cleanStatuses,
+      // 그룹은 졸업·미정 학생도 발송 대상 가능.
+      includeHidden: true,
+    });
+    return { status: "success", data };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "필터 옵션 조회 실패";
+    return { status: "failed", reason: msg };
+  }
+}
+
 // ─── searchStudentsAction ─────────────────────────────────
 // 그룹 빌더의 "직접 학생 추가" 검색용. 이름 또는 학부모 연락처 부분일치.
 // 분원 필수 (다른 분원 학생 노출 방지). 조회 전용이므로 권한 가드 없음.

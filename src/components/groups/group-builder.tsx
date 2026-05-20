@@ -14,6 +14,7 @@ import {
   countRecipientsAction,
   createGroupAction,
   diffRecipientsAction,
+  groupBuilderFilterOptionsAction,
   searchStudentsAction,
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
@@ -266,6 +267,19 @@ export function GroupBuilder({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef<number>(0);
 
+  // 학교/학년/지역 옵션 — branch 와 statuses 에 매칭되는 학생을 가진 것만.
+  // 초기값은 prop. branch/statuses 변경 시 server action 으로 재페치 → 좁힘.
+  const [dynamicSchoolOptions, setDynamicSchoolOptions] =
+    useState<string[]>(schoolOptions);
+  const [dynamicGrades, setDynamicGrades] = useState<Grade[] | undefined>(
+    availableGrades,
+  );
+  const [dynamicRegions, setDynamicRegions] = useState<string[] | undefined>(
+    availableRegions,
+  );
+  const optionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const optionsReqIdRef = useRef<number>(0);
+
   // 실제 서버로 보낼 filters.
   // excludeStudentIds 는 그룹 상세 화면의 "개별 학생 제거" 액션이 관리 →
   // 빌더 폼에서는 직접 편집 안 함. 수정 모드에선 초기값에 들어있는 제외
@@ -285,6 +299,27 @@ export function GroupBuilder({
     }),
     [grades, schools, subjects, regions, statuses, includeStudents, initialExcludeIds],
   );
+
+  // branch / statuses 변경 시 학교·학년·지역 옵션 재페치 (디바운스).
+  // 옵션 좁힘: 그 분원에서 그 status 학생이 다니는 학교/학년/지역만 노출.
+  // 다른 필터(grades/schools/regions) 는 자기 자신 좁힘 방지로 미적용.
+  useEffect(() => {
+    if (!branch) return;
+    if (optionsDebounceRef.current) clearTimeout(optionsDebounceRef.current);
+    optionsDebounceRef.current = setTimeout(async () => {
+      const myReq = ++optionsReqIdRef.current;
+      const result = await groupBuilderFilterOptionsAction(branch, statuses);
+      if (myReq !== optionsReqIdRef.current) return;
+      if (result.status === "success") {
+        setDynamicSchoolOptions(result.data.schools);
+        setDynamicGrades(result.data.availableGrades);
+        setDynamicRegions(result.data.availableRegions);
+      }
+    }, DEBOUNCE_MS);
+    return () => {
+      if (optionsDebounceRef.current) clearTimeout(optionsDebounceRef.current);
+    };
+  }, [branch, statuses]);
 
   // filters/branch 변경 시 디바운스 카운트 호출
   useEffect(() => {
@@ -511,8 +546,8 @@ export function GroupBuilder({
                 <div className="flex flex-wrap gap-1.5">
                   {GRADE_OPTIONS_ALL.filter(
                     (g) =>
-                      !availableGrades ||
-                      availableGrades.includes(g) ||
+                      !dynamicGrades ||
+                      dynamicGrades.includes(g) ||
                       grades.includes(g),
                   ).map((g) => (
                     <Chip
@@ -526,10 +561,10 @@ export function GroupBuilder({
                   ))}
                 </div>
 
-                {/* 졸업·미정 expand — availableGrades 에 졸업/미정 있을 때만 노출 */}
-                {(!availableGrades ||
+                {/* 졸업·미정 expand — dynamicGrades 에 졸업/미정 있을 때만 노출 */}
+                {(!dynamicGrades ||
                   GRADE_OPTIONS_HIDDEN.some(
-                    (g) => availableGrades.includes(g) || grades.includes(g),
+                    (g) => dynamicGrades.includes(g) || grades.includes(g),
                   )) && (
                   <div className="pt-1">
                     <button
@@ -549,8 +584,8 @@ export function GroupBuilder({
                       <div className="mt-2 flex flex-wrap gap-1.5">
                         {GRADE_OPTIONS_HIDDEN.filter(
                           (g) =>
-                            !availableGrades ||
-                            availableGrades.includes(g) ||
+                            !dynamicGrades ||
+                            dynamicGrades.includes(g) ||
                             grades.includes(g),
                         ).map((g) => (
                           <Chip
@@ -576,7 +611,7 @@ export function GroupBuilder({
               hint={schools.length === 0 ? "선택 안 함 = 전 학교" : undefined}
             >
               <GroupSchoolSearchPanel
-                schoolOptions={schoolOptions}
+                schoolOptions={dynamicSchoolOptions}
                 selected={schools}
                 grades={grades}
                 query={schoolQuery}
@@ -616,8 +651,8 @@ export function GroupBuilder({
               <div className="flex flex-wrap gap-1.5">
                 {REGION_OPTIONS.filter(
                   (r) =>
-                    !availableRegions ||
-                    availableRegions.includes(r) ||
+                    !dynamicRegions ||
+                    dynamicRegions.includes(r) ||
                     regions.includes(r),
                 ).map((r) => (
                   <Chip
