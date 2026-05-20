@@ -239,7 +239,7 @@ async function listFromSupabase(
 
 /**
  * 정렬 키가 students 테이블 컬럼이라 1단계에서 students 인덱스 활용 가능한지.
- * attendance_rate / enrollment_count / total_paid 는 view 집계 컬럼이라 X.
+ * enrollment_count / total_paid / absent_count 는 view 집계 컬럼이라 X.
  */
 function isStudentsColumnSort(sort: StudentSort): boolean {
   switch (sort) {
@@ -248,8 +248,6 @@ function isStudentsColumnSort(sort: StudentSort): boolean {
     case "name_asc":
     case "name_desc":
       return true;
-    case "attendance_desc":
-    case "attendance_asc":
     case "enrollment_count_desc":
     case "active_enrollment_count_desc":
     case "absent_count_desc":
@@ -526,20 +524,6 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
       return tieBreaker(query.order("name", { ascending: true }) as Q);
     case "name_desc":
       return tieBreaker(query.order("name", { ascending: false }) as Q);
-    case "attendance_desc":
-      return tieBreaker(
-        query.order("attendance_rate", {
-          ascending: false,
-          nullsFirst: false,
-        }) as Q,
-      );
-    case "attendance_asc":
-      return tieBreaker(
-        query.order("attendance_rate", {
-          ascending: true,
-          nullsFirst: false,
-        }) as Q,
-      );
     case "enrollment_count_desc":
       return tieBreaker(
         query.order("enrollment_count", {
@@ -747,18 +731,6 @@ function sortDevRows(
     case "name_desc":
       sorted.sort((a, b) => {
         const c = cmpString(a.name, b.name, false);
-        return c !== 0 ? c : cmpRegisteredDesc(a, b);
-      });
-      break;
-    case "attendance_desc":
-      sorted.sort((a, b) => {
-        const c = cmpNumber(a.attendance_rate, b.attendance_rate, false);
-        return c !== 0 ? c : cmpRegisteredDesc(a, b);
-      });
-      break;
-    case "attendance_asc":
-      sorted.sort((a, b) => {
-        const c = cmpNumber(a.attendance_rate, b.attendance_rate, true);
         return c !== 0 ? c : cmpRegisteredDesc(a, b);
       });
       break;

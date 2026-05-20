@@ -35,10 +35,10 @@ function isDimmed(grade: Grade | null): boolean {
  * (예: "중2", "고3", "재수"). school_level 은 학년 라벨에 이미 포함되어
  * 별도 컬럼을 추가하지 않음.
  *
- * 0060 마이그 이후 컬럼 의미:
- *  - 출석률 = attendance_rate (%)
- *  - 출석   = absent_count (결석 수) — 케어 대상 빠르게 식별용 (0=—)
- *  - 수강 중 = active_enrollment_count (현재 진행 강좌 수) — 운영 시야의 핵심
+ * 0063 마이그 이후 컬럼 의미:
+ *  - 결석    = absent_count (학생의 enrollments 와 매칭되는 결석 수)
+ *  - 수강 중 = active_enrollment_count (현재 진행 강좌 수)
+ * 출석률(%) 컬럼은 0063 에서 폐기 — 운영 신뢰도 부족으로 사용 안 함.
  *
  * 옛 컬럼 "최근 수강(과목·강사 요약)" 은 학생 상세 페이지에서 더 풍부하게
  * 보여주므로 명단에서는 제거. 행 클릭 시 상세로 이동.
@@ -67,8 +67,7 @@ export function StudentsTable({ rows, canRevealPhone = false }: Props) {
             <Th>학교</Th>
             <Th className="w-20 text-center">학년</Th>
             <Th className="w-28 text-center">재원 상태</Th>
-            <Th className="w-24 text-right">출석률</Th>
-            <Th className="w-20 text-right">출석</Th>
+            <Th className="w-20 text-right">결석</Th>
             <Th className="w-24 text-right">수강 중</Th>
             <Th className="w-40">학부모 연락처</Th>
           </tr>
@@ -147,15 +146,6 @@ export function StudentsTable({ rows, canRevealPhone = false }: Props) {
                   className={`text-right tabular-nums ${
                     dim
                       ? "text-[color:var(--text-dim)]"
-                      : "text-[color:var(--text)]"
-                  }`}
-                >
-                  {formatAttendanceRate(r.attendance_rate)}
-                </Td>
-                <Td
-                  className={`text-right tabular-nums ${
-                    dim
-                      ? "text-[color:var(--text-dim)]"
                       : "text-[color:var(--text-muted)]"
                   }`}
                   title="결석 횟수"
@@ -193,16 +183,6 @@ export function StudentsTable({ rows, canRevealPhone = false }: Props) {
       </table>
     </div>
   );
-}
-
-/**
- * 출석률 표기. NULL / 미수강은 "-".
- * 소수점은 1자리까지만 (가독성). 100% 일 땐 정수 그대로.
- */
-function formatAttendanceRate(rate: number | null): string {
-  if (rate === null || Number.isNaN(rate)) return "-";
-  if (rate >= 99.95) return "100%";
-  return `${rate.toFixed(1)}%`;
 }
 
 function Th({

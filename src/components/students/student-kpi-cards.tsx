@@ -5,18 +5,18 @@ interface Props {
 }
 
 /**
- * 학생 상세 KPI 4블록.
- * 총 수강 횟수 · 출석률 · 결석 수 · 총 결제금액
+ * 학생 상세 KPI 3블록.
+ * 총 수강 횟수 · 결석 수 · 총 결제금액
+ *
+ * 0063 — 출석률(%) 지표 폐기. ETL 매핑 갭으로 신뢰도 부족 (분원·정의 차이).
+ * 결석 수 + 출석 격자만으로 운영 시야 충분하다는 판단.
+ *
+ * 결석 수는 student_profiles.absent_count (enrollment 매칭 결석) 사용 —
+ * detail.attendances 로 후집계하면 등록 외 강좌 잔재가 섞일 수 있어 격자와
+ * 불일치하던 회귀를 차단.
  */
 export function StudentKpiCards({ detail }: Props) {
-  const { profile, attendances, enrollments } = detail;
-
-  const absentCount = attendances.filter((a) => a.status === "결석").length;
-
-  const attendanceRate =
-    profile.attendance_rate == null
-      ? "—"
-      : `${Math.round(profile.attendance_rate * 100) / 100}%`;
+  const { profile, enrollments } = detail;
 
   // enrollments.amount 는 회차당 금액. 강좌 마스터의 total_sessions 와 곱한 합이
   // 실제 결제 총액이다. classes 매칭 실패 또는 회차 정보 없음(NULL/0) 인 행은
@@ -33,11 +33,10 @@ export function StudentKpiCards({ detail }: Props) {
   return (
     <section
       aria-label="학생 주요 지표"
-      className="grid grid-cols-2 gap-3 md:grid-cols-4"
+      className="grid grid-cols-3 gap-3"
     >
       <KpiCard label="총 수강 횟수" value={`${profile.enrollment_count}건`} />
-      <KpiCard label="출석률" value={attendanceRate} />
-      <KpiCard label="결석 수" value={`${absentCount}회`} />
+      <KpiCard label="결석 수" value={`${profile.absent_count}회`} />
       <KpiCard label="총 결제금액" value={totalPaid} />
     </section>
   );

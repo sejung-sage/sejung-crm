@@ -417,10 +417,10 @@ export interface StudentProfileRow {
   total_paid: number;
   subjects: Subject[] | null;
   teachers: string[] | null;
-  attendance_rate: number | null;
   /**
-   * 결석 횟수 (crm_attendances.status='결석' row count). 0060 추가.
-   * 분원 무관 단일 산식. attendance 0행이면 0. NOT NULL 보장.
+   * 결석 횟수 — 학생의 enrollments 와 매칭되는 attendance row 의 status='결석'
+   * 카운트 (0063). 등록 외 강좌 결석 잔재 제외 → UI 격자와 1:1 일관.
+   * NOT NULL 보장 (attendance 0행이면 0).
    */
   absent_count: number;
   last_attended_at: string | null;

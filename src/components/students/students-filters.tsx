@@ -86,12 +86,8 @@ const SORT_LABELS: Record<StudentSort, string> = {
   registered_asc: "오래된 등록순",
   name_asc: "이름 가나다순",
   name_desc: "이름 가나다 역순",
-  attendance_desc: "출석률 높은 순",
-  attendance_asc: "출석률 낮은 순 (케어)",
   enrollment_count_desc: "수강 많은 순 (누적)",
-  // 0060 마이그 추가 — 운영 시야의 "지금 진행 중 강좌 수" 정렬.
   active_enrollment_count_desc: "수강 중 많은 순",
-  // 결석이 많은 학생을 위로 (케어 대상 빠른 식별).
   absent_count_desc: "결석 많은 순 (케어)",
   total_paid_desc: "누적 결제 많은 순",
 };

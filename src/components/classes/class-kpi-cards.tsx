@@ -1,38 +1,30 @@
 import type { ClassDetail } from "@/types/database";
-import { computeAttendanceRate } from "@/lib/profile/attendance-policy";
 
 interface Props {
   detail: ClassDetail;
 }
 
 /**
- * 강좌 상세 KPI 4블록.
+ * 강좌 상세 KPI 3블록.
  *
- * 학생 상세의 `student-kpi-cards.tsx` 톤·구조를 그대로 미러.
+ * 0063 — 평균 출석률(%) 폐기. 분원·정의 차이로 운영 신뢰도 부족.
+ * raw 카운트(결석·보강)만으로도 강좌 운영 시야 충분.
+ *
  *  1) 수강생 수
- *  2) 평균 출석률 — 분원별 분기 (`computeAttendanceRate` 단일 정책)
- *       방배: (출석 + 지각 + 보강) / total
- *       그 외: (total - 결석) / total  (= 출석/지각/조퇴/보강 모두 출석)
- *  3) 누적 결석 (raw event count)
- *  4) 누적 보강 (raw event count — 정보 가치 보존)
+ *  2) 누적 결석 (raw event count)
+ *  3) 누적 보강 (raw event count)
  */
 export function ClassKpiCards({ detail }: Props) {
-  const { students, attendances, class: cls } = detail;
+  const { students, attendances } = detail;
 
   const studentCount = students.length;
 
   // 출결 5종 카운트는 students 의 누적값을 sum 하는 게 가장 안전 (loader 가 이미 집계).
-  let attended = 0;
   let absent = 0;
-  let late = 0;
-  let earlyLeave = 0;
   let makeup = 0;
   let total = 0;
   for (const s of students) {
-    attended += s.attended_count;
     absent += s.absent_count;
-    late += s.late_count;
-    earlyLeave += s.early_leave_count;
     makeup += s.makeup_count;
     total += s.total_count;
   }
@@ -40,45 +32,19 @@ export function ClassKpiCards({ detail }: Props) {
   // students 가 0 이거나 attendances 매칭이 안 된 경우(자체 등록 강좌 등)
   // 학생 카운트만으로는 0 일 수 있어, attendances 행 수도 같이 검증.
   if (total === 0 && attendances.length > 0) {
-    // 학생 메타가 누락된 출결 행이 있는 비정상 케이스.
-    // attendances 자체에서 다시 집계 (안전망).
     for (const a of attendances) {
       total += 1;
-      switch (a.status) {
-        case "출석":
-          attended += 1;
-          break;
-        case "결석":
-          absent += 1;
-          break;
-        case "지각":
-          late += 1;
-          break;
-        case "조퇴":
-          earlyLeave += 1;
-          break;
-        case "보강":
-          makeup += 1;
-          break;
-      }
+      if (a.status === "결석") absent += 1;
+      else if (a.status === "보강") makeup += 1;
     }
   }
-
-  // 평균 출석률 — 분원별 분기 (방배 5종, 그 외는 결석만 비출석).
-  const ratePct = computeAttendanceRate(
-    { attended, late, absent, earlyLeave, makeup },
-    cls.branch,
-  );
-  const attendanceRate =
-    ratePct === null ? "—" : `${Math.round(ratePct * 10) / 10}%`;
 
   return (
     <section
       aria-label="강좌 주요 지표"
-      className="grid grid-cols-2 gap-3 md:grid-cols-4"
+      className="grid grid-cols-3 gap-3"
     >
       <KpiCard label="수강생 수" value={`${studentCount}명`} />
-      <KpiCard label="평균 출석률" value={attendanceRate} />
       <KpiCard label="누적 결석" value={`${absent}회`} />
       <KpiCard label="누적 보강" value={`${makeup}회`} />
     </section>

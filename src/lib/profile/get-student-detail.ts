@@ -143,9 +143,9 @@ async function getFromSupabase(
 
   // 비-방배 분원(대치/반포/송도)은 source 의 V_Attend_List 에 결석만 기록되고
   // 실제 수업 출석은 aca_tickets.used_at(수강권 사용) 으로 표현된다.
-  // 이 경우 ticket 의 used_at 을 가상 attendance row 로 변환해 합쳐줘야
-  // student_profiles.attendance_rate (0057 마이그가 ticket 기반) 와
-  // 학생 상세 출석 탭의 표시가 일관된다.
+  // ticket 의 used_at 을 가상 attendance row 로 변환해 합쳐 출석 격자에
+  // "출" chip 으로 노출. 0063 에서 출석률(%) 은 폐기되었지만 격자 표시 자체는
+  // 운영에 필요하므로 ticket→attendance 변환은 유지.
   //
   // 방배는 5종 status 가 완전히 기록되므로 ticket 데이터를 섞으면 카운트가
   // 이중 집계됨 — 그래서 분원 가드를 둔다.
