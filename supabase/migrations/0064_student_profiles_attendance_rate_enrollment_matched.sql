@@ -1,6 +1,7 @@
 -- ============================================================
--- 0062_student_profiles_attendance_rate_enrollment_matched.sql
+-- 0064_student_profiles_attendance_rate_enrollment_matched.sql
 -- student_profiles.attendance_rate — enrollment 매칭 attendance 만 카운트.
+-- (원래 0062 였으나 동명 prefix 충돌로 0064 로 rename.)
 -- ------------------------------------------------------------
 -- 문제 (현장 사례 · 한승주, 대치 중3):
 --   - 1 enrollment (2회차 강좌) · attendance 2회 모두 '출석' · 결석 0회
