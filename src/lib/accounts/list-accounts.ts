@@ -41,35 +41,49 @@ export async function listAccounts(
   // ─── 실 DB ─────────────────────────────────────────────
   const supabase = await createSupabaseServerClient();
 
-  let qb = supabase
-    .from("crm_users_profile")
-    .select("*", { count: "exact" })
+  // count 와 body 분리 병렬. head:exact 카운트는 인덱스 only-scan 가능.
+  const applyFilters = <
+    Q extends {
+      eq(col: string, val: string | boolean): Q;
+      or(filter: string): Q;
+    },
+  >(
+    qb: Q,
+  ): Q => {
+    let q = qb;
+    if (query.role) q = q.eq("role", query.role);
+    if (query.branch && query.branch.length > 0) {
+      q = q.eq("branch", query.branch);
+    }
+    if (query.active === "true") q = q.eq("active", true);
+    else if (query.active === "false") q = q.eq("active", false);
+    if (query.q && query.q.length > 0) {
+      const term = `%${query.q}%`;
+      q = q.or(`name.ilike.${term},email.ilike.${term}`);
+    }
+    return q;
+  };
+
+  const countQuery = applyFilters(
+    supabase
+      .from("crm_users_profile")
+      .select("user_id", { count: "exact", head: true }),
+  );
+  const dataQuery = applyFilters(
+    supabase.from("crm_users_profile").select("*"),
+  )
     .order("created_at", { ascending: false })
     .range(from, to);
 
-  if (query.role) {
-    qb = qb.eq("role", query.role);
-  }
-  if (query.branch && query.branch.length > 0) {
-    qb = qb.eq("branch", query.branch);
-  }
-  if (query.active === "true") {
-    qb = qb.eq("active", true);
-  } else if (query.active === "false") {
-    qb = qb.eq("active", false);
-  }
-  if (query.q && query.q.length > 0) {
-    // name 또는 email ilike
-    const term = `%${query.q}%`;
-    qb = qb.or(`name.ilike.${term},email.ilike.${term}`);
+  const [countResult, dataResult] = await Promise.all([countQuery, dataQuery]);
+
+  if (dataResult.error) {
+    throw new Error(`계정 목록 조회 실패: ${dataResult.error.message}`);
   }
 
-  const { data, error, count } = await qb;
-
-  if (error) {
-    throw new Error(`계정 목록 조회 실패: ${error.message}`);
-  }
-
-  const items = (data ?? []) as AccountListItem[];
-  return { items, total: count ?? items.length };
+  const items = (dataResult.data ?? []) as AccountListItem[];
+  return {
+    items,
+    total: countResult.error ? items.length : (countResult.count ?? items.length),
+  };
 }

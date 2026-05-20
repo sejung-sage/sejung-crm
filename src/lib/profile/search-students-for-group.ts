@@ -73,9 +73,12 @@ async function searchFromSupabase(
   const safe = query.replace(/[,()%]/g, "").trim();
   if (safe.length < MIN_QUERY) return [];
 
+  // crm_students 인덱스(0046 branch+status, 학교명 partial) 활용.
+  // student_profiles 뷰의 풀 집계 LEFT JOIN 회피 — 검색은 10건만 뽑아도
+  // 뷰 쿼리는 GROUP BY 전체를 거치므로 큰 비용.
   let q = supabase
-    .from("student_profiles")
-    .select("id, name, parent_phone, school, grade, branch, status")
+    .from("crm_students")
+    .select("id, name, parent_phone, school, grade, branch")
     .neq("status", "탈퇴")
     .or(`name.ilike.%${safe}%,parent_phone.ilike.%${safe}%`)
     .limit(SEARCH_LIMIT);
