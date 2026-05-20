@@ -227,18 +227,6 @@ export function GroupBuilder({
   // schoolOptions 가 수천개 단위라 더보기/접기 대신 검색+스크롤로 전환.
   const [schoolQuery, setSchoolQuery] = useState("");
 
-  // 학교급 세그먼티드 토글. 초기값은 기존에 선택된 학년에서 추론.
-  const [level, setLevel] = useState<"전체" | "초" | "중" | "고">(() => {
-    const initialGrades = initial.filters.grades;
-    if (initialGrades.length === 0) return "전체";
-    const allElem = initialGrades.every((g) => GRADE_OPTIONS_ELEM.includes(g));
-    const allMid = initialGrades.every((g) => GRADE_OPTIONS_MID.includes(g));
-    const allHigh = initialGrades.every((g) => GRADE_OPTIONS_HIGH.includes(g));
-    if (allElem) return "초";
-    if (allMid) return "중";
-    if (allHigh) return "고";
-    return "전체";
-  });
   // '졸업·미정' 학년 영역 expand. 초기값은 현재 선택된 grades 에 포함되면 펼침.
   const [showHiddenGrades, setShowHiddenGrades] = useState<boolean>(() =>
     initial.filters.grades.some((g) => GRADE_OPTIONS_HIDDEN.includes(g)),
@@ -509,40 +497,7 @@ export function GroupBuilder({
               hint={grades.length === 0 ? "선택 안 함 = 전 학년" : undefined}
             >
               <div className="space-y-2.5">
-                {/* 학교급 세그먼티드 */}
-                <div
-                  role="radiogroup"
-                  aria-label="학교급 선택"
-                  className="inline-flex h-9 rounded-lg border border-[color:var(--border)] bg-bg-card p-0.5"
-                >
-                  {LEVEL_SEGMENTS.map((opt) => {
-                    const active = opt.value === level;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        role="radio"
-                        aria-checked={active}
-                        onClick={() => setLevel(opt.value)}
-                        className={`
-                          inline-flex items-center justify-center
-                          min-w-14 h-8 px-3 rounded-md
-                          text-[13px] font-medium
-                          transition-colors
-                          ${
-                            active
-                              ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
-                              : "text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
-                          }
-                        `}
-                      >
-                        {opt.label}
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/* 학년 칩 — 항상 7종 노출 (학교급과 무관) */}
+                {/* 학년 칩 — 항상 7종 노출 (학교급 토글 제거 2026-05-20) */}
                 <div className="flex flex-wrap gap-1.5">
                   {GRADE_OPTIONS_ALL.map((g) => (
                     <Chip

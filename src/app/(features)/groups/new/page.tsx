@@ -158,7 +158,7 @@ export default async function NewGroupPage({
 
   const [initialPreview, schoolOptions, currentUser] = await Promise.all([
     countRecipients(initialFilters, branch),
-    getSchoolOptions(),
+    getSchoolOptions(branch),
     getCurrentUser(),
   ]);
 

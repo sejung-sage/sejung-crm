@@ -17,30 +17,34 @@ import {
   isDevSeedMode,
 } from "@/lib/profile/students-dev-seed";
 
-export async function getSchoolOptions(): Promise<string[]> {
+export async function getSchoolOptions(branch?: string): Promise<string[]> {
   if (isDevSeedMode()) {
     return uniqueSortedSchools(
-      DEV_STUDENT_PROFILES.map((p) => p.school).filter(
-        (s): s is string => typeof s === "string" && s.length > 0,
-      ),
+      DEV_STUDENT_PROFILES.filter(
+        (p) => !branch || branch === "전체" || p.branch === branch,
+      )
+        .map((p) => p.school)
+        .filter((s): s is string => typeof s === "string" && s.length > 0),
     );
   }
 
-  return cachedSchoolOptionsFromSupabase();
+  return cachedSchoolOptionsFromSupabase(branch ?? "__all__");
 }
 
+// 분원 별 학교 옵션을 캐시 — 사용자가 분원 토글 시 옵션이 자동 좁혀짐.
 const cachedSchoolOptionsFromSupabase = unstable_cache(
-  async () => {
-    // service client — 쿠키 의존 없음. unstable_cache 와 호환.
-    // crm_students 인덱스(0046 status, school) 활용 → 풀 집계 없음.
+  async (branchKey: string) => {
     const supabase = createSupabaseServiceClient();
-    const { data, error } = await supabase
+    let q = supabase
       .from("crm_students")
       .select("school")
       .not("school", "is", null)
       .neq("status", "탈퇴")
-      .limit(20000); // 학생 6만 규모에서 학교 distinct 안전 상한
-
+      .limit(20000);
+    if (branchKey !== "__all__" && branchKey !== "전체") {
+      q = q.eq("branch", branchKey);
+    }
+    const { data, error } = await q;
     if (error) {
       return [] as string[];
     }
@@ -49,7 +53,7 @@ const cachedSchoolOptionsFromSupabase = unstable_cache(
       .filter((s): s is string => typeof s === "string" && s.length > 0);
     return uniqueSortedSchools(schools);
   },
-  ["group-builder-school-options-v2"],
+  ["group-builder-school-options-v3"],
   {
     revalidate: 300,
     tags: ["school-options"],

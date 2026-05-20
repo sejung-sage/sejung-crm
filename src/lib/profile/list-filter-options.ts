@@ -7,6 +7,7 @@ import {
 } from "./students-dev-seed";
 import { HIDDEN_GRADES_BY_DEFAULT } from "@/lib/schemas/common";
 import type { ListStudentsInput } from "@/lib/schemas/student";
+import type { Grade, SchoolLevel } from "@/types/database";
 
 const CACHE_SECONDS = 300;
 
@@ -64,6 +65,12 @@ export interface StudentFilterOptions {
   schools: string[];
   /** 학교를 5개 지역 그룹으로 묶은 결과. UI 칩 패널의 단일 소스. */
   schoolGroups: SchoolGroup[];
+  /** 현재 필터 조합에 매칭되는 학생을 가진 학년 set (UI 학년 칩 가시화용). */
+  availableGrades: Grade[];
+  /** 매칭 학생을 가진 학교급 set (UI 학교급 세그먼트 가시화용). */
+  availableSchoolLevels: SchoolLevel[];
+  /** 매칭 학생을 가진 지역 set (UI 지역 칩 가시화용). */
+  availableRegions: RegionOption[];
 }
 
 /**

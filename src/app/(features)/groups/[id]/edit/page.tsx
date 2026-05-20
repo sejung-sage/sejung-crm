@@ -22,7 +22,7 @@ export default async function EditGroupPage({
 
   const [initialPreview, schoolOptions, currentUser] = await Promise.all([
     countRecipients(group.filters, group.branch),
-    getSchoolOptions(),
+    getSchoolOptions(group.branch),
     getCurrentUser(),
   ]);
 
