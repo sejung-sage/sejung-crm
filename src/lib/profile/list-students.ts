@@ -84,6 +84,14 @@ async function listFromSupabase(
   // ─── region 필터 → 학교 list 변환 ──────────────────────────
   // count 쿼리는 students 베이스라 sr.region 컬럼이 없다. school_regions 를
   // 한 번 조회해서 student.school IN (...) 형태로 변환.
+  //
+  // 단, region='기타' 가 포함된 경우 NOT IN 인자가 매핑 학교 전체로 폭주해
+  // PostgREST URL 한계(~8KB) 초과 에러. 그 케이스는 view 의 region 컬럼 IN 으로
+  // 직접 매칭 — count·data 모두 student_profiles 사용.
+  const hasEtcRegion = input.regions.includes("기타");
+  if (hasEtcRegion) {
+    return await fetchViaView({ supabase, input, from, to });
+  }
   const regionPlan = await resolveRegionToSchools(input.regions);
 
   // ─── count 쿼리 (students 베이스, head + exact) ───────────
@@ -231,6 +239,106 @@ async function listFromSupabase(
   return {
     rows: (dataResult.data ?? []) as StudentProfileRow[],
     total,
+    page: input.page,
+    pageSize: input.pageSize,
+    source: "supabase",
+  };
+}
+
+/**
+ * region 필터에 '기타' 가 포함될 때만 사용하는 fallback — count·data 모두
+ * student_profiles 뷰의 region 컬럼 (COALESCE 결과) 으로 직접 매칭.
+ *
+ * 비용: 6만 학생 풀 집계 GROUP BY 가 매번 발생. 5분 statement_timeout 안에는
+ * 들어오지만 1~5초 응답 예상. region='기타' 외 칩(강남구/서초구 등) 만 선택하면
+ * 기존 students 베이스 2단계 fetch 로 빠른 응답.
+ */
+async function fetchViaView(args: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  input: ListStudentsInput;
+  from: number;
+  to: number;
+}): Promise<ListStudentsResult> {
+  const { supabase, input, from, to } = args;
+
+  interface ViewFilterableQuery {
+    or(filter: string): ViewFilterableQuery;
+    eq(col: string, val: string): ViewFilterableQuery;
+    in(col: string, values: readonly string[]): ViewFilterableQuery;
+    overlaps(col: string, values: readonly string[]): ViewFilterableQuery;
+    not(col: string, op: string, value: string): ViewFilterableQuery;
+  }
+
+  const applyFilters = <Q extends ViewFilterableQuery>(q: Q): Q => {
+    let next = q;
+    if (input.search) {
+      const like = `%${input.search}%`;
+      next = next.or(
+        `name.ilike.${like},school.ilike.${like},parent_phone.ilike.${like}`,
+      ) as Q;
+    }
+    if (input.branch && input.branch !== "전체") {
+      next = next.eq("branch", input.branch) as Q;
+    }
+    if (input.grades.length > 0) next = next.in("grade", input.grades) as Q;
+    if (input.schoolLevels.length > 0) {
+      next = next.in("school_level", input.schoolLevels) as Q;
+    }
+    if (input.statuses.length > 0) next = next.in("status", input.statuses) as Q;
+    if (input.subjects.length > 0) {
+      next = next.overlaps("subjects", input.subjects) as Q;
+    }
+    if (input.teachers.length > 0) {
+      next = next.overlaps("teachers", input.teachers) as Q;
+    }
+    if (input.schools.length > 0) next = next.in("school", input.schools) as Q;
+    if (input.regions.length > 0) next = next.in("region", input.regions) as Q;
+    if (!input.includeHidden && input.grades.length === 0) {
+      next = next.not(
+        "grade",
+        "in",
+        `(${HIDDEN_GRADES_BY_DEFAULT.join(",")})`,
+      ) as Q;
+    }
+    return next;
+  };
+
+  const countQuery = applyFilters(
+    supabase
+      .from("student_profiles")
+      .select("id", { count: "exact", head: true }) as unknown as ViewFilterableQuery,
+  );
+  const dataQueryBase = applyFilters(
+    supabase
+      .from("student_profiles")
+      .select("*") as unknown as ViewFilterableQuery,
+  );
+  const dataQuery = applySupabaseSort(
+    dataQueryBase as unknown as ProfilesOrderBuilder,
+    input.sort,
+  );
+
+  type AnyAwaited = {
+    count?: number | null;
+    data?: unknown;
+    error: { message: string } | null;
+  };
+  const [countResult, dataResult] = await Promise.all([
+    countQuery as unknown as Promise<AnyAwaited>,
+    (
+      dataQuery as unknown as {
+        range: (from: number, to: number) => Promise<AnyAwaited>;
+      }
+    ).range(from, to),
+  ]);
+
+  if (dataResult.error) {
+    throw new Error(`학생 목록 조회에 실패했습니다: ${dataResult.error.message}`);
+  }
+
+  return {
+    rows: (dataResult.data ?? []) as StudentProfileRow[],
+    total: countResult.error ? 0 : (countResult.count ?? 0),
     page: input.page,
     pageSize: input.pageSize,
     source: "supabase",
