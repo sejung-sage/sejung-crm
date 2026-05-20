@@ -48,7 +48,10 @@ function listFromDevSeed(query: CampaignListQuery): ListCampaignsResult {
 
   const total = sorted.length;
   const from = (query.page - 1) * PAGE_SIZE;
-  const items = sorted.slice(from, from + PAGE_SIZE);
+  // dev-seed 는 사용자 매핑이 없으므로 creator_name = null.
+  const items: CampaignListItem[] = sorted
+    .slice(from, from + PAGE_SIZE)
+    .map((c) => ({ ...c, creator_name: null }));
   return { items, total };
 }
 
@@ -97,9 +100,39 @@ async function listFromSupabase(
     );
   }
 
+  // 작성자 이름 매핑 — list-groups 와 동일 패턴.
+  // crm_users_profile 별도 lookup (auth schema 는 PostgREST 외부라 nested join 불가).
+  const rawRows = (dataResult.data ?? []) as Array<Record<string, unknown>>;
+  const creatorIds = Array.from(
+    new Set(
+      rawRows
+        .map((r) => r.created_by)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  );
+  const nameMap = new Map<string, string>();
+  if (creatorIds.length > 0) {
+    const { data: profiles, error: profileError } = await supabase
+      .from("crm_users_profile")
+      .select("user_id, name")
+      .in("user_id", creatorIds);
+    if (profileError) {
+      console.warn(
+        `[list-campaigns] 작성자 이름 조회 실패: ${profileError.message}`,
+      );
+    } else {
+      for (const p of (profiles ?? []) as Array<{
+        user_id: string;
+        name: string;
+      }>) {
+        nameMap.set(p.user_id, p.name);
+      }
+    }
+  }
+
   // 조인·집계는 backend 가 완성 시 덮어씀. 우선 최소 형태로 변환.
-  const items: CampaignListItem[] = ((dataResult.data ?? []) as unknown[]).map((r) => {
-    const row = r as Record<string, unknown>;
+  const items: CampaignListItem[] = rawRows.map((row) => {
+    const createdBy = (row.created_by ?? null) as string | null;
     return {
       id: row.id as string,
       title: row.title as string,
@@ -110,7 +143,7 @@ async function listFromSupabase(
       status: row.status as CampaignListItem["status"],
       total_recipients: (row.total_recipients ?? 0) as number,
       total_cost: (row.total_cost ?? 0) as number,
-      created_by: (row.created_by ?? null) as string | null,
+      created_by: createdBy,
       branch: row.branch as string,
       is_test: (row.is_test ?? false) as boolean,
       body: (row.body ?? null) as string | null,
@@ -123,6 +156,7 @@ async function listFromSupabase(
       group_name: null,
       delivered_count: 0,
       failed_count: 0,
+      creator_name: createdBy ? (nameMap.get(createdBy) ?? null) : null,
     };
   });
 

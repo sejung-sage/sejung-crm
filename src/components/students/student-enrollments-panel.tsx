@@ -1,5 +1,6 @@
 import type { EnrollmentWithClass } from "@/types/database";
 import { parseCourseName } from "@/lib/profile/parse-course-name";
+import { parseCourseProgress } from "@/lib/profile/course-progress";
 
 interface Props {
   enrollments: EnrollmentWithClass[];
@@ -18,16 +19,6 @@ interface Props {
  *   3) course_name 자유형 파싱 (`parseCourseName`) — 강좌 매칭 실패 시 noise 감축
  *   4) "—"
  */
-function todayStr(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-function isOngoingEnrollment(endDate: string | null): boolean {
-  if (!endDate) return true;
-  const end = endDate.length >= 10 ? endDate.slice(0, 10) : endDate;
-  return end >= todayStr();
-}
 
 export function StudentEnrollmentsPanel({ enrollments }: Props) {
   if (enrollments.length === 0) {
@@ -40,10 +31,11 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
     );
   }
 
-  // 진행 중 위로 → end_date 내림차순. NULL end_date 는 진행 중 그룹 안에서 위.
+  // 진행 중 위로 → end_date 내림차순.
+  // 진행 상태는 course_name prefix enum 파싱 — 날짜 sentinel('2050-01-01') 이슈 회피.
   const sorted = [...enrollments].sort((a, b) => {
-    const ao = isOngoingEnrollment(a.end_date);
-    const bo = isOngoingEnrollment(b.end_date);
+    const ao = parseCourseProgress(a.course_name) === "ongoing";
+    const bo = parseCourseProgress(b.course_name) === "ongoing";
     if (ao !== bo) return ao ? -1 : 1;
     const ad = a.end_date ?? "";
     const bd = b.end_date ?? "";
@@ -73,7 +65,7 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
               e.class?.subject_raw ??
               parsed.subject ??
               "—";
-            const ongoing = isOngoingEnrollment(e.end_date);
+            const ongoing = parseCourseProgress(e.course_name) === "ongoing";
             return (
               <tr
                 key={e.id}

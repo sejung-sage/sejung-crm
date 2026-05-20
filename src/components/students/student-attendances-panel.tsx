@@ -4,6 +4,7 @@ import type {
   ExpectedSession,
 } from "@/types/database";
 import { AttendanceStatusChip } from "@/components/students/attendance-status-chip";
+import { parseCourseProgress } from "@/lib/profile/course-progress";
 
 interface Props {
   // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
@@ -362,10 +363,9 @@ function buildGroups(
     g.expectedDates.add(s.class_date);
   }
 
-  // group 별 진행 상태 산출 — 출결 ∪ 예정 회차의 max 일자 vs today.
-  // YYYY-MM-DD 문자열 비교가 사전순=시간순이라 별도 Date 변환 불필요.
-  const today = new Date();
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  // group 별 진행 상태 산출 — 강좌명 prefix enum ("(종)" / "(폐)" → closed).
+  // 날짜 sentinel('2050-01-01') 가 진행 중으로 잘못 잡히던 회귀를 enum 으로 차단.
+  // lastDate 는 정렬 보조 키로만 사용.
   for (const g of groupMap.values()) {
     let maxDate: string | null = null;
     for (const d of g.byDate.keys()) {
@@ -375,7 +375,7 @@ function buildGroups(
       if (!maxDate || d > maxDate) maxDate = d;
     }
     g.lastDate = maxDate;
-    g.isOngoing = maxDate !== null && maxDate >= todayStr;
+    g.isOngoing = parseCourseProgress(g.title) === "ongoing";
   }
 
   // 정렬 — 진행 중 위로 → 마지막 일자 최신 순 → 총 카운트 DESC → 이름.

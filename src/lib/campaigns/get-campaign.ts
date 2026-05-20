@@ -42,6 +42,19 @@ export async function getCampaign(
   if (!data) return null;
 
   const row = data as Record<string, unknown>;
+  const createdBy = (row.created_by ?? null) as string | null;
+
+  // 작성자 이름 lookup — list-campaigns 와 동일 패턴 (auth.users 외부 schema).
+  let creatorName: string | null = null;
+  if (createdBy) {
+    const { data: profile } = await supabase
+      .from("crm_users_profile")
+      .select("name")
+      .eq("user_id", createdBy)
+      .maybeSingle();
+    creatorName = (profile as { name?: string } | null)?.name ?? null;
+  }
+
   return {
     id: row.id as string,
     title: row.title as string,
@@ -52,7 +65,7 @@ export async function getCampaign(
     status: row.status as CampaignListItem["status"],
     total_recipients: (row.total_recipients ?? 0) as number,
     total_cost: (row.total_cost ?? 0) as number,
-    created_by: (row.created_by ?? null) as string | null,
+    created_by: createdBy,
     branch: row.branch as string,
     is_test: (row.is_test ?? false) as boolean,
     body: (row.body ?? null) as string | null,
@@ -65,5 +78,6 @@ export async function getCampaign(
     group_name: null,
     delivered_count: 0,
     failed_count: 0,
+    creator_name: creatorName,
   };
 }
