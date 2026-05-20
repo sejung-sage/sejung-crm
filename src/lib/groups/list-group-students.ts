@@ -60,6 +60,45 @@ export async function listGroupStudents(
   // 수신거부 phone — React cache 공유.
   const safeUnsubPhones = await getUnsubscribedPhones();
 
+  // subjects 사전 매핑 — ETL 상 enrollments.subject 가 NULL 이라
+  // classes.subject 로 aca_class_id → enrollments.student_id 두 단계 매핑.
+  // count-recipients 와 동일 정책.
+  let subjectMatchedStudentIds: string[] | null = null;
+  if (
+    group.filters.includeStudentIds.length === 0 &&
+    group.filters.subjects.length > 0
+  ) {
+    const { data: classRows, error: classErr } = await supabase
+      .from("crm_classes")
+      .select("aca_class_id")
+      .in("subject", group.filters.subjects)
+      .not("aca_class_id", "is", null);
+    if (classErr) {
+      throw new Error(`강좌 조회에 실패했습니다: ${classErr.message}`);
+    }
+    const acaClassIds = (classRows ?? [])
+      .map((r) => (r as { aca_class_id: string | null }).aca_class_id)
+      .filter((v): v is string => typeof v === "string" && v.length > 0);
+    if (acaClassIds.length === 0) {
+      return { items: [], total: 0 };
+    }
+    const { data: enrollRows, error: enrollErr } = await supabase
+      .from("crm_enrollments")
+      .select("student_id")
+      .in("aca_class_id", acaClassIds);
+    if (enrollErr) {
+      throw new Error(`수강 정보 조회에 실패했습니다: ${enrollErr.message}`);
+    }
+    const set = new Set<string>();
+    for (const r of (enrollRows ?? []) as { student_id: string }[]) {
+      if (r.student_id) set.add(r.student_id);
+    }
+    if (set.size === 0) {
+      return { items: [], total: 0 };
+    }
+    subjectMatchedStudentIds = Array.from(set);
+  }
+
   // count + page 두 쿼리. count-recipients.ts 와 동일 분기 정책.
   const buildQuery = (
     selectExpr: string,
@@ -89,8 +128,11 @@ export async function listGroupStudents(
       if (group.filters.schools.length > 0) {
         q = q.in("school", group.filters.schools);
       }
-      if (group.filters.subjects.length > 0) {
-        q = q.overlaps("subjects", group.filters.subjects);
+      if (subjectMatchedStudentIds) {
+        // classes.subject → enrollments → student_id 사전 매핑 결과로 좁힘.
+        // 옛 .overlaps("subjects",...) 는 view 의 array_agg 컬럼이 항상 빈 배열
+        // (enrollments.subject NULL) 이라 매칭 0 → 항상 0명 산출.
+        q = q.in("id", subjectMatchedStudentIds);
       }
       if (group.filters.regions.length > 0) {
         q = q.in("region", group.filters.regions);

@@ -240,10 +240,27 @@ async function resolveFilterMapping(
 
   let allowedStudentIds: string[] | null = null;
   if (f.subjects.length > 0) {
+    // ETL 정책상 crm_enrollments.subject 는 항상 NULL → crm_classes.subject 로
+    // aca_class_id 사전 페치 후 enrollments 의 aca_class_id 매칭.
+    const { data: classRows, error: classErr } = await supabase
+      .from("crm_classes")
+      .select("aca_class_id")
+      .in("subject", f.subjects)
+      .not("aca_class_id", "is", null);
+    if (classErr) {
+      throw new Error(`강좌 조회에 실패했습니다: ${classErr.message}`);
+    }
+    const acaClassIds = (classRows ?? [])
+      .map((r) => (r as { aca_class_id: string | null }).aca_class_id)
+      .filter((v): v is string => typeof v === "string" && v.length > 0);
+    if (acaClassIds.length === 0) {
+      return { allowedStudentIds: null, allowedSchools: null, zeroResult: true };
+    }
+
     const { data: enrollRows, error: enrollErr } = await supabase
       .from("crm_enrollments")
       .select("student_id")
-      .in("subject", f.subjects);
+      .in("aca_class_id", acaClassIds);
     if (enrollErr) {
       throw new Error(`수강 정보 조회에 실패했습니다: ${enrollErr.message}`);
     }

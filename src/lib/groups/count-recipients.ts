@@ -87,17 +87,33 @@ async function countFromSupabase(
   //    React cache 로 같은 요청 내 중복 호출 제거 (preview-recipients 등과 공유).
   const safeUnsubPhones = await getUnsubscribedPhones();
 
-  // 2) subjects 필터 사전 매핑 — crm_enrollments 에서 매칭 student_id 페치.
-  //    student_profiles 뷰의 subjects array_agg + overlaps 대신
-  //    enrollments 인덱스로 student_id 만 뽑아 students 에 적용.
+  // 2) subjects 필터 사전 매핑.
+  //    ⚠️ ETL 정책상 crm_enrollments.subject 는 항상 NULL — 실제 과목은
+  //    crm_classes.subject 에만 들어 있다. 따라서 두 단계로 매핑:
+  //      (a) crm_classes.subject IN (filters.subjects) → 매칭 aca_class_id 페치
+  //      (b) crm_enrollments.aca_class_id IN (매칭) → 그 강좌 수강 student_id 페치
+  //    옛 코드는 (a) 를 건너뛰고 enrollments.subject 로 매칭해 항상 0명 산출.
   let allowedStudentIds: string[] | null = null;
   if (filters.includeStudentIds.length > 0) {
     allowedStudentIds = filters.includeStudentIds;
   } else if (filters.subjects.length > 0) {
+    const { data: classRows, error: classErr } = await supabase
+      .from("crm_classes")
+      .select("aca_class_id")
+      .in("subject", filters.subjects)
+      .not("aca_class_id", "is", null);
+    if (classErr) {
+      throw new Error(`강좌 조회에 실패했습니다: ${classErr.message}`);
+    }
+    const acaClassIds = (classRows ?? [])
+      .map((r) => (r as { aca_class_id: string | null }).aca_class_id)
+      .filter((v): v is string => typeof v === "string" && v.length > 0);
+    if (acaClassIds.length === 0) return { total: 0, sample: [] };
+
     const { data: enrollRows, error: enrollErr } = await supabase
       .from("crm_enrollments")
       .select("student_id")
-      .in("subject", filters.subjects);
+      .in("aca_class_id", acaClassIds);
     if (enrollErr) {
       throw new Error(`수강 정보 조회에 실패했습니다: ${enrollErr.message}`);
     }
