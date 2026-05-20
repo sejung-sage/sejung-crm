@@ -247,12 +247,13 @@ async function listFromSupabase(
 }
 
 /**
- * region 필터에 '기타' 가 포함될 때만 사용하는 fallback — count·data 모두
- * student_profiles 뷰의 region 컬럼 (COALESCE 결과) 으로 직접 매칭.
+ * region 필터 전용 fallback — SECURITY INVOKER RPC `search_students_by_region`
+ * (0067 마이그) 호출. crm_students + crm_school_regions LEFT JOIN 을 SQL 단에서
+ * 직접 처리하므로 PostgREST URL 폭주(NOT IN 학교 매핑 폭주)와 view 풀집계 GROUP
+ * BY 의 statement_timeout 모두 회피.
  *
- * 비용: 6만 학생 풀 집계 GROUP BY 가 매번 발생. 5분 statement_timeout 안에는
- * 들어오지만 1~5초 응답 예상. region='기타' 외 칩(강남구/서초구 등) 만 선택하면
- * 기존 students 베이스 2단계 fetch 로 빠른 응답.
+ * RPC 가 반환한 id 와 total_count 를 받아, 그 id 만 student_profiles 뷰에서
+ * IN(...) 으로 작은 set materialize. view 풀집계 안 함.
  */
 async function fetchViaView(args: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -262,84 +263,82 @@ async function fetchViaView(args: {
 }): Promise<ListStudentsResult> {
   const { supabase, input, from, to } = args;
 
-  interface ViewFilterableQuery {
-    or(filter: string): ViewFilterableQuery;
-    eq(col: string, val: string): ViewFilterableQuery;
-    in(col: string, values: readonly string[]): ViewFilterableQuery;
-    overlaps(col: string, values: readonly string[]): ViewFilterableQuery;
-    not(col: string, op: string, value: string): ViewFilterableQuery;
+  // RPC 호출 — sort 키는 SQL 단에서 매핑. attendance_rate 등 폐기된 키는 fallback.
+  // RPC 타입 정의는 database.ts 의 Functions 미정의라 supabase JS generic 우회 캐스팅.
+  const rpcResult = await (
+    supabase.rpc as unknown as (
+      fn: "search_students_by_region",
+      params: {
+        p_regions: string[];
+        p_branch: string | null;
+        p_search: string | null;
+        p_grades: string[] | null;
+        p_school_levels: string[] | null;
+        p_statuses: string[] | null;
+        p_schools: string[] | null;
+        p_include_hidden: boolean;
+        p_sort: string;
+        p_offset: number;
+        p_limit: number;
+      },
+    ) => Promise<{
+      data: Array<{ id: string; total_count: number }> | null;
+      error: { message: string } | null;
+    }>
+  )("search_students_by_region", {
+    p_regions: input.regions,
+    p_branch: input.branch && input.branch !== "전체" ? input.branch : null,
+    p_search: input.search?.trim() ? input.search.trim() : null,
+    p_grades: input.grades.length > 0 ? input.grades : null,
+    p_school_levels:
+      input.schoolLevels.length > 0 ? input.schoolLevels : null,
+    p_statuses: input.statuses.length > 0 ? input.statuses : null,
+    p_schools: input.schools.length > 0 ? input.schools : null,
+    p_include_hidden: input.includeHidden,
+    p_sort: input.sort,
+    p_offset: from,
+    p_limit: to - from + 1,
+  });
+
+  if (rpcResult.error) {
+    throw new Error(
+      `학생 목록 조회에 실패했습니다: ${rpcResult.error.message}`,
+    );
+  }
+  const rpcRows = (rpcResult.data ?? []) as Array<{
+    id: string;
+    total_count: number;
+  }>;
+  const ids = rpcRows.map((r) => r.id);
+  const total = rpcRows[0]?.total_count ?? 0;
+
+  if (ids.length === 0) {
+    return {
+      rows: [],
+      total,
+      page: input.page,
+      pageSize: input.pageSize,
+      source: "supabase",
+    };
   }
 
-  const applyFilters = <Q extends ViewFilterableQuery>(q: Q): Q => {
-    let next = q;
-    if (input.search) {
-      const like = `%${input.search}%`;
-      next = next.or(
-        `name.ilike.${like},school.ilike.${like},parent_phone.ilike.${like}`,
-      ) as Q;
-    }
-    if (input.branch && input.branch !== "전체") {
-      next = next.eq("branch", input.branch) as Q;
-    }
-    if (input.grades.length > 0) next = next.in("grade", input.grades) as Q;
-    if (input.schoolLevels.length > 0) {
-      next = next.in("school_level", input.schoolLevels) as Q;
-    }
-    if (input.statuses.length > 0) next = next.in("status", input.statuses) as Q;
-    if (input.subjects.length > 0) {
-      next = next.overlaps("subjects", input.subjects) as Q;
-    }
-    if (input.teachers.length > 0) {
-      next = next.overlaps("teachers", input.teachers) as Q;
-    }
-    if (input.schools.length > 0) next = next.in("school", input.schools) as Q;
-    if (input.regions.length > 0) next = next.in("region", input.regions) as Q;
-    if (!input.includeHidden && input.grades.length === 0) {
-      next = next.not(
-        "grade",
-        "in",
-        `(${HIDDEN_GRADES_BY_DEFAULT.join(",")})`,
-      ) as Q;
-    }
-    return next;
-  };
+  // 2단계: student_profiles 뷰에서 그 id 들만 materialize. small set 이라 풀집계 회피.
+  let profilesQuery = supabase
+    .from("student_profiles")
+    .select("*")
+    .in("id", ids);
+  profilesQuery = applySupabaseSort(profilesQuery, input.sort);
 
-  const countQuery = applyFilters(
-    supabase
-      .from("student_profiles")
-      .select("id", { count: "exact", head: true }) as unknown as ViewFilterableQuery,
-  );
-  const dataQueryBase = applyFilters(
-    supabase
-      .from("student_profiles")
-      .select("*") as unknown as ViewFilterableQuery,
-  );
-  const dataQuery = applySupabaseSort(
-    dataQueryBase as unknown as ProfilesOrderBuilder,
-    input.sort,
-  );
-
-  type AnyAwaited = {
-    count?: number | null;
-    data?: unknown;
-    error: { message: string } | null;
-  };
-  const [countResult, dataResult] = await Promise.all([
-    countQuery as unknown as Promise<AnyAwaited>,
-    (
-      dataQuery as unknown as {
-        range: (from: number, to: number) => Promise<AnyAwaited>;
-      }
-    ).range(from, to),
-  ]);
-
-  if (dataResult.error) {
-    throw new Error(`학생 목록 조회에 실패했습니다: ${dataResult.error.message}`);
+  const profilesResult = await profilesQuery;
+  if (profilesResult.error) {
+    throw new Error(
+      `학생 목록 조회에 실패했습니다: ${profilesResult.error.message}`,
+    );
   }
 
   return {
-    rows: (dataResult.data ?? []) as StudentProfileRow[],
-    total: countResult.error ? 0 : (countResult.count ?? 0),
+    rows: (profilesResult.data ?? []) as StudentProfileRow[],
+    total,
     page: input.page,
     pageSize: input.pageSize,
     source: "supabase",
