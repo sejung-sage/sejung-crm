@@ -87,6 +87,16 @@ async function countFromSupabase(
   //    React cache 로 같은 요청 내 중복 호출 제거 (preview-recipients 등과 공유).
   const safeUnsubPhones = await getUnsubscribedPhones();
 
+  // 1.5) subjects 필터가 있고 includeStudentIds 미설정이면 RPC 위임.
+  //      국어처럼 수강생 많은 과목은 student id list 가 PostgREST URL 한계
+  //      초과 → 0068 마이그의 search_recipients_by_subjects RPC 사용.
+  if (
+    filters.subjects.length > 0 &&
+    filters.includeStudentIds.length === 0
+  ) {
+    return await countViaSubjectsRpc(filters, branch, safeUnsubPhones);
+  }
+
   // 2) subjects 필터 사전 매핑.
   //    ⚠️ ETL 정책상 crm_enrollments.subject 는 항상 NULL — 실제 과목은
   //    crm_classes.subject 에만 들어 있다. 따라서 두 단계로 매핑:
@@ -243,6 +253,76 @@ async function countFromSupabase(
   return {
     total: count ?? 0,
     sample: (sampleData ?? []).map(toSampleRow),
+  };
+}
+
+/**
+ * subjects 필터가 있을 때만 사용하는 RPC 경로 (0068 마이그).
+ * classes JOIN enrollments JOIN students 를 SQL 단에서 처리해 student id list
+ * URL 폭주 회피. count + sample 동시 반환 (window count).
+ */
+async function countViaSubjectsRpc(
+  filters: GroupFilters,
+  branch: string,
+  safeUnsubPhones: string[],
+): Promise<CountRecipientsResult> {
+  const supabase = await createSupabaseServerClient();
+
+  const rpcResult = await (
+    supabase.rpc as unknown as (
+      fn: "search_recipients_by_subjects",
+      params: {
+        p_subjects: string[];
+        p_branch: string;
+        p_grades: string[] | null;
+        p_schools: string[] | null;
+        p_regions: string[] | null;
+        p_statuses: string[] | null;
+        p_exclude_ids: string[] | null;
+        p_unsub_phones: string[] | null;
+        p_offset: number;
+        p_limit: number;
+      },
+    ) => Promise<{
+      data: Array<{
+        id: string;
+        name: string;
+        school: string | null;
+        grade: Grade | null;
+        branch: string;
+        total_count: number;
+      }> | null;
+      error: { message: string } | null;
+    }>
+  )("search_recipients_by_subjects", {
+    p_subjects: filters.subjects,
+    p_branch: branch,
+    p_grades: filters.grades.length > 0 ? filters.grades : null,
+    p_schools: filters.schools.length > 0 ? filters.schools : null,
+    p_regions: filters.regions.length > 0 ? filters.regions : null,
+    p_statuses: filters.statuses.length > 0 ? filters.statuses : null,
+    p_exclude_ids:
+      filters.excludeStudentIds.length > 0 ? filters.excludeStudentIds : null,
+    p_unsub_phones: safeUnsubPhones.length > 0 ? safeUnsubPhones : null,
+    p_offset: 0,
+    p_limit: SAMPLE_SIZE,
+  });
+
+  if (rpcResult.error) {
+    throw new Error(
+      `수신자 카운트 조회에 실패했습니다: ${rpcResult.error.message}`,
+    );
+  }
+  const rows = rpcResult.data ?? [];
+  const total = rows[0]?.total_count ?? 0;
+  return {
+    total,
+    sample: rows.map((r) => ({
+      name: r.name,
+      school: r.school,
+      grade: r.grade,
+      branch: r.branch,
+    })),
   };
 }
 
