@@ -85,23 +85,14 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
 
 /**
  * 결제 상태 셀.
- *  - paid_at 있음 → "결완" 칩 (회색 배경) + 결제일 (YYYY-MM-DD)
- *  - paid_at 없음 → "미납" 칩 (강조 outline)
- * 운영자가 한눈에 미납 학생을 식별할 수 있도록 시각 분리.
+ *  - paid_at 있음 → "결완" 칩 + 결제일
+ *  - paid_at 없음 → "—" (미납 태그 미노출 — 사용자 요청 2026-05-20)
  */
 function PaymentStatusCell({ paidAt }: { paidAt: string | null }) {
   if (!paidAt) {
     return (
-      <span
-        className="
-          inline-flex items-center px-2 py-0.5 rounded-full
-          text-[12px] font-medium border
-          border-[color:var(--danger,#dc2626)]
-          text-[color:var(--danger,#dc2626)]
-          bg-bg-card
-        "
-      >
-        미납
+      <span className="text-[color:var(--text-dim)]" aria-label="결제일 없음">
+        —
       </span>
     );
   }
