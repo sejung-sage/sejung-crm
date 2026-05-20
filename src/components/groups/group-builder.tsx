@@ -271,6 +271,10 @@ export function GroupBuilder({
   // 초기값은 prop. branch/statuses 변경 시 server action 으로 재페치 → 좁힘.
   const [dynamicSchoolOptions, setDynamicSchoolOptions] =
     useState<string[]>(schoolOptions);
+  // 학교를 지역 그룹으로 묶은 결과. region 칩 토글 시 client 단 좁힘에 사용.
+  const [dynamicSchoolGroups, setDynamicSchoolGroups] = useState<
+    Array<{ region: string; schools: string[] }>
+  >([]);
   const [dynamicGrades, setDynamicGrades] = useState<Grade[] | undefined>(
     availableGrades,
   );
@@ -279,6 +283,21 @@ export function GroupBuilder({
   );
   const optionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const optionsReqIdRef = useRef<number>(0);
+
+  // 선택된 region 으로 좁힌 학교 옵션. region 미선택 시 dynamicSchoolOptions 전체.
+  // server 라운드트립 없이 즉시 반영 — schoolGroups 매핑이 이미 client 에 있음.
+  const visibleSchoolOptions = useMemo(() => {
+    if (regions.length === 0 || dynamicSchoolGroups.length === 0) {
+      return dynamicSchoolOptions;
+    }
+    const set = new Set<string>();
+    for (const g of dynamicSchoolGroups) {
+      if (regions.includes(g.region)) {
+        for (const s of g.schools) set.add(s);
+      }
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
+  }, [regions, dynamicSchoolOptions, dynamicSchoolGroups]);
 
   // 실제 서버로 보낼 filters.
   // excludeStudentIds 는 그룹 상세 화면의 "개별 학생 제거" 액션이 관리 →
@@ -312,6 +331,7 @@ export function GroupBuilder({
       if (myReq !== optionsReqIdRef.current) return;
       if (result.status === "success") {
         setDynamicSchoolOptions(result.data.schools);
+        setDynamicSchoolGroups(result.data.schoolGroups);
         setDynamicGrades(result.data.availableGrades);
         setDynamicRegions(result.data.availableRegions);
       }
@@ -611,7 +631,7 @@ export function GroupBuilder({
               hint={schools.length === 0 ? "선택 안 함 = 전 학교" : undefined}
             >
               <GroupSchoolSearchPanel
-                schoolOptions={dynamicSchoolOptions}
+                schoolOptions={visibleSchoolOptions}
                 selected={schools}
                 grades={grades}
                 query={schoolQuery}
