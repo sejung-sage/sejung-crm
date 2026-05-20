@@ -12,14 +12,14 @@ import {
 
 /**
  * 학생 리스트 정렬 옵션.
- * 0063 에서 attendance_rate 정렬 옵션 폐기 (출석률 % 개념 자체 제거).
+ * 0063 에서 attendance_rate · 0066 에서 absent_count 정렬 옵션 폐기
+ * (출석률 % · 결석 개념 모두 운영에서 사용 안 함).
  *
  * student_profiles 뷰의 컬럼을 그대로 활용:
  *  - registered_at              (등록일)
  *  - name                       (이름)
  *  - enrollment_count           (수강 강좌 수 전체)
  *  - active_enrollment_count    (진행 중 수강 수)
- *  - absent_count               (결석 횟수 · 케어 대상 정렬)
  *  - total_paid                 (누적 결제 금액)
  */
 export const STUDENT_SORT_VALUES = [
@@ -29,7 +29,6 @@ export const STUDENT_SORT_VALUES = [
   "name_desc",
   "enrollment_count_desc",
   "active_enrollment_count_desc",
-  "absent_count_desc",
   "total_paid_desc",
 ] as const;
 export const StudentSortSchema = z.enum(STUDENT_SORT_VALUES);
@@ -83,7 +82,7 @@ export type ListStudentsInput = z.infer<typeof ListStudentsInputSchema>;
  *   ?teacher=김선생&teacher=박선생   → teachers (다중 선택)
  *   ?school=대치고&school=휘문고     → schools (다중 선택)
  *   ?region=강남구&region=서초구     → regions (다중 선택, 자유 텍스트)
- *   ?sort=absent_count_desc         → sort
+ *   ?sort=active_enrollment_count_desc → sort
  *   ?include_hidden=1               → includeHidden
  *   ?page=1&size=50                 → page / pageSize
  *

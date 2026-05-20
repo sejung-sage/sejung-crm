@@ -44,7 +44,6 @@ export function ClassStudentsPanel({ students, canRevealPhone = false }: Props) 
             <Th className="w-20 text-center">학년</Th>
             <Th className="w-40">학부모 연락처</Th>
             <Th className="w-16 text-right">출</Th>
-            <Th className="w-16 text-right">결</Th>
             <Th className="w-16 text-right">지</Th>
             <Th className="w-16 text-right">조</Th>
             <Th className="w-16 text-right">보</Th>
@@ -81,7 +80,6 @@ export function ClassStudentsPanel({ students, canRevealPhone = false }: Props) 
                   : "—"}
               </Td>
               <CountTd value={s.attended_count} />
-              <CountTd value={s.absent_count} />
               <CountTd value={s.late_count} />
               <CountTd value={s.early_leave_count} />
               <CountTd value={s.makeup_count} />

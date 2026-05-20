@@ -259,7 +259,6 @@ const COUNT_COLUMNS: {
 }[] = [
   { key: "총", label: "총", aria: "총" },
   { key: "출석", label: "출", aria: "출석" },
-  { key: "결석", label: "결", aria: "결석" },
   { key: "지각", label: "지", aria: "지각" },
   { key: "조퇴", label: "조", aria: "조퇴" },
   { key: "보강", label: "보", aria: "보강" },

@@ -26,16 +26,17 @@ describe("effectiveAttendanceStatus", () => {
     }
   });
 
-  it("방배 외: 결석만 결석, 나머지는 출석", () => {
+  it("방배 외: 모든 status 가 '출석' 으로 매핑 (0066 결석 폐기)", () => {
     expect(effectiveAttendanceStatus("출석", "대치")).toBe("출석");
     expect(effectiveAttendanceStatus("지각", "대치")).toBe("출석");
     expect(effectiveAttendanceStatus("조퇴", "대치")).toBe("출석");
     expect(effectiveAttendanceStatus("보강", "대치")).toBe("출석");
-    expect(effectiveAttendanceStatus("결석", "대치")).toBe("결석");
+    // raw 결석 row 가 남아 있어도 비-방배에선 '출석' chip 으로 흡수.
+    expect(effectiveAttendanceStatus("결석", "대치")).toBe("출석");
   });
 
-  it("미지정 분원도 비-strict 처리", () => {
+  it("미지정 분원도 비-strict 처리 (모두 출석)", () => {
     expect(effectiveAttendanceStatus("지각", null)).toBe("출석");
-    expect(effectiveAttendanceStatus("결석", undefined)).toBe("결석");
+    expect(effectiveAttendanceStatus("결석", undefined)).toBe("출석");
   });
 });

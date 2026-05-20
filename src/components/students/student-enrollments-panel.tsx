@@ -69,10 +69,7 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
                   {formatPeriod(e.start_date, e.end_date)}
                 </Td>
                 <Td className="text-right tabular-nums">
-                  <AmountCell
-                    amount={e.amount}
-                    sessions={e.class?.total_sessions ?? null}
-                  />
+                  <AmountCell amount={e.amount} />
                 </Td>
                 <Td>
                   <PaymentStatusCell paidAt={e.paid_at} />
@@ -130,43 +127,19 @@ function PaymentStatusCell({ paidAt }: { paidAt: string | null }) {
 }
 
 /**
- * 금액 셀.
- * - 회차 정보 있음 → 메인: 총액(회당×회차), 서브: "회당 X원 × N회"
- * - 회차 정보 없음 → 메인: 회당 금액(amount) 단독
+ * 금액 셀 — 회당 금액 단독 표시.
+ *
+ * 옛 버전: 총액(회당 × 정해진 회차) + "회당 X원 × N회" 부가표시.
+ * 변경: 정해진 회차가 실제 수강 회차와 무관할 수 있어 (연장·추가 등) "총액"
+ * 표기가 오해를 일으킴 → 회당 금액만 노출. 실제 결제 합계는 학생 KPI 의
+ * "총 결제금액" 카드(들은 회차 × 회당) 로 확인.
  */
-function AmountCell({
-  amount,
-  sessions,
-}: {
-  amount: number;
-  sessions: number | null;
-}) {
-  if (sessions !== null && sessions > 0) {
-    const total = Math.round(amount * sessions);
-    const sessionsLabel = formatSessions(sessions);
-    return (
-      <div className="flex flex-col items-end gap-0.5">
-        <span className="text-[color:var(--text)]">
-          {total.toLocaleString("ko-KR")}원
-        </span>
-        <span className="text-[12px] text-[color:var(--text-muted)]">
-          회당 {amount.toLocaleString("ko-KR")}원 × {sessionsLabel}회
-        </span>
-      </div>
-    );
-  }
-
+function AmountCell({ amount }: { amount: number }) {
   return (
     <span className="text-[color:var(--text)]">
-      {amount.toLocaleString("ko-KR")}원
+      {amount.toLocaleString("ko-KR")}원/회
     </span>
   );
-}
-
-function formatSessions(sessions: number): string {
-  // 청구회차는 decimal 원본이라 정수면 정수로, 소수면 한 자리만.
-  if (Number.isInteger(sessions)) return String(sessions);
-  return sessions.toFixed(1);
 }
 
 function formatPeriod(start: string | null, end: string | null): string {

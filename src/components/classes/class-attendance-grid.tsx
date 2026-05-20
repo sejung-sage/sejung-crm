@@ -239,21 +239,18 @@ interface Matrix {
 const COUNT_COLUMNS: { key: AttendanceStatus | "총"; label: string }[] = [
   { key: "총", label: "총" },
   { key: "출석", label: "출" },
-  { key: "결석", label: "결" },
   { key: "지각", label: "지" },
   { key: "조퇴", label: "조" },
   { key: "보강", label: "보" },
 ];
 
-// 좌측 sticky 컬럼 누적 left offset (학생 180 + 카운트 6 × 44).
-// 학생 격자는 학생 이름 셀이 학생 상세의 강좌 셀(220)보다 짧아도 충분.
+// 좌측 sticky 컬럼 누적 left offset (학생 180 + 카운트 5 × 44).
 const COUNT_LEFT_OFFSETS = [
   180,
   180 + 44,
   180 + 44 * 2,
   180 + 44 * 3,
   180 + 44 * 4,
-  180 + 44 * 5,
 ];
 
 function buildMatrix(
@@ -304,7 +301,7 @@ function buildMatrix(
       counts: {
         총: s.total_count,
         출석: s.attended_count,
-        결석: s.absent_count,
+        결석: 0,
         지각: s.late_count,
         조퇴: s.early_leave_count,
         보강: s.makeup_count,

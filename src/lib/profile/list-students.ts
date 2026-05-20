@@ -239,7 +239,7 @@ async function listFromSupabase(
 
 /**
  * 정렬 키가 students 테이블 컬럼이라 1단계에서 students 인덱스 활용 가능한지.
- * enrollment_count / total_paid / absent_count 는 view 집계 컬럼이라 X.
+ * enrollment_count / active_enrollment_count / total_paid 는 view 집계 컬럼이라 X.
  */
 function isStudentsColumnSort(sort: StudentSort): boolean {
   switch (sort) {
@@ -250,7 +250,6 @@ function isStudentsColumnSort(sort: StudentSort): boolean {
       return true;
     case "enrollment_count_desc":
     case "active_enrollment_count_desc":
-    case "absent_count_desc":
     case "total_paid_desc":
       return false;
   }
@@ -539,14 +538,6 @@ function applySupabaseSort<Q extends ProfilesOrderBuilder>(
           nullsFirst: false,
         }) as Q,
       );
-    case "absent_count_desc":
-      // 0060 view 추가 컬럼 — 결석이 잦은 학생부터(상담 우선순위 도출).
-      return tieBreaker(
-        query.order("absent_count", {
-          ascending: false,
-          nullsFirst: false,
-        }) as Q,
-      );
     case "total_paid_desc":
       return tieBreaker(
         query.order("total_paid", {
@@ -747,12 +738,6 @@ function sortDevRows(
           b.active_enrollment_count,
           false,
         );
-        return c !== 0 ? c : cmpRegisteredDesc(a, b);
-      });
-      break;
-    case "absent_count_desc":
-      sorted.sort((a, b) => {
-        const c = cmpNumber(a.absent_count, b.absent_count, false);
         return c !== 0 ? c : cmpRegisteredDesc(a, b);
       });
       break;

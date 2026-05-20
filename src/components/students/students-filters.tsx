@@ -88,7 +88,6 @@ const SORT_LABELS: Record<StudentSort, string> = {
   name_desc: "이름 가나다 역순",
   enrollment_count_desc: "수강 많은 순 (누적)",
   active_enrollment_count_desc: "수강 중 많은 순",
-  absent_count_desc: "결석 많은 순 (케어)",
   total_paid_desc: "누적 결제 많은 순",
 };
 
