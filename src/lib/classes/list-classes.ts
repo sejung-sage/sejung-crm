@@ -279,6 +279,9 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     for (const prefix of GRADUATED_NAME_PREFIXES) {
       q = q.not("name", "ilike", `${prefix}%`) as Q;
     }
+    // 설명회·간담회 (subject='설명회' 0058+0062) 는 진행 중 강좌가 아님.
+    // "전체" 토글에서는 노출. NULL subject 는 미분류라 일단 진행 중에 포함.
+    q = q.or("subject.is.null,subject.neq.설명회") as Q;
   } else if (filters.status === "graduated") {
     const today = todayKstDateString();
     const orParts = [

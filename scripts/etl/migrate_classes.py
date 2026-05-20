@@ -250,10 +250,11 @@ def transform(row: dict, branch_id: str, branch_name: str) -> dict | None:
     inactive_flag = clean_text(row.get("미사용반구분"))
     active = not (inactive_flag == "Y")
 
-    # subject 결정: 과목명 → normalize_subject. 단 name 에 '설명회' 들어 있으면
-    # 무조건 '설명회' override (0058 정책 — 설명회 강좌는 재원생 판정에서 제외).
+    # subject 결정: 과목명 → normalize_subject. 단 name 에 '설명회' 또는
+    # '간담회' 가 들어 있으면 무조건 '설명회' override (0058+0062 정책 —
+    # 설명회·간담회 강좌는 재원생 판정·진행중 list 에서 제외).
     subject = normalize_subject(row.get("과목명"))
-    if "설명회" in name:
+    if "설명회" in name or "간담회" in name:
         subject = "설명회"
 
     return {
