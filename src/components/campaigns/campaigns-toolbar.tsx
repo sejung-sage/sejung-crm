@@ -127,6 +127,12 @@ export function CampaignsToolbar() {
             type="date"
             value={from}
             onChange={(e) => onDateChange("from", e.target.value)}
+            onClick={(e) => {
+              const el = e.currentTarget as HTMLInputElement & {
+                showPicker?: () => void;
+              };
+              el.showPicker?.();
+            }}
             className="
               h-10 rounded-lg px-3
               bg-bg-card border border-[color:var(--border)]
@@ -143,6 +149,12 @@ export function CampaignsToolbar() {
             type="date"
             value={to}
             onChange={(e) => onDateChange("to", e.target.value)}
+            onClick={(e) => {
+              const el = e.currentTarget as HTMLInputElement & {
+                showPicker?: () => void;
+              };
+              el.showPicker?.();
+            }}
             className="
               h-10 rounded-lg px-3
               bg-bg-card border border-[color:var(--border)]

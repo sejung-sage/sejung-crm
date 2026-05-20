@@ -472,6 +472,12 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
           value={startValue}
           max="2999-12-31"
           onChange={(e) => onStartChange(e.target.value)}
+          onClick={(e) => {
+            const el = e.currentTarget as HTMLInputElement & {
+              showPicker?: () => void;
+            };
+            el.showPicker?.();
+          }}
           className="
             h-10 min-w-44 rounded-lg px-3
             bg-bg-card border border-[color:var(--border)]
@@ -494,6 +500,12 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
           value={endValue}
           max="2999-12-31"
           onChange={(e) => onEndChange(e.target.value)}
+          onClick={(e) => {
+            const el = e.currentTarget as HTMLInputElement & {
+              showPicker?: () => void;
+            };
+            el.showPicker?.();
+          }}
           className="
             h-10 min-w-44 rounded-lg px-3
             bg-bg-card border border-[color:var(--border)]
