@@ -41,7 +41,6 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
             <Th className="w-24 text-center">과목</Th>
             <Th className="w-56">기간</Th>
             <Th className="w-44 text-right">금액</Th>
-            <Th className="w-32">결제일</Th>
           </tr>
         </thead>
         <tbody>
@@ -71,48 +70,11 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
                 <Td className="text-right tabular-nums">
                   <AmountCell amount={e.amount} />
                 </Td>
-                <Td>
-                  <PaymentStatusCell paidAt={e.paid_at} />
-                </Td>
               </tr>
             );
           })}
         </tbody>
       </table>
-    </div>
-  );
-}
-
-/**
- * 결제 상태 셀.
- *  - paid_at 있음 → "결완" 칩 + 결제일
- *  - paid_at 없음 → "—" (미납 태그 미노출 — 사용자 요청 2026-05-20)
- */
-function PaymentStatusCell({ paidAt }: { paidAt: string | null }) {
-  if (!paidAt) {
-    return (
-      <span className="text-[color:var(--text-dim)]" aria-label="결제일 없음">
-        —
-      </span>
-    );
-  }
-  // ISO 또는 YYYY-MM-DD 모두 앞 10자만 잘라 노출.
-  const dateStr = paidAt.length >= 10 ? paidAt.slice(0, 10) : paidAt;
-  return (
-    <div className="flex flex-col items-start gap-0.5">
-      <span
-        className="
-          inline-flex items-center px-2 py-0.5 rounded-full
-          text-[12px] font-medium
-          bg-[color:var(--bg-muted)] text-[color:var(--text)]
-          border border-[color:var(--border)]
-        "
-      >
-        결완
-      </span>
-      <span className="text-[12px] text-[color:var(--text-muted)] tabular-nums">
-        {dateStr}
-      </span>
     </div>
   );
 }
