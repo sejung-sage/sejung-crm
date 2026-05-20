@@ -35,6 +35,7 @@ import {
   isDevSeedMode,
 } from "@/lib/profile/students-dev-seed";
 import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
+import { isAllSubjects } from "@/lib/schemas/common";
 import { applyGroupFiltersDev } from "./apply-filters";
 
 export interface CountRecipientsResult {
@@ -90,8 +91,13 @@ async function countFromSupabase(
   // 1.5) subjects 필터가 있고 includeStudentIds 미설정이면 RPC 위임.
   //      국어처럼 수강생 많은 과목은 student id list 가 PostgREST URL 한계
   //      초과 → 0068 마이그의 search_recipients_by_subjects RPC 사용.
+  //
+  //      단, 사용자가 7종(전체) 다 체크한 케이스는 "조건 없음(전체)" 으로
+  //      정규화 — enrollment 0건이거나 classes.subject NULL 인 학생도 포함되도록
+  //      RPC 안 거치고 일반 분기로 진행. 운영자 UX 일관성.
   if (
     filters.subjects.length > 0 &&
+    !isAllSubjects(filters.subjects) &&
     filters.includeStudentIds.length === 0
   ) {
     return await countViaSubjectsRpc(filters, branch, safeUnsubPhones);

@@ -55,7 +55,7 @@ export const StudentStatusSchema = z.enum([
   "탈퇴",
 ]);
 
-export const SubjectSchema = z.enum([
+export const SUBJECT_VALUES = [
   "국어",
   "영어",
   "수학",
@@ -63,7 +63,19 @@ export const SubjectSchema = z.enum([
   "사탐",
   "컨설팅",
   "기타",
-]);
+] as const;
+export const SubjectSchema = z.enum(SUBJECT_VALUES);
+
+/**
+ * subjects 필터가 7종 enum 모두 포함되어 있는지 — "조건 없음(전체)" 해석용.
+ * 운영자 UX: 7종 다 체크 = 전체 의미. enrollment 0건이거나 classes.subject NULL
+ * 인 학생도 포함되도록 backend 가 subjects 필터 미적용으로 정규화.
+ */
+export function isAllSubjects(subjects: readonly string[]): boolean {
+  if (subjects.length !== SUBJECT_VALUES.length) return false;
+  const set = new Set(subjects);
+  return SUBJECT_VALUES.every((s) => set.has(s));
+}
 
 export const AttendanceStatusSchema = z.enum([
   "출석",
