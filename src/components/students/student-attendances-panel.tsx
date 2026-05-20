@@ -6,7 +6,7 @@ import { AttendanceStatusChip } from "@/components/students/attendance-status-ch
 
 interface Props {
   // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
-  // 격자 컬럼은 과거→최근 오름차순으로 펼쳐야 가독성이 좋다.
+  // 강좌별 mini timeline 은 과거→최근 오름차순으로 펼쳐야 가독성이 좋다.
   attendances: AttendanceWithClass[];
   /**
    * 학생 분원. "방배" 면 chip 이 5종 raw 표시, 그 외이면 결석 외 모두 출석 chip
@@ -16,15 +16,18 @@ interface Props {
 }
 
 /**
- * 학생 상세 · 출석 패널 (강좌 × 일자 격자).
+ * 학생 상세 · 출석 패널 (강좌별 accordion).
  *
- * Aca2000 의 학생별 출결 화면과 동일한 정보를 흰+검정 미니멀 톤으로 재현.
- * - 좌측 고정: 강좌 메타 + 카운트 요약 (총·출·결·지·조·보)
- * - 우측 가로 스크롤: 학생 전체 출결의 distinct 일자 (과거→최근)
- * - 각 셀은 (강좌 × 일자) 매트릭스에 row 가 있으면 상태 칩, 없으면 공란
+ * 강좌마다 collapsible card 한 줄 + 펼치면 그 강좌의 자기 일자만 column 으로
+ * 펼쳐지는 mini timeline.
  *
- * Server Component — group by/matrix 빌드는 렌더 1회.
- * 한 학생 attendances 가 1000행, 일자 distinct 100~200 정도여도 충분.
+ * 이전 디자인(0061~) 은 강좌 × 학생전체일자 단일 격자였는데, 강좌별 회차가
+ * 6~29건인데도 column 이 100+개 펼쳐져 빈 cell(·) 가 압도적이었다.
+ * 0062 부터 강좌별 accordion 으로 분해 — 각 강좌가 자기 일자만 보여줘
+ * 빈 cell 이 사라진다.
+ *
+ * `<details>` 요소 사용 — 키보드 접근성·스크린리더·CSS open state 모두 무료.
+ * Server Component (상태 없음).
  */
 export function StudentAttendancesPanel({ attendances, branch }: Props) {
   if (attendances.length === 0) {
@@ -37,146 +40,21 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
     );
   }
 
-  const matrix = buildMatrix(attendances, branch);
+  const groups = buildGroups(attendances);
 
   return (
-    <section aria-label="출석 격자" className="space-y-2">
+    <section aria-label="출석 (강좌별)" className="space-y-3">
       <p className="text-[13px] text-[color:var(--text-muted)]">
-        강좌별 일자 출결. 가로로 스크롤해 전체 기간을 확인할 수 있습니다.
+        강좌를 클릭하면 그 강좌의 일자별 출결을 펼쳐서 확인할 수 있습니다.
       </p>
 
-      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="border-collapse text-[14px]">
-            <thead>
-              <tr className="bg-[color:var(--bg-muted)]">
-                <th
-                  scope="col"
-                  className="
-                    sticky left-0 z-20 bg-[color:var(--bg-muted)]
-                    px-4 py-3 text-left text-[13px] font-medium
-                    text-[color:var(--text-muted)] tracking-wide
-                    border-b border-r border-[color:var(--border)]
-                    min-w-[220px]
-                  "
-                >
-                  강좌
-                </th>
-                {COUNT_COLUMNS.map((col, i) => (
-                  <th
-                    key={col.key}
-                    scope="col"
-                    className={`
-                      sticky z-20 bg-[color:var(--bg-muted)]
-                      px-2 py-3 text-center text-[12px] font-medium
-                      text-[color:var(--text-muted)]
-                      border-b border-[color:var(--border)]
-                      ${i === COUNT_COLUMNS.length - 1 ? "border-r" : ""}
-                      w-[44px] min-w-[44px]
-                    `}
-                    style={{ left: COUNT_LEFT_OFFSETS[i] }}
-                  >
-                    {col.label}
-                  </th>
-                ))}
-                {matrix.dates.map((d) => (
-                  <th
-                    key={d.iso}
-                    scope="col"
-                    className="
-                      px-1 py-3 text-center text-[12px] font-medium
-                      text-[color:var(--text-muted)] tabular-nums
-                      border-b border-[color:var(--border)]
-                      whitespace-nowrap min-w-[44px]
-                    "
-                    title={d.iso}
-                  >
-                    <span className="block leading-tight">{d.month}</span>
-                    <span className="block leading-tight">{d.day}</span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {matrix.groups.map((g, idx) => (
-                <tr
-                  key={g.key}
-                  className={
-                    idx === matrix.groups.length - 1
-                      ? ""
-                      : "border-b border-[color:var(--border)]"
-                  }
-                >
-                  <th
-                    scope="row"
-                    className="
-                      sticky left-0 z-10 bg-bg-card
-                      px-4 py-3 text-left
-                      border-r border-[color:var(--border)]
-                      align-top
-                    "
-                  >
-                    <div className="text-[14px] font-medium text-[color:var(--text)]">
-                      {g.title}
-                    </div>
-                    {g.subtitle && (
-                      <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)]">
-                        {g.subtitle}
-                      </div>
-                    )}
-                    {g.note && (
-                      <div className="mt-0.5 text-[12px] text-[color:var(--text-dim)]">
-                        {g.note}
-                      </div>
-                    )}
-                  </th>
-                  {COUNT_COLUMNS.map((col, i) => (
-                    <td
-                      key={col.key}
-                      className={`
-                        sticky z-10 bg-bg-card
-                        px-2 py-3 text-center text-[13px] tabular-nums
-                        text-[color:var(--text)]
-                        ${i === COUNT_COLUMNS.length - 1 ? "border-r border-[color:var(--border)]" : ""}
-                      `}
-                      style={{ left: COUNT_LEFT_OFFSETS[i] }}
-                    >
-                      {g.counts[col.key] || (
-                        <span className="text-[color:var(--text-dim)]">·</span>
-                      )}
-                    </td>
-                  ))}
-                  {matrix.dates.map((d) => {
-                    const status = g.byDate.get(d.iso);
-                    // 0057 ticket 통합 이후 — 다른 강좌의 일자가 column 으로
-                    // 펼쳐져도 이 강좌의 회차가 아니면 빈 cell. 추정 출석 제거.
-                    return (
-                      <td
-                        key={d.iso}
-                        className="px-1 py-2 text-center align-middle"
-                      >
-                        {status ? (
-                          <AttendanceStatusChip
-                            status={status}
-                            branch={branch}
-                          />
-                        ) : (
-                          <span
-                            className="text-[color:var(--text-dim)]"
-                            aria-label="기록 없음"
-                          >
-                            ·
-                          </span>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <ul className="space-y-2">
+        {groups.map((g) => (
+          <li key={g.key}>
+            <CourseAccordion group={g} branch={branch} />
+          </li>
+        ))}
+      </ul>
 
       <p className="text-[12px] text-[color:var(--text-muted)]">
         칩 — 출(출석) · 보(보강) · 지(지각) · 결(결석) · 조(조퇴). 보강은
@@ -186,24 +64,150 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
   );
 }
 
-// ─── 출석 격자 표시 정책 ────────────────────────────────────
-//
-// 격자에는 명시 attendance row (결석) + ticket 변환 row (used_at real → 출석)
-// 만 chip 으로 노출. 빈 cell 은 점(·).
-//
-// 이전(0057 이전) 에는 비-방배 분원이 "결석 외 = 출석" 추정으로 빈 cell 을
-// 출 chip 으로 채웠지만, 0057 에서 ticket.used_at 으로 실제 출석을 캡처하면서
-// 추정이 부정확해짐 (학생 전체 일자 distinct 가 모든 강좌 column 으로 펼쳐져
-// 강좌마다 100+ 회 출 chip 부풀림). 김민우3 송도 사례 — 강좌별 ticket 6~29건
-// 인데 격자에 115개씩 출 chip 표시되던 회귀를 0061 이후 (이 패치) 에서 제거.
+// ─── 강좌 accordion ───────────────────────────────────────
 
-// ─── 매트릭스 빌드 ────────────────────────────────────────
+function CourseAccordion({
+  group,
+  branch,
+}: {
+  group: GroupRow;
+  branch?: string | null;
+}) {
+  const dates = Array.from(group.byDate.keys()).sort();
 
-interface DateColumn {
-  iso: string; // YYYY-MM-DD
-  month: string; // MM
-  day: string; // DD
+  return (
+    <details className="group rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
+      <summary
+        className="
+          list-none cursor-pointer select-none
+          flex items-center gap-3 px-4 py-3
+          hover:bg-[color:var(--bg-muted)]
+          focus-visible:outline-none focus-visible:bg-[color:var(--bg-muted)]
+        "
+      >
+        {/* 좌측: 강좌 메타 */}
+        <div className="min-w-0 flex-1">
+          <div className="text-[14px] font-medium text-[color:var(--text)] truncate">
+            {group.title}
+          </div>
+          {group.subtitle && (
+            <div className="mt-0.5 text-[12px] text-[color:var(--text-muted)] truncate">
+              {group.subtitle}
+            </div>
+          )}
+          {group.note && (
+            <div className="mt-0.5 text-[12px] text-[color:var(--text-dim)] truncate">
+              {group.note}
+            </div>
+          )}
+        </div>
+
+        {/* 카운트 chip 묶음 */}
+        <div className="flex items-center gap-3 text-[12px] tabular-nums whitespace-nowrap">
+          {COUNT_COLUMNS.map((col) => {
+            const v = group.counts[col.key];
+            const dim = v === 0;
+            return (
+              <span
+                key={col.key}
+                className={
+                  dim
+                    ? "text-[color:var(--text-dim)]"
+                    : "text-[color:var(--text)]"
+                }
+                aria-label={`${col.aria} ${v}`}
+              >
+                <span className="text-[color:var(--text-muted)]">
+                  {col.label}
+                </span>{" "}
+                {v}
+              </span>
+            );
+          })}
+        </div>
+
+        {/* 토글 아이콘 — open 시 회전 */}
+        <ChevronIcon className="shrink-0 text-[color:var(--text-muted)] transition-transform group-open:rotate-180" />
+      </summary>
+
+      {/* 펼친 영역 — 이 강좌의 일자만 column */}
+      <div className="border-t border-[color:var(--border)]">
+        <div className="overflow-x-auto">
+          <table className="border-collapse text-[14px]">
+            <thead>
+              <tr>
+                {dates.map((iso) => {
+                  const [, m, d] = iso.split("-");
+                  return (
+                    <th
+                      key={iso}
+                      scope="col"
+                      className="
+                        px-1 py-3 text-center text-[12px] font-medium
+                        text-[color:var(--text-muted)] tabular-nums
+                        whitespace-nowrap min-w-[44px]
+                      "
+                      title={iso}
+                    >
+                      <span className="block leading-tight">
+                        {Number(m)}월
+                      </span>
+                      <span className="block leading-tight">
+                        {Number(d)}일
+                      </span>
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                {dates.map((iso) => {
+                  const status = group.byDate.get(iso);
+                  return (
+                    <td
+                      key={iso}
+                      className="px-1 py-3 text-center align-middle"
+                    >
+                      {status && (
+                        <AttendanceStatusChip
+                          status={status}
+                          branch={branch}
+                        />
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </details>
+  );
 }
+
+function ChevronIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
+  );
+}
+
+// ─── 그룹 빌드 ────────────────────────────────────────────
 
 interface GroupRow {
   key: string; // aca_class_id 또는 "__unmatched__"
@@ -214,50 +218,22 @@ interface GroupRow {
   byDate: Map<string, AttendanceStatus>;
 }
 
-interface Matrix {
-  dates: DateColumn[];
-  groups: GroupRow[];
-}
-
 const UNMATCHED_KEY = "__unmatched__";
 
-const COUNT_COLUMNS: { key: AttendanceStatus | "총"; label: string }[] = [
-  { key: "총", label: "총" },
-  { key: "출석", label: "출" },
-  { key: "결석", label: "결" },
-  { key: "지각", label: "지" },
-  { key: "조퇴", label: "조" },
-  { key: "보강", label: "보" },
+const COUNT_COLUMNS: {
+  key: AttendanceStatus | "총";
+  label: string;
+  aria: string;
+}[] = [
+  { key: "총", label: "총", aria: "총" },
+  { key: "출석", label: "출", aria: "출석" },
+  { key: "결석", label: "결", aria: "결석" },
+  { key: "지각", label: "지", aria: "지각" },
+  { key: "조퇴", label: "조", aria: "조퇴" },
+  { key: "보강", label: "보", aria: "보강" },
 ];
 
-// 좌측 sticky 컬럼들의 누적 left offset (강좌 220 + 카운트 6 × 44).
-// CSS sticky 는 left 값으로 누적 위치를 잡아줘야 하므로 px 로 직접 계산.
-const COUNT_LEFT_OFFSETS = [
-  220,
-  220 + 44,
-  220 + 44 * 2,
-  220 + 44 * 3,
-  220 + 44 * 4,
-  220 + 44 * 5,
-];
-
-function buildMatrix(
-  attendances: AttendanceWithClass[],
-  branch?: string | null,
-): Matrix {
-  // 1) distinct 일자 (오름차순)
-  const dateSet = new Set<string>();
-  for (const a of attendances) {
-    if (a.attended_at) dateSet.add(a.attended_at);
-  }
-  const dates: DateColumn[] = Array.from(dateSet)
-    .sort()
-    .map((iso) => {
-      const [, m, d] = iso.split("-");
-      return { iso, month: `${Number(m)}월`, day: `${Number(d)}일` };
-    });
-
-  // 2) group by aca_class_id
+function buildGroups(attendances: AttendanceWithClass[]): GroupRow[] {
   const groupMap = new Map<string, GroupRow>();
   for (const a of attendances) {
     const key = a.aca_class_id ?? UNMATCHED_KEY;
@@ -271,23 +247,20 @@ function buildMatrix(
       };
       groupMap.set(key, g);
     }
-    // 동일 (강좌, 일자) 에 row 가 두 개 이상인 비정상 케이스는 마지막 값 유지.
-    // 원본 정렬이 attended_at DESC + created_at 이라 같은 날 여러 row 면
-    // 가장 최근 created 가 먼저 처리되고, 이후 덮어쓰기 = 가장 오래된 created 가 남음.
-    // 이 패널 목적상 한 셀에 어떤 상태든 보이면 충분하므로 단순 덮어쓰기.
+    // 동일 (강좌, 일자) row 가 두 개 이상인 비정상 케이스는 마지막 값 유지.
     g.byDate.set(a.attended_at, a.status);
     g.counts[a.status] += 1;
     g.counts["총"] += 1;
   }
 
-  // 3) 그룹 정렬 — 매칭된 강좌(이름순) 먼저, "강좌 미매칭" 마지막
-  const groups = Array.from(groupMap.values()).sort((a, b) => {
+  // 정렬 — 총 카운트 DESC, 같으면 강좌명 ko 정렬. unmatched 는 맨 아래.
+  return Array.from(groupMap.values()).sort((a, b) => {
     if (a.key === UNMATCHED_KEY) return 1;
     if (b.key === UNMATCHED_KEY) return -1;
+    const dt = b.counts["총"] - a.counts["총"];
+    if (dt !== 0) return dt;
     return a.title.localeCompare(b.title, "ko");
   });
-
-  return { dates, groups };
 }
 
 function buildGroupHeader(a: AttendanceWithClass): {
