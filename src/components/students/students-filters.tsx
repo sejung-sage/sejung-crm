@@ -202,7 +202,11 @@ export function StudentsFilters({
       const nextQuery = `?${next.toString()}`;
       pendingQueryRef.current = nextQuery;
       startTransition(() => {
+        // push 만 하면 Next prefetch cache 가 stale 데이터를 그대로 보여줄 수
+        // 있어 칩 시각만 토글되고 list 갱신이 안 됨 (2026-05-20 회귀).
+        // refresh 동반 호출로 server component 강제 재페치.
         router.push(`${pathname}${nextQuery}`);
+        router.refresh();
       });
     },
     [router, pathname],
