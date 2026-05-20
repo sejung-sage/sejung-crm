@@ -36,6 +36,7 @@ import { calculateCost } from "./calculate-cost";
 import type { SmsCostBreakdown } from "./cost-rates";
 import type { GroupRow, StudentStatus } from "@/types/database";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
+import { isAllSubjects } from "@/lib/schemas/common";
 
 export type PreviewExclusionReason = "탈퇴학생" | "수신거부";
 
@@ -239,9 +240,10 @@ async function resolveFilterMapping(
   }
 
   let allowedStudentIds: string[] | null = null;
-  if (f.subjects.length > 0) {
+  if (f.subjects.length > 0 && !isAllSubjects(f.subjects)) {
     // ETL 정책상 crm_enrollments.subject 는 항상 NULL → crm_classes.subject 로
     // aca_class_id 사전 페치 후 enrollments 의 aca_class_id 매칭.
+    // 7종 전체 = "조건 없음" 정규화 (count-recipients 와 동일 정책).
     const { data: classRows, error: classErr } = await supabase
       .from("crm_classes")
       .select("aca_class_id")

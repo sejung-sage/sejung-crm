@@ -112,7 +112,12 @@ async function countFromSupabase(
   let allowedStudentIds: string[] | null = null;
   if (filters.includeStudentIds.length > 0) {
     allowedStudentIds = filters.includeStudentIds;
-  } else if (filters.subjects.length > 0) {
+  } else if (
+    filters.subjects.length > 0 &&
+    !isAllSubjects(filters.subjects)
+  ) {
+    // 7종 전체 체크는 "조건 없음" 으로 해석 — 사전 매핑 생략.
+    // 매핑하면 student_id 수천~수만이라 .in() URL 폭주.
     const { data: classRows, error: classErr } = await supabase
       .from("crm_classes")
       .select("aca_class_id")

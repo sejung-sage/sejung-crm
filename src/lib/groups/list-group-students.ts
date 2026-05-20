@@ -20,6 +20,7 @@ import {
 import { applyGroupFiltersDev } from "./apply-filters";
 import { getGroup } from "./get-group";
 import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
+import { isAllSubjects } from "@/lib/schemas/common";
 
 const PAGE_SIZE = 50;
 
@@ -66,8 +67,10 @@ export async function listGroupStudents(
   let subjectMatchedStudentIds: string[] | null = null;
   if (
     group.filters.includeStudentIds.length === 0 &&
-    group.filters.subjects.length > 0
+    group.filters.subjects.length > 0 &&
+    !isAllSubjects(group.filters.subjects)
   ) {
+    // 7종 전체 = "조건 없음" 정규화 (count-recipients 와 동일 정책).
     const { data: classRows, error: classErr } = await supabase
       .from("crm_classes")
       .select("aca_class_id")
