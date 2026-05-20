@@ -3,7 +3,6 @@ import type {
   AttendanceWithClass,
 } from "@/types/database";
 import { AttendanceStatusChip } from "@/components/students/attendance-status-chip";
-import { isStrictAttendanceBranch } from "@/lib/profile/attendance-policy";
 
 interface Props {
   // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
@@ -149,11 +148,8 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
                   ))}
                   {matrix.dates.map((d) => {
                     const status = g.byDate.get(d.iso);
-                    // "결석 외 = 출석" 정책: 비-방배 분원의 빈 cell 은 무조건 출석
-                    // chip. 요일·운영 기간 가드 없음 (위 모듈 주석 참조).
-                    // 방배는 5종 raw 정확 추적 정책이라 빈 cell 그대로 유지.
-                    const presumed =
-                      !status && !isStrictAttendanceBranch(branch);
+                    // 0057 ticket 통합 이후 — 다른 강좌의 일자가 column 으로
+                    // 펼쳐져도 이 강좌의 회차가 아니면 빈 cell. 추정 출석 제거.
                     return (
                       <td
                         key={d.iso}
@@ -162,11 +158,6 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
                         {status ? (
                           <AttendanceStatusChip
                             status={status}
-                            branch={branch}
-                          />
-                        ) : presumed ? (
-                          <AttendanceStatusChip
-                            status="출석"
                             branch={branch}
                           />
                         ) : (
@@ -195,25 +186,16 @@ export function StudentAttendancesPanel({ attendances, branch }: Props) {
   );
 }
 
-// ─── 추정 출석 정책 ─────────────────────────────────────────
+// ─── 출석 격자 표시 정책 ────────────────────────────────────
 //
-// 비-방배 분원에서 격자 빈 cell 은 "결석이 아닌 모든 수강은 출석" 정책에 따라
-// 무조건 출석 chip 으로 채운다 — 요일·운영 기간 검사 없음.
+// 격자에는 명시 attendance row (결석) + ticket 변환 row (used_at real → 출석)
+// 만 chip 으로 노출. 빈 cell 은 점(·).
 //
-// 이유:
-//   - 사용자 멘탈 모델이 단순: "결석 외 = 출석". 요일/기간 체크가 보강될수록
-//     사용자가 기대한 빈 cell 들이 비는 케이스가 늘어 혼란 (회귀: 오정우 학생
-//     김강현T 월금 강좌의 일요일 column).
-//   - KPI 출석률 (0030) 도 운영 기간 무시하고 enrollment_count 분모 — 일관성.
-//   - 격자 column 일자는 어차피 그 학생이 그 시점에 학원에 다닌 적이 있다는
-//     약한 신호 (다른 강좌에서 출결 row 가 있던 일자).
-//
-// 부작용 (받아들임):
-//   - 월금 강좌의 일요일 column 에도 출 chip 표시 (강좌 schedule 과 무관해
-//     보일 수 있음). 사용자 결정.
-//   - 격자 좌측 카운트의 "총" 이 실제 강좌 수업 횟수가 아니라 격자 column 수
-//     기반이 됨 — 학생 KPI 의 분모(enrollment_count) 와도 다름. 정보가치는
-//     "이 column 시야 안에서 결 vs 출" 비교용으로 한정.
+// 이전(0057 이전) 에는 비-방배 분원이 "결석 외 = 출석" 추정으로 빈 cell 을
+// 출 chip 으로 채웠지만, 0057 에서 ticket.used_at 으로 실제 출석을 캡처하면서
+// 추정이 부정확해짐 (학생 전체 일자 distinct 가 모든 강좌 column 으로 펼쳐져
+// 강좌마다 100+ 회 출 chip 부풀림). 김민우3 송도 사례 — 강좌별 ticket 6~29건
+// 인데 격자에 115개씩 출 chip 표시되던 회귀를 0061 이후 (이 패치) 에서 제거.
 
 // ─── 매트릭스 빌드 ────────────────────────────────────────
 
@@ -298,19 +280,7 @@ function buildMatrix(
     g.counts["총"] += 1;
   }
 
-  // 3) "결석 외 = 출석" 정책 — 비-방배 분원의 빈 cell 은 모두 추정 출석.
-  //    명시 row 없는 column 일자 수만큼 출석/총 에 합산.
-  if (!isStrictAttendanceBranch(branch)) {
-    for (const g of groupMap.values()) {
-      const presumed = dates.length - g.byDate.size;
-      if (presumed > 0) {
-        g.counts["출석"] += presumed;
-        g.counts["총"] += presumed;
-      }
-    }
-  }
-
-  // 4) 그룹 정렬 — 매칭된 강좌(이름순) 먼저, "강좌 미매칭" 마지막
+  // 3) 그룹 정렬 — 매칭된 강좌(이름순) 먼저, "강좌 미매칭" 마지막
   const groups = Array.from(groupMap.values()).sort((a, b) => {
     if (a.key === UNMATCHED_KEY) return 1;
     if (b.key === UNMATCHED_KEY) return -1;
