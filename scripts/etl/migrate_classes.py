@@ -131,12 +131,14 @@ def _mask_error(msg: str) -> str:
 
 
 # ─── subject 정규화 ──────────────────────────────────────
-# DB CHECK 제약: subject IN ('국어','영어','수학','과탐','사탐','컨설팅','기타') OR NULL.
+# DB CHECK 제약: subject IN ('국어','영어','수학','과탐','사탐','컨설팅','기타','설명회') OR NULL.
 # 매칭 전략:
 #   1) 7종 정확 일치 → 그대로
 #   2) 별칭(alias) dict 매칭 → 정규값
 #   3) 그 외 → None
 # 부분 매칭("수학 1" / "고등 수학") 은 일부러 안 함 — 명시 매핑만.
+# '설명회' override: name 에 '설명회' 포함되면 transform() 안에서 무조건 '설명회' 로
+# 덮어씀 (2026-05-20 0058 마이그레이션 정책).
 _ALLOWED_SUBJECTS = {"국어", "영어", "수학", "과탐", "사탐", "컨설팅", "기타"}
 
 # 운영 V_class_list 분포(2026-05-06 진단) 에서 발견된 raw 값 → 정규화 매핑.
@@ -248,13 +250,19 @@ def transform(row: dict, branch_id: str, branch_name: str) -> dict | None:
     inactive_flag = clean_text(row.get("미사용반구분"))
     active = not (inactive_flag == "Y")
 
+    # subject 결정: 과목명 → normalize_subject. 단 name 에 '설명회' 들어 있으면
+    # 무조건 '설명회' override (0058 정책 — 설명회 강좌는 재원생 판정에서 제외).
+    subject = normalize_subject(row.get("과목명"))
+    if "설명회" in name:
+        subject = "설명회"
+
     return {
         "aca_class_id": aca_class_id,
         "branch": branch_name,
         "name": name,
         "teacher_name": clean_text(row.get("강사명")),
         "subject_raw": clean_text(row.get("과목명")),
-        "subject": normalize_subject(row.get("과목명")),
+        "subject": subject,
         "total_sessions": to_float(row.get("청구회차")),
         "amount_per_session": to_int(row.get("회차당금액")),
         "total_amount": to_int(row.get("반수강료")),
