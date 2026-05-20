@@ -72,7 +72,12 @@ export const AttendanceStatusSchema = z.enum([
   "조퇴",
 ]);
 
-export const TemplateTypeSchema = z.enum(["SMS", "LMS", "ALIMTALK"]);
+/**
+ * 템플릿 발송 유형 enum.
+ * 0059 마이그에서 ALIMTALK 제거 — sendon.kakao API + 사전 등록 템플릿이 필요한
+ * 알림톡은 Phase 1 으로 보류. 신규/수정 입력은 SMS / LMS 만 허용.
+ */
+export const TemplateTypeSchema = z.enum(["SMS", "LMS"]);
 
 export const CampaignStatusSchema = z.enum([
   "임시저장",

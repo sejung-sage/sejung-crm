@@ -57,9 +57,13 @@ const SUBJECT_OPTIONS = [
  * start_date_* 는 DB 단 ORDER BY (NULLS LAST) 라 페이지 한정 X — 일반 라벨.
  */
 const SORT_LABELS: Record<ClassSort, string> = {
-  default: "기본 정렬 (분원 > 과목 > 반명)",
-  registered_desc: "최근 등록순",
-  registered_asc: "오래된 등록순",
+  // default 의 실제 backend 동작(분원>과목>반명)은 유지하되, 운영자에게는
+  // "최신 등록순" 으로 보이게 라벨만 단순화. (실제 등록일 정렬은 registered_desc.)
+  // — 행정팀이 셀렉트를 처음 열었을 때 "기본 정렬" 이라는 추상적 단어보다
+  //   "최신 등록순" 같은 구체 표현이 빨리 이해됨.
+  default: "최신 등록순",
+  registered_desc: "강좌 등록일 ↓",
+  registered_asc: "강좌 등록일 ↑",
   start_date_desc: "최근 개강순",
   start_date_asc: "오래된 개강순",
   end_date_desc: "최근 종강순",
@@ -143,6 +147,11 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
     sortRaw && SORT_WHITELIST.has(sortRaw)
       ? (sortRaw as ClassSort)
       : "default";
+
+  // 종강·폐강(=active=false) 포함 토글.
+  // URL `?inactive=1` 이면 backend 의 active 필터를 해제 (active=0 으로 전달).
+  // 기본은 off → 운영 시야에는 active=true 만 보임.
+  const includeInactive = searchParams.get("inactive") === "1";
 
   // 일자/월 필터 — mutually exclusive. 둘 다 들어오면 date 우선 (서버 schema 와 동일).
   const dateRaw = searchParams.get("date") ?? "";
@@ -228,6 +237,23 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
   };
 
   /**
+   * 종강·폐강(=active=false) 강좌 포함 토글.
+   * URL: `?inactive=1` (켜짐), 미존재 (꺼짐).
+   * backend 가 `?active=0` 만 인식한다면 동시에 그쪽도 set/unset 해서 안전 호환.
+   */
+  const onIncludeInactiveChange = (checked: boolean) => {
+    updateParams((p) => {
+      if (checked) {
+        p.set("inactive", "1");
+        p.set("active", "0"); // backend 호환 (active 기본값=true 해제)
+      } else {
+        p.delete("inactive");
+        p.delete("active");
+      }
+    });
+  };
+
+  /**
    * 일/월 모드 토글 — date·month 는 mutually exclusive 라 모드 전환 시 반대 키 제거.
    * 토글만으로는 입력값이 비어 있을 수 있으므로 URL 만 정리하고 입력은 그대로 둔다
    * (사용자가 picker 에 값을 채워야 적용됨).
@@ -293,7 +319,8 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
     days.length > 0 ||
     status !== "all" ||
     dateValue !== "" ||
-    monthValue !== "";
+    monthValue !== "" ||
+    includeInactive;
 
   const clearAll = () => {
     updateParams((p) => {
@@ -305,6 +332,8 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
       p.delete("status");
       p.delete("date");
       p.delete("month");
+      p.delete("inactive");
+      p.delete("active");
       // 정렬은 의도적으로 유지 — 사용자가 명시적으로 바꾼 보기 옵션.
     });
   };
@@ -562,7 +591,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
         </FilterGroup>
       </div>
 
-      {/* 3행: 강사 (드롭다운 + 선택 칩) + 필터 초기화 */}
+      {/* 3행: 강사 (드롭다운 + 선택 칩) + 종강·폐강 포함 + 필터 초기화 */}
       <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
         <FilterGroup label="강사">
           <MultiSelectDropdown
@@ -570,6 +599,8 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
             options={teacherOptions}
             selected={teachers}
             onToggle={(v) => toggleMulti("teacher", v)}
+            searchable
+            searchPlaceholder="강사 검색..."
             emptyHint={
               teacherOptions.length === 0
                 ? "선택 가능한 강사가 없습니다"
@@ -585,19 +616,41 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
           ))}
         </FilterGroup>
 
+        {/* 종강·폐강(=active=false) 포함 토글. 기본 off. */}
+        <label
+          className="
+            inline-flex items-center gap-2 h-10 px-3 rounded-lg
+            text-[14px] text-[color:var(--text)]
+            border border-[color:var(--border)] bg-bg-card
+            hover:bg-[color:var(--bg-hover)]
+            cursor-pointer transition-colors
+            select-none
+          "
+        >
+          <input
+            type="checkbox"
+            checked={includeInactive}
+            onChange={(e) => onIncludeInactiveChange(e.target.checked)}
+            className="size-4 accent-[color:var(--action)] cursor-pointer"
+          />
+          <span>종강·폐강 포함</span>
+        </label>
+
         {hasActiveFilters && (
           <button
             type="button"
             onClick={clearAll}
+            aria-label="모든 필터 초기화"
             className="
-              inline-flex items-center gap-1 h-8 px-2 rounded-md
-              text-[13px] text-[color:var(--text-muted)]
-              hover:text-[color:var(--text)]
-              hover:bg-[color:var(--bg-hover)]
+              inline-flex items-center gap-1.5 h-10 px-3 rounded-lg
+              text-[14px] font-medium
+              text-red-600 border border-red-300 bg-bg-card
+              hover:bg-red-50 hover:border-red-400
+              focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300
               transition-colors ml-auto
             "
           >
-            <X className="size-3.5" strokeWidth={1.75} aria-hidden />
+            <X className="size-4" strokeWidth={1.75} aria-hidden />
             필터 초기화
           </button>
         )}

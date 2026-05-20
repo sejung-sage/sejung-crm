@@ -13,8 +13,7 @@ import { ShieldAlert } from "lucide-react";
  * Server Component.
  *
  * 정책:
- *  - master/admin 만 접근. 그 외는 "권한 없음" 카드.
- *  - admin 은 본인 분원으로 query.branch 강제 덮어쓰기.
+ *  - master 만 접근. 그 외(admin/manager/viewer) 는 "권한 없음" 카드.
  *  - master 는 전 분원 자유 조회.
  *
  * URL 파라미터(searchParams) 는 Promise — Next 15 규약. 반드시 await.
@@ -27,10 +26,7 @@ export default async function AccountsPage({
   const currentUser = await getCurrentUser();
 
   // ─── 권한 가드 ────────────────────────────────────────────
-  if (
-    !currentUser ||
-    (currentUser.role !== "master" && currentUser.role !== "admin")
-  ) {
+  if (!currentUser || currentUser.role !== "master") {
     return <ForbiddenCard />;
   }
 
@@ -48,12 +44,8 @@ export default async function AccountsPage({
     page: pick(raw.page) ?? 1,
   });
 
-  // ─── admin 본인 분원 강제 ─────────────────────────────────
-  // master 가 아니면 자신의 branch 로 덮어쓴다(URL 조작 방어 1차 — 서버에서 한 번 더).
-  const effectiveQuery =
-    currentUser.role === "admin"
-      ? { ...parsed, branch: currentUser.branch }
-      : parsed;
+  // master 전용 — 전 분원 자유 조회.
+  const effectiveQuery = parsed;
 
   const result = await listAccounts(effectiveQuery);
   const devMode = isDevSeedMode();
@@ -128,8 +120,7 @@ function ForbiddenCard() {
           권한이 없습니다
         </h1>
         <p className="mt-2 text-[14px] text-[color:var(--text-muted)] leading-relaxed">
-          계정과 권한 관리는 마스터 또는 관리자만 접근할 수 있습니다. 권한이
-          필요하면 관리자에게 문의해 주세요.
+          마스터만 접근할 수 있습니다. 권한이 필요하면 마스터에게 문의해 주세요.
         </p>
       </div>
     </div>

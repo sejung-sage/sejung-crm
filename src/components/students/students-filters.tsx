@@ -88,7 +88,11 @@ const SORT_LABELS: Record<StudentSort, string> = {
   name_desc: "이름 가나다 역순",
   attendance_desc: "출석률 높은 순",
   attendance_asc: "출석률 낮은 순 (케어)",
-  enrollment_count_desc: "수강 많은 순",
+  enrollment_count_desc: "수강 많은 순 (누적)",
+  // 0060 마이그 추가 — 운영 시야의 "지금 진행 중 강좌 수" 정렬.
+  active_enrollment_count_desc: "수강 중 많은 순",
+  // 결석이 많은 학생을 위로 (케어 대상 빠른 식별).
+  absent_count_desc: "결석 많은 순 (케어)",
   total_paid_desc: "누적 결제 많은 순",
 };
 
@@ -532,15 +536,17 @@ export function StudentsFilters({
             <button
               type="button"
               onClick={clearAll}
+              aria-label="모든 필터 초기화"
               className="
-                inline-flex items-center gap-1 h-8 px-2 rounded-md
-                text-[13px] text-[color:var(--text-muted)]
-                hover:text-[color:var(--text)]
-                hover:bg-[color:var(--bg-hover)]
+                inline-flex items-center gap-1.5 h-10 px-3 rounded-lg
+                text-[14px] font-medium
+                text-red-600 border border-red-300 bg-bg-card
+                hover:bg-red-50 hover:border-red-400
+                focus:outline-none focus-visible:ring-2 focus-visible:ring-red-300
                 transition-colors ml-auto
               "
             >
-              <X className="size-3.5" strokeWidth={1.75} aria-hidden />
+              <X className="size-4" strokeWidth={1.75} aria-hidden />
               필터 초기화
             </button>
           )}

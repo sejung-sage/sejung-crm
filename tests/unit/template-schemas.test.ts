@@ -12,15 +12,16 @@ import {
  * 정책:
  *   - name: 1~40자
  *   - body: 1~4000자
- *   - subject: LMS/ALIMTALK 에서 필수 (+ 40자 이내). SMS 는 null 허용.
+ *   - subject: LMS 에서 필수 (+ 40자 이내). SMS 는 null 허용.
  *   - is_ad 기본 false
+ *
+ * 0059 마이그 이후 ALIMTALK 옵션 제거 — SMS / LMS 2종만 허용.
  */
 
 describe("BYTE_LIMITS 상수", () => {
-  it("SMS=90, LMS=2000, ALIMTALK=1000", () => {
+  it("SMS=90, LMS=2000 두 유형만", () => {
     expect(BYTE_LIMITS.SMS).toBe(90);
     expect(BYTE_LIMITS.LMS).toBe(2000);
-    expect(BYTE_LIMITS.ALIMTALK).toBe(1000);
   });
 });
 
@@ -46,14 +47,14 @@ describe("CreateTemplateInputSchema · 정상 입력", () => {
     expect(r.subject).toBe("상담 주간 안내");
   });
 
-  it("ALIMTALK · subject 있음 → success", () => {
-    const r = CreateTemplateInputSchema.parse({
+  it("ALIMTALK 유형은 0059 이후 거부", () => {
+    const r = CreateTemplateInputSchema.safeParse({
       name: "알림톡",
       type: "ALIMTALK",
       subject: "알림",
       body: "본문",
     });
-    expect(r.type).toBe("ALIMTALK");
+    expect(r.success).toBe(false);
   });
 
   it("is_ad=true 명시", () => {
@@ -158,16 +159,6 @@ describe("CreateTemplateInputSchema · subject 분기", () => {
     if (!r.success) {
       expect(r.error.issues.some((i) => i.message.includes("제목"))).toBe(true);
     }
-  });
-
-  it("ALIMTALK · subject 빈 문자열 → 실패", () => {
-    const r = CreateTemplateInputSchema.safeParse({
-      name: "알림톡",
-      type: "ALIMTALK",
-      subject: "",
-      body: "본문",
-    });
-    expect(r.success).toBe(false);
   });
 
   it("SMS · subject null 허용", () => {

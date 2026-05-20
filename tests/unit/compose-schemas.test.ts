@@ -94,14 +94,14 @@ describe("ComposeStep2Schema · 본문/템플릿", () => {
     expect(r.success).toBe(false);
   });
 
-  it("ALIMTALK + subject 정상 → success", () => {
+  it("ALIMTALK 유형은 0059 이후 거부", () => {
     const r = ComposeStep2Schema.safeParse({
       type: "ALIMTALK",
       subject: "주간 안내",
       body: "본문",
       isAd: false,
     });
-    expect(r.success).toBe(true);
+    expect(r.success).toBe(false);
   });
 
   it("body 빈값 → 실패", () => {

@@ -34,6 +34,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01011110001",
     registered_at: "2025-03-02",
     enrollment_count: 1,
+    active_enrollment_count: 1,
+    absent_count: 0,
     total_paid: 550000,
     subjects: ["수학"],
     teachers: ["백봉영T"],
@@ -55,6 +57,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01011110002",
     registered_at: "2025-03-02",
     enrollment_count: 1,
+    active_enrollment_count: 1,
+    absent_count: 0,
     total_paid: 480000,
     subjects: ["국어"],
     teachers: ["김정우T"],
@@ -76,6 +80,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01011110003",
     registered_at: "2024-03-04",
     enrollment_count: 1,
+    active_enrollment_count: 1,
+    absent_count: 0,
     total_paid: 650000,
     subjects: ["수학"],
     teachers: ["백봉영T"],
@@ -97,6 +103,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01011110004",
     registered_at: "2026-02-10",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -118,6 +126,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01011110005",
     registered_at: "2023-03-06",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -139,6 +149,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01022220001",
     registered_at: "2025-03-03",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -160,6 +172,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01022220002",
     registered_at: "2026-03-03",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -181,6 +195,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01022220003",
     registered_at: "2024-03-05",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -202,6 +218,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01022220004",
     registered_at: "2024-09-01",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -223,6 +241,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01022220005",
     registered_at: "2026-04-01",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -247,6 +267,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01011110006",
     registered_at: "2026-03-04",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -269,6 +291,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: "01011110007",
     registered_at: "2022-03-02",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -291,6 +315,8 @@ export const DEV_STUDENT_PROFILES: StudentProfileRow[] = [
     phone: null,
     registered_at: "2026-04-20",
     enrollment_count: 0,
+    active_enrollment_count: 0,
+    absent_count: 0,
     total_paid: 0,
     subjects: null,
     teachers: null,
@@ -875,7 +901,7 @@ export const DEV_GROUPS: GroupRow[] = [
     id: "dev-group-1",
     name: "대치 고2 전체",
     branch: "대치",
-    filters: { grades: ["고2"], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [] },
+    filters: { grades: ["고2"], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [] },
     // DC0001(고2 재원)·DC0002(고2 재원) 2명. 탈퇴 제외 후 2.
     recipient_count: 2,
     last_sent_at: "2026-04-15T14:00:00+09:00",
@@ -889,7 +915,7 @@ export const DEV_GROUPS: GroupRow[] = [
     id: "dev-group-2",
     name: "대치 수학 수강생",
     branch: "대치",
-    filters: { grades: [], schools: [], subjects: ["수학"], regions: [], statuses: [], includeStudentIds: [] },
+    filters: { grades: [], schools: [], subjects: ["수학"], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [] },
     // DC0001·DC0003 이 수학 수강. 현실 수치로 5 (실제 시드 외 추정 수강생 포함).
     recipient_count: 5,
     last_sent_at: "2026-04-08T10:30:00+09:00",
@@ -903,7 +929,7 @@ export const DEV_GROUPS: GroupRow[] = [
     id: "dev-group-3",
     name: "송도 고3 과탐",
     branch: "송도",
-    filters: { grades: ["고3"], schools: [], subjects: ["과탐"], regions: [], statuses: [], includeStudentIds: [] },
+    filters: { grades: ["고3"], schools: [], subjects: ["과탐"], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [] },
     // 시드 내 해당자 0 이나 현실 수강생 가정 3.
     recipient_count: 3,
     last_sent_at: null,
@@ -916,7 +942,7 @@ export const DEV_GROUPS: GroupRow[] = [
     id: "dev-group-4",
     name: "대치 휘문고 국어",
     branch: "대치",
-    filters: { grades: [], schools: ["휘문고"], subjects: ["국어"], regions: [], statuses: [], includeStudentIds: [] },
+    filters: { grades: [], schools: ["휘문고"], subjects: ["국어"], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [] },
     // 휘문고 × 국어 교차. 현실 수치로 4.
     recipient_count: 4,
     last_sent_at: null,
@@ -964,7 +990,6 @@ export const DEV_TEMPLATES: TemplateRow[] = [
       "대상은 고2 내신반 전원이며, 장소는 대치관 2층 201호입니다. " +
       "필기구와 학생증을 지참해 주시기 바랍니다. 결석 시 보강은 별도 일정으로 안내드립니다.",
     type: "LMS",
-    teacher_name: "김정우T",
     auto_captured: false,
     is_ad: false,
     byte_count: 260,
@@ -980,7 +1005,6 @@ export const DEV_TEMPLATES: TemplateRow[] = [
     body:
       "[세정학원] 이번주 결석하신 것으로 확인됩니다. 보강 일정 문의주세요. 02-555-1234",
     type: "SMS",
-    teacher_name: null,
     auto_captured: false,
     is_ad: false,
     byte_count: 88,
@@ -1000,7 +1024,6 @@ export const DEV_TEMPLATES: TemplateRow[] = [
       "커리큘럼은 주요 대학 기출을 중심으로 구성되어 있으며 교재는 자체 제작. " +
       "수강 정원 20명 한정으로 선착순 마감됩니다. 놓치지 마세요.",
     type: "LMS",
-    teacher_name: "백봉영T",
     auto_captured: false,
     is_ad: true,
     byte_count: 420,
@@ -1018,7 +1041,6 @@ export const DEV_TEMPLATES: TemplateRow[] = [
       "시간대는 평일 오후 6시~9시, 주말 오전 10시~오후 5시입니다. " +
       "상담은 예약제이며, 홈페이지 또는 전화로 예약 부탁드립니다.",
     type: "LMS",
-    teacher_name: "박선생T",
     auto_captured: false,
     is_ad: false,
     byte_count: 240,
@@ -1028,13 +1050,14 @@ export const DEV_TEMPLATES: TemplateRow[] = [
     updated_at: "2026-04-05T11:00:00+09:00",
   },
   {
+    // 0059 마이그 이전 ALIMTALK row 시뮬레이션 — 옛 데이터 보존 케이스가
+    // dev-seed 에서 빠지지 않도록 LMS 로 변환해 1건 유지.
     id: "dev-tpl-5",
-    name: "알림톡: 수업 변경",
+    name: "수업 변경 안내",
     subject: "수업 일정 변경 안내",
     body:
       "[세정학원] 수업 일정이 일부 변경되었습니다. 변경 내용은 학부모 앱에서 확인 가능합니다. 문의: 02-555-1234",
-    type: "ALIMTALK",
-    teacher_name: null,
+    type: "LMS",
     auto_captured: false,
     is_ad: false,
     byte_count: 150,
@@ -1442,21 +1465,20 @@ export function findDevTemplateById(id: string): TemplateRow | null {
  * 템플릿 리스트 조회(dev-seed).
  * - q: 템플릿명/본문 부분일치 (대소문자 무시).
  * - type: 정확 일치.
- * - teacher_name: 정확 일치.
+ * - branch: 정확 일치.
+ *
+ * 0059 마이그 이후 teacher_name 필터 폐기.
  */
 export function listDevTemplates(args: {
   q?: string;
   type?: string;
-  teacher_name?: string;
   branch?: string;
 }): TemplateRow[] {
   const q = args.q?.trim().toLowerCase() ?? "";
   const type = args.type?.trim() ?? "";
-  const teacher = args.teacher_name?.trim() ?? "";
   const branch = args.branch?.trim() ?? "";
   return DEV_TEMPLATES.filter((t) => {
     if (type && t.type !== type) return false;
-    if (teacher && t.teacher_name !== teacher) return false;
     if (branch && t.branch !== branch) return false;
     if (q) {
       const hay = `${t.name} ${t.body}`.toLowerCase();

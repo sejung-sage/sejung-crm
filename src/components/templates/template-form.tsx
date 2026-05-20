@@ -3,21 +3,33 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, Megaphone } from "lucide-react";
+import { AlertTriangle, MessageSquare, Megaphone } from "lucide-react";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
-import { byteProgress } from "@/lib/messaging/sms-bytes";
+import { byteProgress, countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import {
   createTemplateAction,
   updateTemplateAction,
 } from "@/app/(features)/templates/actions";
 import { useToast } from "@/components/ui/toast";
 
+/**
+ * F3-01 · 템플릿 생성/수정 공용 폼.
+ *
+ * 0059 마이그 이후 변경점:
+ *  - 유형 옵션: SMS / LMS 2종 (ALIMTALK 제거 — sendon.kakao + 사전 등록
+ *    템플릿 ID 필요로 Phase 1 보류)
+ *  - 강사명 필드 제거 (templates.teacher_name 컬럼 삭제)
+ *  - 레이아웃: 2 컬럼 grid — 좌측 form, 우측 실시간 미리보기 panel
+ *  - 미리보기는 광고 prefix `(광고)` / 080 수신거부 suffix 자동 시뮬레이션
+ *    (실 발송 시 server 단 가드가 한 번 더 적용됨 — UI 는 결과 가늠용)
+ *
+ * 우측 미리보기 패널은 sticky — 본문이 길어져도 화면 안에 항상 보임.
+ */
 export interface TemplateFormInitial {
   name: string;
   subject: string | null;
   body: string;
   type: TemplateTypeLiteral;
-  teacher_name: string | null;
   is_ad: boolean;
 }
 
@@ -34,21 +46,12 @@ const TYPE_OPTIONS: Array<{
 }> = [
   { value: "SMS", label: "SMS · 단문", hint: "90바이트" },
   { value: "LMS", label: "LMS · 장문", hint: "2000바이트" },
-  { value: "ALIMTALK", label: "알림톡", hint: "1000바이트" },
 ];
 
-/**
- * F3-01 · 템플릿 생성/수정 공용 폼.
- *
- * 기능:
- *  - 유형 라디오 3개 (유형 변경 시 제목 활성 여부·바이트 한도 변경)
- *  - 제목 (LMS/알림톡만 활성)
- *  - 본문 textarea + 실시간 바이트 카운터 (한도 초과 시 빨간색 + 제출 차단)
- *  - 강사명 입력
- *  - [광고] 체크박스 + 체크 시 안전가드 안내 배너
- *  - 저장(useTransition 로딩) / 취소(링크)
- *  - dev_seed_mode 응답은 회색 안내 박스
- */
+/** 광고성 발송 시 자동 삽입되는 머리말·꼬리. 실 발송 가드와 표기 일치. */
+const AD_PREFIX = "(광고)";
+const AD_SUFFIX = "\n무료수신거부 080-XXX-XXXX";
+
 export function TemplateForm({ mode, templateId, initial }: Props) {
   const router = useRouter();
   const { show: showToast } = useToast();
@@ -58,7 +61,6 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
   const [type, setType] = useState<TemplateTypeLiteral>(initial.type);
   const [subject, setSubject] = useState(initial.subject ?? "");
   const [body, setBody] = useState(initial.body);
-  const [teacherName, setTeacherName] = useState(initial.teacher_name ?? "");
   const [isAd, setIsAd] = useState(initial.is_ad);
 
   const [notice, setNotice] = useState<string | null>(null);
@@ -67,7 +69,24 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
 
   const progress = useMemo(() => byteProgress(body, type), [body, type]);
   const overflow = progress.bytes > progress.limit;
-  const subjectRequired = type !== "SMS";
+  const subjectRequired = type === "LMS";
+
+  /**
+   * 미리보기 본문 — 광고 가드 시뮬레이션.
+   * (광고) prefix 와 080 무료수신거부 suffix 를 본문 앞뒤에 자동 부착.
+   * 실 발송 시 server 측에서 동일 가드가 한 번 더 적용된다.
+   */
+  const previewBody = useMemo(() => {
+    if (!isAd) return body;
+    const trimmedBody = body.trimEnd();
+    return `${AD_PREFIX} ${trimmedBody}${AD_SUFFIX}`;
+  }, [body, isAd]);
+
+  const previewBytes = useMemo(
+    () => countEucKrBytes(previewBody),
+    [previewBody],
+  );
+  const previewOverflow = previewBytes > BYTE_LIMITS[type];
 
   const onTypeChange = (next: TemplateTypeLiteral) => {
     setType(next);
@@ -81,16 +100,13 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
     if (!name.trim()) errs.name = "템플릿명은 필수입니다";
     if (name.trim().length > 40) errs.name = "템플릿명은 40자 이내";
     if (subjectRequired && !subject.trim()) {
-      errs.subject = "LMS/알림톡은 제목이 필수입니다";
+      errs.subject = "LMS 는 제목이 필수입니다";
     }
     if (subject.trim().length > 40) {
       errs.subject = "제목은 40자 이내";
     }
     if (!body.trim()) errs.body = "본문은 필수입니다";
     if (overflow) errs.body = "바이트 한도를 초과했습니다";
-    if (teacherName.trim().length > 20) {
-      errs.teacher_name = "강사명은 20자 이내";
-    }
     setFieldErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -107,7 +123,6 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
         type,
         subject: subjectRequired ? subject.trim() : null,
         body: body.trim(),
-        teacher_name: teacherName.trim() ? teacherName.trim() : null,
         is_ad: isAd,
       };
 
@@ -151,304 +166,412 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
   return (
     <form
       onSubmit={onSubmit}
-      className="space-y-6 max-w-3xl"
+      className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6"
       aria-busy={isPending}
     >
-      {/* 안내·오류 */}
-      {notice && (
-        <div
-          role="status"
-          className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-4 py-2.5 text-[14px] text-[color:var(--text-muted)]"
-        >
-          {notice}
-        </div>
-      )}
-      {errorMsg && (
-        <div
-          role="alert"
-          className="rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-4 py-2.5 text-[14px] text-[color:var(--danger)]"
-        >
-          {errorMsg}
-        </div>
-      )}
-
-      {/* 템플릿명 */}
-      <div className="space-y-1.5">
-        <label
-          htmlFor="tpl-name"
-          className="text-[14px] font-medium text-[color:var(--text)]"
-        >
-          템플릿명
-        </label>
-        <input
-          id="tpl-name"
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="예: 주간테스트 안내"
-          maxLength={60}
-          className="
-            w-full h-10 rounded-lg px-3
-            bg-bg-card border border-[color:var(--border)]
-            text-[15px] text-[color:var(--text)]
-            placeholder:text-[color:var(--text-dim)]
-            focus:outline-none focus:border-[color:var(--border-strong)]
-            transition-colors
-          "
-        />
-        {fieldErrors.name && (
-          <p className="text-[13px] text-[color:var(--danger)]">
-            {fieldErrors.name}
-          </p>
-        )}
-      </div>
-
-      {/* 유형 라디오 */}
-      <fieldset className="space-y-2">
-        <legend className="text-[14px] font-medium text-[color:var(--text)]">
-          유형
-        </legend>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {TYPE_OPTIONS.map((opt) => {
-            const checked = type === opt.value;
-            return (
-              <label
-                key={opt.value}
-                className={`
-                  flex items-start gap-3 p-3 rounded-lg border cursor-pointer
-                  transition-colors
-                  ${
-                    checked
-                      ? "border-[color:var(--action)] bg-[color:var(--bg-muted)]"
-                      : "border-[color:var(--border)] hover:bg-[color:var(--bg-hover)]"
-                  }
-                `}
-              >
-                <input
-                  type="radio"
-                  name="tpl-type"
-                  value={opt.value}
-                  checked={checked}
-                  onChange={() => onTypeChange(opt.value)}
-                  className="mt-1 size-4 accent-[color:var(--action)]"
-                />
-                <span className="flex flex-col gap-0.5">
-                  <span className="text-[14px] font-medium text-[color:var(--text)]">
-                    {opt.label}
-                  </span>
-                  <span className="text-[12px] text-[color:var(--text-muted)]">
-                    {opt.hint}
-                  </span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
-
-      {/* 제목 */}
-      <div className="space-y-1.5">
-        <label
-          htmlFor="tpl-subject"
-          className="text-[14px] font-medium text-[color:var(--text)]"
-        >
-          제목
-          {!subjectRequired && (
-            <span className="ml-2 text-[12px] text-[color:var(--text-dim)]">
-              SMS 는 제목 없음
-            </span>
-          )}
-        </label>
-        <input
-          id="tpl-subject"
-          type="text"
-          value={subject}
-          onChange={(e) => setSubject(e.target.value)}
-          disabled={!subjectRequired}
-          placeholder={
-            subjectRequired ? "예: 세정학원 주간테스트 안내" : "—"
-          }
-          maxLength={40}
-          className="
-            w-full h-10 rounded-lg px-3
-            bg-bg-card border border-[color:var(--border)]
-            text-[15px] text-[color:var(--text)]
-            placeholder:text-[color:var(--text-dim)]
-            focus:outline-none focus:border-[color:var(--border-strong)]
-            disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-dim)]
-            disabled:cursor-not-allowed
-            transition-colors
-          "
-        />
-        {fieldErrors.subject && (
-          <p className="text-[13px] text-[color:var(--danger)]">
-            {fieldErrors.subject}
-          </p>
-        )}
-      </div>
-
-      {/* 본문 + 바이트 카운터 */}
-      <div className="space-y-1.5">
-        <label
-          htmlFor="tpl-body"
-          className="text-[14px] font-medium text-[color:var(--text)]"
-        >
-          본문
-        </label>
-        <textarea
-          id="tpl-body"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="문자 본문을 입력하세요."
-          rows={8}
-          className="
-            w-full min-h-40 rounded-lg p-3
-            bg-bg-card border border-[color:var(--border)]
-            text-[15px] leading-relaxed text-[color:var(--text)]
-            placeholder:text-[color:var(--text-dim)]
-            focus:outline-none focus:border-[color:var(--border-strong)]
-            transition-colors resize-y
-          "
-          style={{ fontFamily: "var(--font-sans)" }}
-        />
-        <div className="flex items-center justify-between">
-          <p
-            className={`text-[13px] ${
-              fieldErrors.body
-                ? "text-[color:var(--danger)]"
-                : "text-[color:var(--text-dim)]"
-            }`}
-          >
-            {fieldErrors.body ?? " "}
-          </p>
-          <p
-            className={`text-[13px] tabular-nums ${
-              overflow
-                ? "text-[color:var(--danger)] font-medium"
-                : "text-[color:var(--text-muted)]"
-            }`}
-            aria-live="polite"
-          >
-            {progress.bytes.toLocaleString()} /{" "}
-            {progress.limit.toLocaleString()} 바이트
-            {overflow && <span className="ml-2">한도 초과</span>}
-          </p>
-        </div>
-        {overflow && (
-          <p className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]">
-            <AlertTriangle
-              className="size-3.5"
-              strokeWidth={1.75}
-              aria-hidden
-            />
-            현재 {type} 한도({BYTE_LIMITS[type]}바이트)를 초과했습니다. 본문을
-            줄이거나 LMS 로 유형을 변경하세요.
-          </p>
-        )}
-      </div>
-
-      {/* 강사명 */}
-      <div className="space-y-1.5">
-        <label
-          htmlFor="tpl-teacher"
-          className="text-[14px] font-medium text-[color:var(--text)]"
-        >
-          강사명
-          <span className="ml-2 text-[12px] text-[color:var(--text-dim)]">
-            선택
-          </span>
-        </label>
-        <input
-          id="tpl-teacher"
-          type="text"
-          value={teacherName}
-          onChange={(e) => setTeacherName(e.target.value)}
-          placeholder="예: 김정우T"
-          maxLength={20}
-          className="
-            w-full h-10 rounded-lg px-3
-            bg-bg-card border border-[color:var(--border)]
-            text-[15px] text-[color:var(--text)]
-            placeholder:text-[color:var(--text-dim)]
-            focus:outline-none focus:border-[color:var(--border-strong)]
-            transition-colors
-          "
-        />
-        {fieldErrors.teacher_name && (
-          <p className="text-[13px] text-[color:var(--danger)]">
-            {fieldErrors.teacher_name}
-          </p>
-        )}
-      </div>
-
-      {/* 광고 여부 */}
-      <div className="space-y-2">
-        <label className="flex items-start gap-3 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isAd}
-            onChange={(e) => setIsAd(e.target.checked)}
-            className="mt-1 size-4 accent-[color:var(--action)]"
-          />
-          <span className="flex flex-col gap-0.5">
-            <span className="text-[14px] font-medium text-[color:var(--text)]">
-              광고성 문자로 발송
-            </span>
-            <span className="text-[12px] text-[color:var(--text-muted)]">
-              마케팅·모집·특강 안내 등 광고성 내용이면 체크하세요.
-            </span>
-          </span>
-        </label>
-
-        {isAd && (
+      {/* ─── 좌측 폼 ─────────────────────────────────────── */}
+      <div className="space-y-6">
+        {/* 안내·오류 */}
+        {notice && (
           <div
-            role="note"
-            className="flex items-start gap-2 rounded-lg border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-4 py-3"
+            role="status"
+            className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-4 py-2.5 text-[14px] text-[color:var(--text-muted)]"
           >
-            <Megaphone
-              className="size-4 mt-0.5 text-[color:var(--warning)]"
-              strokeWidth={1.75}
-              aria-hidden
-            />
-            <div className="text-[13px] leading-relaxed text-[color:var(--text)]">
-              <strong className="font-medium">광고 발송 안전 가드:</strong>{" "}
-              본문 앞에 <code className="px-1 rounded bg-[color:var(--bg-muted)]">[광고]</code>{" "}
-              prefix 와 끝에{" "}
-              <code className="px-1 rounded bg-[color:var(--bg-muted)]">080 수신거부</code>{" "}
-              안내가 자동 삽입되며, 21시 ~ 08시 시간대에는 발송이 차단됩니다.
-            </div>
+            {notice}
           </div>
         )}
+        {errorMsg && (
+          <div
+            role="alert"
+            className="rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-4 py-2.5 text-[14px] text-[color:var(--danger)]"
+          >
+            {errorMsg}
+          </div>
+        )}
+
+        {/* 템플릿명 */}
+        <div className="space-y-1.5">
+          <label
+            htmlFor="tpl-name"
+            className="text-[14px] font-medium text-[color:var(--text)]"
+          >
+            템플릿명
+          </label>
+          <input
+            id="tpl-name"
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="예: 주간테스트 안내"
+            maxLength={60}
+            className="
+              w-full h-10 rounded-lg px-3
+              bg-bg-card border border-[color:var(--border)]
+              text-[15px] text-[color:var(--text)]
+              placeholder:text-[color:var(--text-dim)]
+              focus:outline-none focus:border-[color:var(--border-strong)]
+              transition-colors
+            "
+          />
+          {fieldErrors.name && (
+            <p className="text-[13px] text-[color:var(--danger)]">
+              {fieldErrors.name}
+            </p>
+          )}
+        </div>
+
+        {/* 유형 라디오 — 2종 */}
+        <fieldset className="space-y-2">
+          <legend className="text-[14px] font-medium text-[color:var(--text)]">
+            유형
+          </legend>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {TYPE_OPTIONS.map((opt) => {
+              const checked = type === opt.value;
+              return (
+                <label
+                  key={opt.value}
+                  className={`
+                    flex items-start gap-3 p-3 rounded-lg border cursor-pointer
+                    transition-colors
+                    ${
+                      checked
+                        ? "border-[color:var(--action)] bg-[color:var(--bg-muted)]"
+                        : "border-[color:var(--border)] hover:bg-[color:var(--bg-hover)]"
+                    }
+                  `}
+                >
+                  <input
+                    type="radio"
+                    name="tpl-type"
+                    value={opt.value}
+                    checked={checked}
+                    onChange={() => onTypeChange(opt.value)}
+                    className="mt-1 size-4 accent-[color:var(--action)]"
+                  />
+                  <span className="flex flex-col gap-0.5">
+                    <span className="text-[14px] font-medium text-[color:var(--text)]">
+                      {opt.label}
+                    </span>
+                    <span className="text-[12px] text-[color:var(--text-muted)]">
+                      {opt.hint}
+                    </span>
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
+
+        {/* 제목 */}
+        <div className="space-y-1.5">
+          <label
+            htmlFor="tpl-subject"
+            className="text-[14px] font-medium text-[color:var(--text)]"
+          >
+            제목
+            {!subjectRequired && (
+              <span className="ml-2 text-[12px] text-[color:var(--text-dim)]">
+                SMS 는 제목 없음
+              </span>
+            )}
+          </label>
+          <input
+            id="tpl-subject"
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            disabled={!subjectRequired}
+            placeholder={
+              subjectRequired ? "예: 세정학원 주간테스트 안내" : "—"
+            }
+            maxLength={40}
+            className="
+              w-full h-10 rounded-lg px-3
+              bg-bg-card border border-[color:var(--border)]
+              text-[15px] text-[color:var(--text)]
+              placeholder:text-[color:var(--text-dim)]
+              focus:outline-none focus:border-[color:var(--border-strong)]
+              disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-dim)]
+              disabled:cursor-not-allowed
+              transition-colors
+            "
+          />
+          {fieldErrors.subject && (
+            <p className="text-[13px] text-[color:var(--danger)]">
+              {fieldErrors.subject}
+            </p>
+          )}
+        </div>
+
+        {/* 본문 + 바이트 카운터 */}
+        <div className="space-y-1.5">
+          <label
+            htmlFor="tpl-body"
+            className="text-[14px] font-medium text-[color:var(--text)]"
+          >
+            본문
+          </label>
+          <textarea
+            id="tpl-body"
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="문자 본문을 입력하세요."
+            rows={10}
+            className="
+              w-full min-h-48 rounded-lg p-3
+              bg-bg-card border border-[color:var(--border)]
+              text-[15px] leading-relaxed text-[color:var(--text)]
+              placeholder:text-[color:var(--text-dim)]
+              focus:outline-none focus:border-[color:var(--border-strong)]
+              transition-colors resize-y
+            "
+            style={{ fontFamily: "var(--font-sans)" }}
+          />
+          <div className="flex items-center justify-between">
+            <p
+              className={`text-[13px] ${
+                fieldErrors.body
+                  ? "text-[color:var(--danger)]"
+                  : "text-[color:var(--text-dim)]"
+              }`}
+            >
+              {fieldErrors.body ?? " "}
+            </p>
+            <p
+              className={`text-[13px] tabular-nums ${
+                overflow
+                  ? "text-[color:var(--danger)] font-medium"
+                  : "text-[color:var(--text-muted)]"
+              }`}
+              aria-live="polite"
+            >
+              {progress.bytes.toLocaleString()} /{" "}
+              {progress.limit.toLocaleString()} 바이트
+              {overflow && <span className="ml-2">한도 초과</span>}
+            </p>
+          </div>
+          {overflow && (
+            <p className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]">
+              <AlertTriangle
+                className="size-3.5"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              현재 {type} 한도({BYTE_LIMITS[type]}바이트)를 초과했습니다. 본문을
+              줄이거나 LMS 로 유형을 변경하세요.
+            </p>
+          )}
+        </div>
+
+        {/* 광고 여부 */}
+        <div className="space-y-2">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isAd}
+              onChange={(e) => setIsAd(e.target.checked)}
+              className="mt-1 size-4 accent-[color:var(--action)]"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span className="text-[14px] font-medium text-[color:var(--text)]">
+                광고성 문자로 발송
+              </span>
+              <span className="text-[12px] text-[color:var(--text-muted)]">
+                마케팅·모집·특강 안내 등 광고성 내용이면 체크하세요.
+              </span>
+            </span>
+          </label>
+
+          {isAd && (
+            <div
+              role="note"
+              className="flex items-start gap-2 rounded-lg border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-4 py-3"
+            >
+              <Megaphone
+                className="size-4 mt-0.5 text-[color:var(--warning)]"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <div className="text-[13px] leading-relaxed text-[color:var(--text)]">
+                <strong className="font-medium">광고 발송 안전 가드:</strong>{" "}
+                본문 앞에{" "}
+                <code className="px-1 rounded bg-[color:var(--bg-muted)]">
+                  {AD_PREFIX}
+                </code>{" "}
+                머리말과 끝에{" "}
+                <code className="px-1 rounded bg-[color:var(--bg-muted)]">
+                  080 수신거부
+                </code>{" "}
+                안내가 자동 삽입되며, 21시 ~ 08시 시간대에는 발송이 차단됩니다.
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* 버튼 */}
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-[color:var(--border)]">
+          <Link
+            href="/templates"
+            className="
+              inline-flex items-center h-10 px-4 rounded-lg
+              text-[14px] text-[color:var(--text-muted)]
+              hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]
+              transition-colors
+            "
+          >
+            취소
+          </Link>
+          <button
+            type="submit"
+            disabled={isPending || overflow}
+            className="
+              inline-flex items-center h-10 px-5 rounded-lg
+              bg-[color:var(--action)] text-[color:var(--action-text)]
+              text-[14px] font-medium
+              hover:bg-[color:var(--action-hover)]
+              disabled:opacity-50 disabled:cursor-not-allowed
+              transition-colors
+            "
+          >
+            {isPending ? "저장 중..." : mode === "create" ? "저장" : "변경 저장"}
+          </button>
+        </div>
       </div>
 
-      {/* 버튼 */}
-      <div className="flex items-center justify-end gap-2 pt-2 border-t border-[color:var(--border)]">
-        <Link
-          href="/templates"
-          className="
-            inline-flex items-center h-10 px-4 rounded-lg
-            text-[14px] text-[color:var(--text-muted)]
-            hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]
-            transition-colors
-          "
-        >
-          취소
-        </Link>
-        <button
-          type="submit"
-          disabled={isPending || overflow}
-          className="
-            inline-flex items-center h-10 px-5 rounded-lg
-            bg-[color:var(--action)] text-[color:var(--action-text)]
-            text-[14px] font-medium
-            hover:bg-[color:var(--action-hover)]
-            disabled:opacity-50 disabled:cursor-not-allowed
-            transition-colors
-          "
-        >
-          {isPending ? "저장 중..." : mode === "create" ? "저장" : "변경 저장"}
-        </button>
-      </div>
+      {/* ─── 우측 미리보기 ───────────────────────────────── */}
+      <aside className="lg:sticky lg:top-6 h-fit">
+        <SmsPreviewCard
+          type={type}
+          subject={subjectRequired ? subject : ""}
+          body={previewBody}
+          rawBytes={previewBytes}
+          rawOverflow={previewOverflow}
+          limit={BYTE_LIMITS[type]}
+          isAd={isAd}
+        />
+      </aside>
     </form>
+  );
+}
+
+// ─── 미리보기 카드 ─────────────────────────────────────────────
+
+/**
+ * 채팅 말풍선 형태의 SMS 미리보기.
+ * 운영자가 수신자가 보게 될 화면을 상상할 수 있도록 가벼운 말풍선으로 표현.
+ * 본문은 광고 가드(머리말·꼬리) 자동 부착 후 바이트까지 함께 안내.
+ */
+function SmsPreviewCard({
+  type,
+  subject,
+  body,
+  rawBytes,
+  rawOverflow,
+  limit,
+  isAd,
+}: {
+  type: TemplateTypeLiteral;
+  subject: string;
+  body: string;
+  rawBytes: number;
+  rawOverflow: boolean;
+  limit: number;
+  isAd: boolean;
+}) {
+  return (
+    <section
+      aria-label="문자 미리보기"
+      className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 space-y-4"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <MessageSquare
+            className="size-4 text-[color:var(--text-muted)]"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          <h3 className="text-[13px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+            미리보기
+          </h3>
+        </div>
+        <span
+          className="
+            inline-flex items-center px-2 py-0.5 rounded-md
+            text-[11px] font-medium border
+            bg-[color:var(--bg-muted)] text-[color:var(--text)]
+            border-[color:var(--border-strong)]
+          "
+        >
+          {type}
+          {isAd && (
+            <span className="ml-1.5 text-[color:var(--warning)]">광고</span>
+          )}
+        </span>
+      </div>
+
+      {/* 채팅 말풍선 */}
+      <div className="rounded-2xl rounded-tl-md bg-[color:var(--bg-muted)] p-4 space-y-2">
+        {subject && (
+          <p className="text-[13px] font-semibold text-[color:var(--text)] leading-tight">
+            {subject}
+          </p>
+        )}
+        <pre
+          className="
+            whitespace-pre-wrap break-words
+            text-[14px] leading-relaxed text-[color:var(--text)]
+            min-h-24
+          "
+          style={{ fontFamily: "var(--font-sans)" }}
+        >
+          {body || (
+            <span className="text-[color:var(--text-dim)]">
+              본문을 입력하면 여기에 표시됩니다.
+            </span>
+          )}
+        </pre>
+      </div>
+
+      {/* 메타 */}
+      <dl className="space-y-1.5 text-[13px]">
+        <div className="flex items-center justify-between">
+          <dt className="text-[color:var(--text-muted)]">최종 바이트</dt>
+          <dd
+            className={`tabular-nums ${
+              rawOverflow
+                ? "text-[color:var(--danger)] font-medium"
+                : "text-[color:var(--text)]"
+            }`}
+          >
+            {rawBytes.toLocaleString()} / {limit.toLocaleString()}
+          </dd>
+        </div>
+        <div className="flex items-center justify-between">
+          <dt className="text-[color:var(--text-muted)]">유형</dt>
+          <dd className="text-[color:var(--text)]">{type}</dd>
+        </div>
+      </dl>
+
+      {rawOverflow && (
+        <p
+          role="alert"
+          className="flex items-start gap-1.5 text-[12px] text-[color:var(--danger)] leading-relaxed"
+        >
+          <AlertTriangle
+            className="size-3.5 mt-0.5 shrink-0"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          광고 머리말·꼬리까지 합치면 {type} 한도를 넘습니다. LMS 로 바꾸거나
+          본문을 줄여주세요.
+        </p>
+      )}
+
+      <p className="pt-2 border-t border-[color:var(--border)] text-[12px] text-[color:var(--text-dim)] leading-relaxed">
+        발송 직전 server 단에서 동일한 가드(광고 머리말·080·야간 차단)가
+        한 번 더 적용됩니다.
+      </p>
+    </section>
   );
 }

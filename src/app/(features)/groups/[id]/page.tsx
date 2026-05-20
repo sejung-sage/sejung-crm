@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { getGroup } from "@/lib/groups/get-group";
 import { listGroupStudents } from "@/lib/groups/list-group-students";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { can } from "@/lib/auth/can";
 import { GroupDetailView } from "@/components/groups/group-detail-view";
 
 /**
@@ -32,6 +33,9 @@ export default async function GroupDetailPage({
     getCurrentUser(),
   ]);
   const canRevealPhone = currentUser?.role === "master";
+  // 그룹 편집(=학생 건별 제외) 권한: master 또는 본인 분원 admin.
+  // can() 가 master 는 branch 무시, admin/manager/viewer 는 본인 분원 일치 검사를 수행.
+  const canEdit = can(currentUser, "write", "group", group.branch);
 
   return (
     <GroupDetailView
@@ -41,6 +45,7 @@ export default async function GroupDetailPage({
       currentPage={page}
       pageSize={PAGE_SIZE}
       canRevealPhone={canRevealPhone}
+      canEdit={canEdit}
     />
   );
 }

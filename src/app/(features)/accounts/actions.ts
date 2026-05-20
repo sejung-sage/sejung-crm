@@ -5,16 +5,14 @@
  *
  * 정책:
  *   - 모든 액션 dev-seed 모드 → `{ status:'dev_seed_mode' }` 즉시 반환.
- *   - 권한 가드: can(currentUser, 'write', 'account', input.branch).
+ *   - 권한 가드: 모든 계정 액션은 master 전용.
  *     · master  : 전 분원 계정 관리.
- *     · admin   : 본인 분원 계정만 관리.
  *     · 그 외   : 거부.
  *   - 계정 생성: Supabase Admin API `inviteUserByEmail` 사용.
  *     → auth.users 행 생성 + 임시 비밀번호 설정 메일 발송.
  *     → 반환된 user.id 로 users_profile INSERT (must_change_password=true).
  *   - 계정 수정:
- *     · role/branch 변경은 master 만 가능 (admin 은 분원 이동 불가).
- *     · admin 은 본인 분원의 사용자에 대해 name/active 만 변경.
+ *     · role/branch 모두 master 가 자유롭게 변경.
  *   - 자기 자신 비활성화/role 강등 금지.
  */
 
@@ -32,7 +30,6 @@ import {
 } from "@/lib/supabase/server";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import { can } from "@/lib/auth/can";
 import type { CurrentUser, UserProfileRow } from "@/types/database";
 
 // ─── 결과 타입 ──────────────────────────────────────────────
@@ -76,11 +73,22 @@ async function requireCurrentUser(): Promise<
 }
 
 /**
- * 대상 사용자 프로필 조회 + admin 의 분원 일치 확인.
- * master 는 항상 통과.
+ * master 전용 가드. 로그인 + role === 'master' + active 확인.
+ */
+function requireMaster(user: CurrentUser): { ok: true } | { ok: false; reason: string } {
+  if (!user.active) {
+    return { ok: false, reason: "비활성화된 계정입니다" };
+  }
+  if (user.role !== "master") {
+    return { ok: false, reason: "마스터만 접근할 수 있습니다" };
+  }
+  return { ok: true };
+}
+
+/**
+ * 대상 사용자 프로필 조회. master 만 호출하므로 branch 검사 불필요.
  */
 async function loadTargetProfile(
-  currentUser: CurrentUser,
   targetUserId: string,
 ): Promise<
   { ok: true; profile: UserProfileRow } | { ok: false; reason: string }
@@ -99,10 +107,6 @@ async function loadTargetProfile(
     return { ok: false, reason: "존재하지 않는 계정입니다" };
   }
   const profile = data as UserProfileRow;
-
-  if (currentUser.role !== "master" && profile.branch !== currentUser.branch) {
-    return { ok: false, reason: "권한이 없습니다 (다른 분원 계정)" };
-  }
   return { ok: true, profile };
 }
 
@@ -126,14 +130,10 @@ export async function createAccountAction(
   const cur = await requireCurrentUser();
   if (!cur.ok) return { status: "failed", reason: cur.reason };
 
-  // 3) 권한 가드 (master 전체, admin 본인 분원만)
-  if (!can(cur.user, "write", "account", payload.branch)) {
-    return { status: "failed", reason: "권한이 없습니다" };
-  }
-
-  // 4) admin 이 다른 분원 계정 생성 차단(추가 방어)
-  if (cur.user.role !== "master" && payload.branch !== cur.user.branch) {
-    return { status: "failed", reason: "본인 분원 계정만 생성할 수 있습니다" };
+  // 3) 권한 가드 (master 전용)
+  const guard = requireMaster(cur.user);
+  if (!guard.ok) {
+    return { status: "failed", reason: guard.reason };
   }
 
   // 5) Service role 로 invite
@@ -214,28 +214,15 @@ export async function updateAccountAction(
   const cur = await requireCurrentUser();
   if (!cur.ok) return { status: "failed", reason: cur.reason };
 
-  // 대상 프로필 (분원 검사 포함)
-  const target = await loadTargetProfile(cur.user, payload.user_id);
+  // 권한 가드 (master 전용)
+  const guard = requireMaster(cur.user);
+  if (!guard.ok) {
+    return { status: "failed", reason: guard.reason };
+  }
+
+  // 대상 프로필
+  const target = await loadTargetProfile(payload.user_id);
   if (!target.ok) return { status: "failed", reason: target.reason };
-
-  // 변경하려는 branch 가 있으면 그 branch 에 대한 권한도 검사
-  const effectiveBranch = payload.branch ?? target.profile.branch;
-  if (!can(cur.user, "write", "account", effectiveBranch)) {
-    return { status: "failed", reason: "권한이 없습니다" };
-  }
-
-  // role/branch 변경은 master 만 허용
-  if (cur.user.role !== "master") {
-    if (payload.role !== undefined && payload.role !== target.profile.role) {
-      return { status: "failed", reason: "역할 변경은 master 만 가능합니다" };
-    }
-    if (
-      payload.branch !== undefined &&
-      payload.branch !== target.profile.branch
-    ) {
-      return { status: "failed", reason: "분원 변경은 master 만 가능합니다" };
-    }
-  }
 
   // 자기 자신 비활성화 금지 (deactivateAction 과 별개로 update 경유 차단)
   if (
@@ -310,16 +297,17 @@ export async function deactivateAccountAction(
   const cur = await requireCurrentUser();
   if (!cur.ok) return { status: "failed", reason: cur.reason };
 
+  const guard = requireMaster(cur.user);
+  if (!guard.ok) {
+    return { status: "failed", reason: guard.reason };
+  }
+
   if (userId === cur.user.user_id) {
     return { status: "failed", reason: "자기 자신을 비활성화할 수 없습니다" };
   }
 
-  const target = await loadTargetProfile(cur.user, userId);
+  const target = await loadTargetProfile(userId);
   if (!target.ok) return { status: "failed", reason: target.reason };
-
-  if (!can(cur.user, "write", "account", target.profile.branch)) {
-    return { status: "failed", reason: "권한이 없습니다" };
-  }
 
   const supabase = await createSupabaseServerClient();
   const { error } = await (
@@ -361,12 +349,13 @@ export async function reactivateAccountAction(
   const cur = await requireCurrentUser();
   if (!cur.ok) return { status: "failed", reason: cur.reason };
 
-  const target = await loadTargetProfile(cur.user, userId);
-  if (!target.ok) return { status: "failed", reason: target.reason };
-
-  if (!can(cur.user, "write", "account", target.profile.branch)) {
-    return { status: "failed", reason: "권한이 없습니다" };
+  const guard = requireMaster(cur.user);
+  if (!guard.ok) {
+    return { status: "failed", reason: guard.reason };
   }
+
+  const target = await loadTargetProfile(userId);
+  if (!target.ok) return { status: "failed", reason: target.reason };
 
   // must_change_password 는 건드리지 않는다 (재활성화는 비밀번호 정책과 무관).
   const supabase = await createSupabaseServerClient();

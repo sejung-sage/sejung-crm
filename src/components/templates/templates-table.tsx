@@ -99,7 +99,6 @@ export function TemplatesTable({ rows }: Props) {
               <Th>제목</Th>
               <Th className="w-20">유형</Th>
               <Th className="w-16">광고</Th>
-              <Th className="w-28">강사명</Th>
               <Th className="w-32 text-right">바이트</Th>
               <Th className="w-32">최근 수정일</Th>
               <Th className="w-12" aria-label="메뉴">
@@ -144,9 +143,6 @@ export function TemplatesTable({ rows }: Props) {
                     <TemplateTypeBadge type={t.type} />
                   </Td>
                   <Td>{t.is_ad ? <AdBadge /> : null}</Td>
-                  <Td className="text-[color:var(--text-muted)]">
-                    {t.teacher_name ?? "—"}
-                  </Td>
                   <Td className="text-right tabular-nums">
                     <span
                       className={

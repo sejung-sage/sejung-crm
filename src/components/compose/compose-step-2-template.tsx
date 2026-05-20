@@ -20,6 +20,7 @@ import type { ComposeStep2State } from "./compose-wizard";
  * 전환해서 본문을 수정해도 templateId 는 유지(=베이스 추적). 단 실제 발송 본문은
  * 항상 step2 상태값을 사용.
  */
+// 0059 마이그에서 ALIMTALK 제거 — SMS / LMS 2종만.
 const TYPE_OPTIONS: Array<{
   value: TemplateTypeLiteral;
   label: string;
@@ -27,7 +28,6 @@ const TYPE_OPTIONS: Array<{
 }> = [
   { value: "SMS", label: "SMS · 단문", hint: "90바이트" },
   { value: "LMS", label: "LMS · 장문", hint: "2000바이트" },
-  { value: "ALIMTALK", label: "알림톡", hint: "1000바이트" },
 ];
 
 interface Props {
@@ -209,7 +209,7 @@ function TemplatePicker({
             <option value="">— 템플릿을 선택하세요 —</option>
             {templates.map((t) => (
               <option key={t.id} value={t.id}>
-                [{t.type === "ALIMTALK" ? "알림톡" : t.type}] {t.name}
+                [{t.type}] {t.name}
               </option>
             ))}
           </select>
@@ -286,7 +286,7 @@ function InlineComposer({
         <legend className="text-[14px] font-medium text-[color:var(--text)]">
           유형
         </legend>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {TYPE_OPTIONS.map((opt) => {
             const checked = value.type === opt.value;
             return (

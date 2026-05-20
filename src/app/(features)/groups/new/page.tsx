@@ -153,6 +153,7 @@ export default async function NewGroupPage({
     regions: [],
     statuses: [],
     includeStudentIds: prefill ? prefill.recipients.map((r) => r.id) : [],
+    excludeStudentIds: [],
   };
 
   const [initialPreview, schoolOptions, currentUser] = await Promise.all([

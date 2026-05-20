@@ -30,7 +30,6 @@ describe("Template Server Actions · dev-seed 조기 반환", () => {
         type: "SMS",
         subject: null,
         body: "안녕하세요",
-        teacher_name: null,
         is_ad: false,
       });
       expect(r.status).toBe("dev_seed_mode");
@@ -42,7 +41,6 @@ describe("Template Server Actions · dev-seed 조기 반환", () => {
         type: "LMS",
         subject: "제목",
         body: "본문",
-        teacher_name: "김선생T",
         is_ad: false,
       });
       expect(r.status).toBe("dev_seed_mode");
@@ -57,7 +55,6 @@ describe("Template Server Actions · dev-seed 조기 반환", () => {
         type: "SMS",
         subject: null,
         body: "수정된 본문",
-        teacher_name: null,
         is_ad: false,
       });
       expect(r.status).toBe("dev_seed_mode");

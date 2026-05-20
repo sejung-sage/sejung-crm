@@ -235,10 +235,7 @@ export function ComposeStep4Send({
         className="rounded-lg border border-[color:var(--border)] p-4 grid grid-cols-2 sm:grid-cols-4 gap-4"
       >
         <Summary label="그룹" value={selectedGroup.name} />
-        <Summary
-          label="유형"
-          value={step2.type === "ALIMTALK" ? "알림톡" : step2.type}
-        />
+        <Summary label="유형" value={step2.type} />
         <Summary
           label="수신자"
           value={`${preview.recipientCount.toLocaleString("ko-KR")}명`}

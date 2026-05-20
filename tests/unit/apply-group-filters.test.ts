@@ -22,7 +22,7 @@ import type { GroupFilters } from "@/lib/schemas/group";
 
 // emptyFilters 의 의도는 "조건 없음 → 모든 status (탈퇴 제외) 통과". statuses default 가
 // 빈 배열 → ['재원생'] 1종으로 좁혀지므로, 옛 시맨틱을 보존하려면 3종 풀로 명시.
-const emptyFilters: GroupFilters = { grades: [], schools: [], subjects: [], regions: [], statuses: ["재원생", "수강이력자", "수강 x"], includeStudentIds: [] };
+const emptyFilters: GroupFilters = { grades: [], schools: [], subjects: [], regions: [], statuses: ["재원생", "수강이력자", "수강 x"], includeStudentIds: [], excludeStudentIds: [] };
 
 describe("applyGroupFiltersDev · 분원·자동제외", () => {
   it("branch='대치' 이면 송도 학생 제외", () => {
@@ -157,7 +157,7 @@ describe("applyGroupFiltersDev · 복합 필터", () => {
   it("grades=[2] + schools=['휘문고'] + subjects=['수학'] · DC0001 1명만", () => {
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
-      { grades: ["고2"], schools: ["휘문고"], subjects: ["수학"], regions: [], statuses: [], includeStudentIds: [] },
+      { grades: ["고2"], schools: ["휘문고"], subjects: ["수학"], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [] },
       "대치",
     );
     expect(r.length).toBe(1);
@@ -167,7 +167,7 @@ describe("applyGroupFiltersDev · 복합 필터", () => {
   it("grades=[2] + schools=['중동고'] · 대치 중동고 고2 없음 → 0명", () => {
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
-      { grades: ["고2"], schools: ["중동고"], subjects: [], regions: [], statuses: [], includeStudentIds: [] },
+      { grades: ["고2"], schools: ["중동고"], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [] },
       "대치",
     );
     expect(r.length).toBe(0);
@@ -178,7 +178,7 @@ describe("applyGroupFiltersDev · 복합 필터", () => {
     // 신 시맨틱: 빈 statuses → default '재원생' 만. 옛 의미를 원하면 3종 풀로 명시.
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
-      { grades: [], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [] },
+      { grades: [], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [] },
       "대치",
     );
     expect(r.length).toBe(4);
@@ -195,6 +195,7 @@ describe("applyGroupFiltersDev · 복합 필터", () => {
         regions: [],
         statuses: ["재원생", "수강이력자", "수강 x"],
         includeStudentIds: [],
+        excludeStudentIds: [],
       },
       "대치",
     );

@@ -126,12 +126,12 @@ export async function createTemplateAction(
   }
 
   const supabase = await createSupabaseServerClient();
+  // 0059: teacher_name 컬럼 DROP — payload 에서 제외.
   const insertPayload: Record<string, unknown> = {
     name: parsed.name,
     subject: parsed.type === "SMS" ? null : parsed.subject,
     body: parsed.body,
     type: parsed.type,
-    teacher_name: parsed.teacher_name ?? null,
     auto_captured: false,
     is_ad: parsed.is_ad,
     byte_count: countEucKrBytes(parsed.body),
@@ -194,12 +194,12 @@ export async function updateTemplateAction(
   }
 
   const supabase = await createSupabaseServerClient();
+  // 0059: teacher_name 컬럼 DROP — patch 에서 제외.
   const patch: Record<string, unknown> = {
     name: parsed.name,
     subject: parsed.type === "SMS" ? null : parsed.subject,
     body: parsed.body,
     type: parsed.type,
-    teacher_name: parsed.teacher_name ?? null,
     is_ad: parsed.is_ad,
     byte_count: countEucKrBytes(parsed.body),
   };

@@ -6,15 +6,14 @@
  *
  * 검색어 q: 템플릿명/본문 부분일치(ilike). 빈 값은 필터 미적용.
  *
- * NOTE (frontend-dev): backend 가 Supabase 분기를 덮어쓸 수 있음. 시그니처
- * (`listTemplates`, `ListTemplatesResult`, `listUniqueTeachers`) 유지 필요.
+ * 0059 마이그에서 teacher_name 컬럼 제거 — 강사명 필터/집계 미사용.
+ * 시그니처(`listTemplates`, `ListTemplatesResult`) 유지.
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { TemplateRow } from "@/types/database";
 import type { TemplateListQuery } from "@/lib/schemas/template";
 import {
-  DEV_TEMPLATES,
   isDevSeedMode,
   listDevTemplates,
 } from "@/lib/profile/students-dev-seed";
@@ -39,7 +38,6 @@ function listFromDevSeed(query: TemplateListQuery): ListTemplatesResult {
   const all = listDevTemplates({
     q: query.q,
     type: query.type,
-    teacher_name: query.teacher_name,
     branch: query.branch,
   });
   // updated_at DESC
@@ -68,9 +66,6 @@ async function listFromSupabase(
   if (query.type) {
     q = q.eq("type", query.type);
   }
-  if (query.teacher_name) {
-    q = q.eq("teacher_name", query.teacher_name);
-  }
   if (query.branch) {
     q = q.eq("branch", query.branch);
   }
@@ -87,34 +82,4 @@ async function listFromSupabase(
     items: (data ?? []) as TemplateRow[],
     total: count ?? 0,
   };
-}
-
-/**
- * 툴바 필터용 — 사용 가능한 강사명 후보(정렬된 유니크 리스트).
- * dev-seed 에선 DEV_TEMPLATES 에서 추출.
- */
-export async function listUniqueTeachers(): Promise<string[]> {
-  if (isDevSeedMode()) {
-    const set = new Set<string>();
-    for (const t of DEV_TEMPLATES) {
-      if (t.teacher_name && t.teacher_name.trim().length > 0) {
-        set.add(t.teacher_name);
-      }
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
-  }
-
-  const supabase = await createSupabaseServerClient();
-  const { data, error } = await supabase
-    .from("crm_templates")
-    .select("teacher_name")
-    .not("teacher_name", "is", null);
-  if (error) {
-    return [];
-  }
-  const set = new Set<string>();
-  for (const row of (data ?? []) as { teacher_name: string | null }[]) {
-    if (row.teacher_name) set.add(row.teacher_name);
-  }
-  return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
 }

@@ -47,9 +47,13 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   {
+    // "계정과 권한 관리" 메뉴는 master 전용.
+    // admin/manager/viewer 는 자기 분원 안에서 권한 변경 권한이 없으므로
+    // 메뉴 자체를 숨겨 노이즈를 제거. (페이지 단의 RLS 가드는 그대로 유지)
     href: "/accounts",
     label: "계정과 권한 관리",
     icon: Users,
+    roles: ["master"],
   },
   {
     href: "/students",
@@ -81,7 +85,7 @@ const NAV_ITEMS: NavItem[] = [
   },
   {
     href: "/regions",
-    label: "지역 매핑",
+    label: "학교 지역매핑",
     icon: MapPin,
     roles: ["master", "admin"],
   },

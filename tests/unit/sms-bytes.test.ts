@@ -77,15 +77,7 @@ describe("exceedsLimit · 한도 경계", () => {
     });
   });
 
-  describe("ALIMTALK 1000바이트 경계", () => {
-    it('"가".repeat(500) → 1000바이트 → 허용', () => {
-      expect(exceedsLimit("가".repeat(500), "ALIMTALK")).toBe(false);
-    });
-
-    it('"가".repeat(501) → 1002바이트 → 초과', () => {
-      expect(exceedsLimit("가".repeat(501), "ALIMTALK")).toBe(true);
-    });
-  });
+  // 0059 마이그 이후 ALIMTALK enum 제거 — 알림톡 한도 케이스 폐기.
 });
 
 describe("byteProgress · UI 진행바용 계산", () => {
@@ -113,10 +105,5 @@ describe("byteProgress · UI 진행바용 계산", () => {
   it("LMS 한도 · limit 필드 정확", () => {
     const result = byteProgress("hi", "LMS");
     expect(result.limit).toBe(BYTE_LIMITS.LMS);
-  });
-
-  it("ALIMTALK 한도 · limit 필드 정확", () => {
-    const result = byteProgress("hi", "ALIMTALK");
-    expect(result.limit).toBe(BYTE_LIMITS.ALIMTALK);
   });
 });

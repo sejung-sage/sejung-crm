@@ -22,13 +22,13 @@ export default async function EditTemplatePage({
   }
 
   return (
-    <div className="max-w-4xl space-y-6">
+    <div className="max-w-6xl space-y-6">
       <Link
         href="/templates"
         className="inline-flex items-center gap-1 text-[13px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
       >
         <ChevronLeft className="size-4" strokeWidth={1.75} aria-hidden />
-        문자 & 알림톡 템플릿
+        문자 템플릿
       </Link>
 
       <header>
@@ -48,7 +48,6 @@ export default async function EditTemplatePage({
           subject: template.subject,
           body: template.body,
           type: template.type,
-          teacher_name: template.teacher_name,
           is_ad: template.is_ad,
         }}
       />

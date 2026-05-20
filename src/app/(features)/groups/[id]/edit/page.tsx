@@ -43,6 +43,9 @@ export default async function EditGroupPage({
         total: initialPreview.total,
         sample: initialPreview.sample,
       }}
+      // 그룹 수정 폼에서 "변경 확인" 시 diff 비교 기준이 되는 기존 필터.
+      // 사용자가 폼을 바꾸기 전엔 filters === oldFilters → diff 0/0 → UI 비표시.
+      oldFilters={group.filters}
       canPickBranch={canPickBranch}
       canRevealPhone={canPickBranch}
     />

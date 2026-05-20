@@ -55,6 +55,7 @@ function withNormalizedFilters(row: GroupRow): GroupRow {
       regions: [],
       statuses: [],
       includeStudentIds: [],
+      excludeStudentIds: [],
     },
   };
 }

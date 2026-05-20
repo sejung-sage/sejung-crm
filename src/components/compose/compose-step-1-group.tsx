@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Users } from "lucide-react";
+import { Plus, Users } from "lucide-react";
 import type { GroupListItem } from "@/types/database";
 import { BranchBadge } from "@/components/groups/branch-badge";
 
@@ -54,25 +54,49 @@ export function ComposeStep1Group({ groups, groupId, onGroupIdChange }: Props) {
           >
             발송 그룹
           </label>
-          <select
-            id="compose-group"
-            value={groupId}
-            onChange={(e) => onGroupIdChange(e.target.value)}
-            className="
-              w-full h-10 rounded-lg px-3
-              bg-bg-card border border-[color:var(--border)]
-              text-[15px] text-[color:var(--text)]
-              focus:outline-none focus:border-[color:var(--border-strong)]
-              cursor-pointer
-            "
-          >
-            <option value="">— 그룹을 선택하세요 —</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                [{g.branch}] {g.name} · {g.recipient_count.toLocaleString()}명
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <select
+              id="compose-group"
+              value={groupId}
+              onChange={(e) => onGroupIdChange(e.target.value)}
+              className="
+                flex-1 h-10 rounded-lg px-3
+                bg-bg-card border border-[color:var(--border)]
+                text-[15px] text-[color:var(--text)]
+                focus:outline-none focus:border-[color:var(--border-strong)]
+                cursor-pointer
+              "
+            >
+              <option value="">— 그룹을 선택하세요 —</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  [{g.branch}] {g.name} · {g.recipient_count.toLocaleString()}명
+                </option>
+              ))}
+            </select>
+            {/* 새 탭으로 그룹 빌더 진입 — 사용자가 이 화면 상태를 잃지 않고
+                새 그룹을 만들고 돌아와 셀렉트에서 선택할 수 있도록. */}
+            <Link
+              href="/groups/new"
+              target="_blank"
+              rel="noopener"
+              aria-label="새 탭에서 그룹 추가하기"
+              className="
+                inline-flex items-center justify-center gap-1.5
+                h-10 px-4 rounded-lg shrink-0
+                bg-bg-card border border-[color:var(--border)]
+                text-[14px] font-medium text-[color:var(--text)]
+                hover:bg-[color:var(--bg-hover)] hover:border-[color:var(--border-strong)]
+                transition-colors
+              "
+            >
+              <Plus className="size-4" strokeWidth={2} aria-hidden />
+              그룹 추가하기
+            </Link>
+          </div>
+          <p className="text-[12px] text-[color:var(--text-dim)]">
+            새 탭에서 그룹을 만든 뒤 돌아와 위에서 선택해 주세요.
+          </p>
         </div>
       )}
 

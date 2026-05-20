@@ -1,12 +1,12 @@
 import type { TemplateType } from "@/types/database";
 
 /**
- * 템플릿 유형 배지 (SMS / LMS / 알림톡).
+ * 템플릿 유형 배지 (SMS / LMS).
+ * 0059 마이그 이후 ALIMTALK 제거 — 신규 템플릿은 두 유형만.
  * 흑백 미니멀 · 유형별 구분은 라벨 텍스트로만. 배경은 동일한 muted.
  */
 export function TemplateTypeBadge({ type }: { type: TemplateType }) {
-  const label =
-    type === "SMS" ? "SMS" : type === "LMS" ? "LMS" : "알림톡";
+  const label = type === "SMS" ? "SMS" : "LMS";
   return (
     <span
       className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium tabular-nums"

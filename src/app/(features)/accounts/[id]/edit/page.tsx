@@ -11,9 +11,8 @@ import { AccountEditForm } from "@/components/accounts/account-edit-form";
  * Server Component.
  *
  * 가드 순서:
- *  1) 로그인 + role ∈ {master, admin}
+ *  1) 로그인 + role === 'master'
  *  2) 대상 계정 존재 확인 → notFound()
- *  3) admin 이 다른 분원 계정 보려고 하면 권한 없음 카드
  *
  * 폼은 클라이언트(AccountEditForm) 가 처리하며,
  * role/branch 변경 가능 여부, 본인 계정 비활성화 차단을 모두 폼 안에서 분기.
@@ -25,27 +24,14 @@ export default async function EditAccountPage({
 }) {
   const currentUser = await getCurrentUser();
 
-  if (
-    !currentUser ||
-    (currentUser.role !== "master" && currentUser.role !== "admin")
-  ) {
-    return <ForbiddenCard reason="계정 수정은 마스터 또는 관리자만 가능합니다." />;
+  if (!currentUser || currentUser.role !== "master") {
+    return <ForbiddenCard reason="마스터만 접근할 수 있습니다." />;
   }
 
   const { id } = await params;
   const target = await getAccount(id);
   if (!target) {
     notFound();
-  }
-
-  // admin 은 본인 분원 계정만 수정 가능
-  if (
-    currentUser.role === "admin" &&
-    target.branch !== currentUser.branch
-  ) {
-    return (
-      <ForbiddenCard reason="다른 분원 계정은 조회·수정할 수 없습니다." />
-    );
   }
 
   return (

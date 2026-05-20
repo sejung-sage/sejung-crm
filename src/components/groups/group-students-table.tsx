@@ -2,19 +2,36 @@ import type { StudentProfileRow } from "@/types/database";
 import { formatPhone, maskPhone } from "@/lib/phone";
 import { StudentStatusBadge } from "@/components/students/status-badge";
 import { BranchBadge } from "@/components/students/branch-badge";
+import { GroupStudentRowActions } from "./group-student-row-actions";
 
 /**
  * 그룹 상세 하단 · 소속 학생 목록 (Server 렌더).
  * F1-01 students-table 과 유사한 스타일을 유지하되 컬럼을 그룹 맥락에 맞게 조정.
  * 학부모 연락처는 PRD 6.3 에 따라 기본 마스킹, master 만 풀 노출.
+ *
+ * canEdit=true 인 경우 각 행 hover 시 우측 휴지통 아이콘 노출 →
+ * 클릭 → 확인 다이얼로그 → `removeStudentFromGroupAction` 호출.
+ * canEdit=false (manager/viewer 등) 면 액션 컬럼 자체를 숨김.
  */
 interface Props {
   rows: StudentProfileRow[];
   /** 학부모 연락처 풀 노출 권한. master 만 true. */
   canRevealPhone?: boolean;
+  /**
+   * 그룹 편집 권한 (master 또는 본인 분원 admin).
+   * true 면 행별 휴지통(그룹에서 제외) 아이콘 노출.
+   */
+  canEdit?: boolean;
+  /** canEdit 일 때 필요한 그룹 ID. */
+  groupId?: string;
 }
 
-export function GroupStudentsTable({ rows, canRevealPhone = false }: Props) {
+export function GroupStudentsTable({
+  rows,
+  canRevealPhone = false,
+  canEdit = false,
+  groupId,
+}: Props) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-12 text-center">
@@ -28,6 +45,9 @@ export function GroupStudentsTable({ rows, canRevealPhone = false }: Props) {
     );
   }
 
+  // canEdit 일 때만 액션 컬럼 활성. groupId 누락 시엔 type-level 보호용으로 액션 숨김.
+  const showActions = canEdit && Boolean(groupId);
+
   return (
     <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
       <table className="w-full border-collapse">
@@ -39,13 +59,18 @@ export function GroupStudentsTable({ rows, canRevealPhone = false }: Props) {
             <Th className="w-28 text-center">재원 상태</Th>
             <Th className="w-40">학부모 연락처</Th>
             <Th>최근 수강</Th>
+            {showActions && (
+              <Th className="w-12 text-center">
+                <span className="sr-only">동작</span>
+              </Th>
+            )}
           </tr>
         </thead>
         <tbody>
           {rows.map((r) => (
             <tr
               key={r.id}
-              className="border-b border-[color:var(--border)] last:border-b-0 hover:bg-[color:var(--bg-hover)] transition-colors"
+              className="group border-b border-[color:var(--border)] last:border-b-0 hover:bg-[color:var(--bg-hover)] transition-colors"
             >
               <Td>
                 <div className="flex items-center gap-2">
@@ -75,6 +100,15 @@ export function GroupStudentsTable({ rows, canRevealPhone = false }: Props) {
               <Td className="text-[color:var(--text-muted)]">
                 {formatRecent(r)}
               </Td>
+              {showActions && groupId && (
+                <Td className="text-center">
+                  <GroupStudentRowActions
+                    groupId={groupId}
+                    studentId={r.id}
+                    studentName={r.name}
+                  />
+                </Td>
+              )}
             </tr>
           ))}
         </tbody>

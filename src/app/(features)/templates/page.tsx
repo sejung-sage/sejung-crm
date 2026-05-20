@@ -1,7 +1,4 @@
-import {
-  listTemplates,
-  listUniqueTeachers,
-} from "@/lib/templates/list-templates";
+import { listTemplates } from "@/lib/templates/list-templates";
 import { TemplateListQuerySchema } from "@/lib/schemas/template";
 import { applyBranchContextToParams } from "@/lib/auth/branch-context";
 import { TemplatesToolbar } from "@/components/templates/templates-toolbar";
@@ -10,10 +7,12 @@ import { Pagination } from "@/components/students/pagination";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 
 /**
- * F3-01 · 문자 & 알림톡 템플릿 리스트 (/templates)
+ * F3-01 · 문자 템플릿 리스트 (/templates)
  *
  * Server Component. URL searchParams 기반 필터.
  * Next 16 에서 searchParams 는 Promise — 반드시 await.
+ *
+ * 0059 마이그에서 강사명 필드/필터, ALIMTALK 옵션 제거. 강사 prefetch 도 삭제.
  */
 const PAGE_SIZE = 50;
 
@@ -32,15 +31,11 @@ export default async function TemplatesPage({
   const parsed = TemplateListQuerySchema.parse({
     q: pick(raw.q) ?? "",
     type: pick(raw.type),
-    teacher_name: pick(raw.teacher_name),
     branch: pick(raw.branch),
     page: pick(raw.page) ?? 1,
   });
 
-  const [result, teachers] = await Promise.all([
-    listTemplates(parsed),
-    listUniqueTeachers(),
-  ]);
+  const result = await listTemplates(parsed);
   const devMode = isDevSeedMode();
 
   return (
@@ -48,7 +43,7 @@ export default async function TemplatesPage({
       {/* 페이지 헤더 */}
       <header>
         <h1 className="text-[20px] font-semibold text-[color:var(--text)]">
-          문자 & 알림톡 템플릿
+          문자 템플릿
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
           자주 쓰는 문자 본문을 저장해 두고, 발송 시 바로 불러오세요.
@@ -56,7 +51,7 @@ export default async function TemplatesPage({
       </header>
 
       {/* 툴바 */}
-      <TemplatesToolbar teachers={teachers} />
+      <TemplatesToolbar />
 
       {devMode && (
         <div

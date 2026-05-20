@@ -6,10 +6,14 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { ChevronLeft, Search, X } from "lucide-react";
 import type { GroupFilters } from "@/lib/schemas/group";
 import type { Grade, StudentStatus, Subject } from "@/types/database";
-import type { CountRecipientsResult } from "@/lib/groups/count-recipients";
+import type {
+  CountRecipientsResult,
+  DiffRecipientsResult,
+} from "@/lib/groups/count-recipients";
 import {
   countRecipientsAction,
   createGroupAction,
+  diffRecipientsAction,
   searchStudentsAction,
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
@@ -49,6 +53,18 @@ interface Props {
   /** 초기 프리뷰(서버에서 한 번 계산). */
   initialPreview: SamplePreview;
   mode: "create" | "edit";
+  /**
+   * 수정 모드 전용 — DB 에 저장된 기존(=old) filters.
+   * 이걸로 변경 차이(diff) 를 계산: 새 필터로 +N 추가 / -M 제외.
+   * create 모드면 undefined.
+   */
+  oldFilters?: GroupFilters;
+  /**
+   * 수정 모드에서 페이지 마운트 시 서버가 한 번 계산해서 넘긴 초기 diff.
+   * 사용자가 필터를 손대지 않은 시점엔 added=0, removed=0 이라 UI 에 표시 안 함.
+   * 사용자가 "변경 확인" 버튼을 누르면 client 에서 재계산 → 갱신.
+   */
+  initialDiff?: DiffRecipientsResult;
   /**
    * 분원 칩 변경 가능 여부.
    *  - master: true (다른 분원 그룹도 만들 수 있음)
@@ -132,6 +148,8 @@ export function GroupBuilder({
   schoolOptions,
   initialPreview,
   mode,
+  oldFilters,
+  initialDiff,
   canPickBranch = true,
   canRevealPhone = false,
 }: Props) {
@@ -182,6 +200,17 @@ export function GroupBuilder({
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
+  // 변경 차이 미리보기 (edit 모드 전용).
+  // 자동 debounce 는 비용 부담 → 사용자가 명시적으로 "변경 확인" 눌렀을 때만 재계산.
+  // 단, 필터가 바뀌면 기존 diff 는 stale 이므로 클리어해서 잘못된 정보 노출 방지.
+  const [diff, setDiff] = useState<DiffRecipientsResult | null>(
+    initialDiff ?? null,
+  );
+  const [diffLoading, setDiffLoading] = useState(false);
+  const [diffError, setDiffError] = useState<string | null>(null);
+  // 사용자가 폼을 손댄 적이 있나? — 손대지 않았으면 "변경 확인" 버튼 의미 없음.
+  const [dirty, setDirty] = useState(false);
+
   // 제출 상태
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [devNotice, setDevNotice] = useState<string | null>(null);
@@ -191,7 +220,11 @@ export function GroupBuilder({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef<number>(0);
 
-  // 실제 서버로 보낼 filters
+  // 실제 서버로 보낼 filters.
+  // excludeStudentIds 는 그룹 상세 화면의 "개별 학생 제거" 액션이 관리 →
+  // 빌더 폼에서는 직접 편집 안 함. 수정 모드에선 초기값에 들어있는 제외
+  // 목록을 그대로 유지해 저장 시 손실되지 않게 한다.
+  const initialExcludeIds = initial.filters.excludeStudentIds ?? [];
   const filters: GroupFilters = useMemo(
     () => ({
       grades,
@@ -202,8 +235,9 @@ export function GroupBuilder({
       regions,
       statuses,
       includeStudentIds: includeStudents.map((s) => s.id),
+      excludeStudentIds: initialExcludeIds,
     }),
-    [grades, schools, subjects, regions, statuses, includeStudents],
+    [grades, schools, subjects, regions, statuses, includeStudents, initialExcludeIds],
   );
 
   // filters/branch 변경 시 디바운스 카운트 호출
@@ -234,6 +268,37 @@ export function GroupBuilder({
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [filters, branch]);
+
+  // edit 모드 전용 — 필터 변경 시 stale diff 클리어 + dirty 마킹.
+  // 초기 마운트 (filters == oldFilters) 에선 변화가 없으므로 깊은 비교가 정밀하지만,
+  // 비용 작은 JSON 비교로 충분 (필터 객체 평탄·소형).
+  useEffect(() => {
+    if (mode !== "edit" || !oldFilters) return;
+    const isSame = JSON.stringify(filters) === JSON.stringify(oldFilters);
+    setDirty(!isSame);
+    if (!isSame) {
+      // 사용자가 새 변경을 가했으니 이전 diff 는 의미 없음.
+      setDiff(null);
+      setDiffError(null);
+    } else {
+      // 다시 원래 값으로 복귀 — 서버 초기 diff (0/0) 로 되돌리고 정리.
+      setDiff(initialDiff ?? null);
+      setDiffError(null);
+    }
+  }, [filters, mode, oldFilters, initialDiff]);
+
+  const recomputeDiff = async () => {
+    if (mode !== "edit" || !oldFilters || !branch) return;
+    setDiffLoading(true);
+    setDiffError(null);
+    const r = await diffRecipientsAction(oldFilters, filters, branch);
+    if (r.status === "success") {
+      setDiff(r.data);
+    } else {
+      setDiffError(r.reason);
+    }
+    setDiffLoading(false);
+  };
 
   const toggleFromList = <T,>(
     list: T[],
@@ -654,6 +719,55 @@ export function GroupBuilder({
                 <p className="mt-2 text-[13px] text-[color:var(--danger)]">
                   {previewError}
                 </p>
+              )}
+
+              {/* edit 모드 전용 — 변경 차이 칩 (added / removed). */}
+              {mode === "edit" && diff && (diff.added > 0 || diff.removed > 0) && (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
+                  {diff.added > 0 && (
+                    <span className="font-medium text-red-600">
+                      +{diff.added.toLocaleString()}명 추가
+                    </span>
+                  )}
+                  {diff.removed > 0 && (
+                    <span className="text-[color:var(--text-muted)]">
+                      −{diff.removed.toLocaleString()}명 제외
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* edit 모드 — 사용자가 폼을 바꿨고 아직 재계산 전이면 안내+버튼 */}
+              {mode === "edit" && oldFilters && (
+                <div className="mt-3">
+                  {dirty && !diff && (
+                    <button
+                      type="button"
+                      onClick={recomputeDiff}
+                      disabled={diffLoading || !branch}
+                      className="
+                        inline-flex items-center h-8 px-3 rounded-md
+                        border border-[color:var(--border)] bg-bg-card
+                        text-[12px] font-medium text-[color:var(--text)]
+                        hover:bg-[color:var(--bg-hover)]
+                        disabled:opacity-50 disabled:cursor-not-allowed
+                        transition-colors
+                      "
+                    >
+                      {diffLoading ? "계산 중..." : "변경 확인"}
+                    </button>
+                  )}
+                  {diffError && (
+                    <p className="mt-2 text-[12px] text-[color:var(--danger)]">
+                      {diffError}
+                    </p>
+                  )}
+                  {diff && dirty && (diff.added === 0 && diff.removed === 0) && (
+                    <p className="text-[12px] text-[color:var(--text-muted)]">
+                      수신자 변동 없음
+                    </p>
+                  )}
+                </div>
               )}
             </div>
 

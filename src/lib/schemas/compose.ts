@@ -31,7 +31,8 @@ export type ComposeStep1 = z.infer<typeof ComposeStep1Schema>;
 export const ComposeStep2Schema = z
   .object({
     templateId: z.string().uuid().optional(),
-    type: TemplateTypeSchema, // 'SMS' | 'LMS' | 'ALIMTALK'
+    // 0059 마이그 이후 'SMS' | 'LMS' 만. ALIMTALK 은 Phase 1.
+    type: TemplateTypeSchema,
     subject: z
       .string()
       .trim()

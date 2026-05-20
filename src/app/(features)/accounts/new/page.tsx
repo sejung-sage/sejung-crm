@@ -6,17 +6,14 @@ import { AccountCreateForm } from "@/components/accounts/account-create-form";
 /**
  * F4 · 계정 생성 (/accounts/new)
  *
- * Server Component. master/admin 만 접근 허용.
+ * Server Component. master 만 접근 허용.
  * 폼은 클라이언트 컴포넌트(AccountCreateForm) 로 위임하고
  * 현재 사용자의 role/branch 만 props 로 내려준다.
  */
 export default async function NewAccountPage() {
   const currentUser = await getCurrentUser();
 
-  if (
-    !currentUser ||
-    (currentUser.role !== "master" && currentUser.role !== "admin")
-  ) {
+  if (!currentUser || currentUser.role !== "master") {
     return <ForbiddenCard />;
   }
 
@@ -63,7 +60,7 @@ function ForbiddenCard() {
           권한이 없습니다
         </h1>
         <p className="mt-2 text-[14px] text-[color:var(--text-muted)] leading-relaxed">
-          계정 생성은 마스터 또는 관리자만 가능합니다.
+          마스터만 접근할 수 있습니다.
         </p>
       </div>
     </div>

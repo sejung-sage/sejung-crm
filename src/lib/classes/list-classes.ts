@@ -392,11 +392,15 @@ function applyClassesSort<Q extends ClassesOrderBuilder>(
 ): Q {
   switch (sort) {
     case "default":
-      // 현행 동작 — branch ASC > subject ASC NULLS LAST > name ASC.
+      // 2026-05-19 변경 — 최근 등록 강좌가 위로.
+      //   1차: registered_at DESC NULLS LAST (아카 등록일 — 가장 최근 동기화된 반)
+      //   2차: created_at DESC (동일 등록일 다수 시 우리 DB 적재 시점으로 안정 정렬)
+      // 기존 (branch > subject > name) 정렬은 학생이 직접 분원·과목·반명을 보면서
+      // 찾을 때는 적합하나, 새 강좌가 들어왔는지 확인하는 행정 관점에서는
+      // 가장 최근 등록 강좌가 위에 보이는 편이 자연스럽다.
       return query
-        .order("branch", { ascending: true })
-        .order("subject", { ascending: true, nullsFirst: false })
-        .order("name", { ascending: true }) as Q;
+        .order("registered_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false }) as Q;
 
     case "registered_desc":
       // 최근 등록순.
@@ -482,21 +486,19 @@ function applyClassesSort<Q extends ClassesOrderBuilder>(
     case "enrolled_count_desc":
     case "enrolled_count_asc":
       // DB 측 집계 컬럼 부재로 페이지 한정 정렬.
-      // 일단 default 와 동일한 안정 정렬로 페이지를 fetch 한 뒤,
+      // 일단 default 와 동일한 안정 정렬(최근 등록 강좌 우선)로 페이지를 fetch 한 뒤,
       // applyEnrolledCountSortInPage() 가 JS 단에서 재정렬한다.
       return query
-        .order("branch", { ascending: true })
-        .order("subject", { ascending: true, nullsFirst: false })
-        .order("name", { ascending: true }) as Q;
+        .order("registered_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false }) as Q;
 
     default: {
       // 미래 enum 추가 시 컴파일 타임 누락 방지 (학생 리스트 패턴 미러).
       const _exhaustive: never = sort;
       void _exhaustive;
       return query
-        .order("branch", { ascending: true })
-        .order("subject", { ascending: true, nullsFirst: false })
-        .order("name", { ascending: true }) as Q;
+        .order("registered_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false, nullsFirst: false }) as Q;
     }
   }
 }

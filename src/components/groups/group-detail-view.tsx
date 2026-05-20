@@ -24,6 +24,11 @@ interface Props {
   pageSize: number;
   /** 학부모 연락처 풀 노출 권한. master 만 true. */
   canRevealPhone?: boolean;
+  /**
+   * 그룹 편집 권한 (master 또는 본인 분원 admin).
+   * 학생 행별 휴지통(그룹에서 제외) 노출 여부 제어.
+   */
+  canEdit?: boolean;
 }
 
 export function GroupDetailView({
@@ -33,6 +38,7 @@ export function GroupDetailView({
   currentPage,
   pageSize,
   canRevealPhone = false,
+  canEdit = false,
 }: Props) {
   return (
     <div className="max-w-7xl space-y-6">
@@ -107,7 +113,12 @@ export function GroupDetailView({
           </p>
         </div>
 
-        <GroupStudentsTable rows={students} canRevealPhone={canRevealPhone} />
+        <GroupStudentsTable
+          rows={students}
+          canRevealPhone={canRevealPhone}
+          canEdit={canEdit}
+          groupId={group.id}
+        />
 
         <Pagination
           page={currentPage}

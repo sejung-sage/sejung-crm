@@ -191,8 +191,13 @@ export function parseClassSearchParams(
   const branchRaw = typeof raw.branch === "string" ? raw.branch : "";
 
   // active 는 명시적으로 "0" 일 때만 false. 그 외(미지정 포함)는 true.
+  // 신규 alias: `?inactive=1` 도 false 와 동등 (종강·폐강 포함).
+  // 학생 명단의 `?include_hidden=1` 와 톤 맞춤. 두 alias 가 동시에 들어오면
+  // 어느 쪽이든 false → 미사용 강좌 노출.
   const activeRaw = typeof raw.active === "string" ? raw.active : undefined;
-  const active = activeRaw === "0" ? false : true;
+  const inactiveRaw = typeof raw.inactive === "string" ? raw.inactive : undefined;
+  const includeInactive = activeRaw === "0" || inactiveRaw === "1";
+  const active = includeInactive ? false : true;
 
   // status 는 화이트리스트 검사 후 통과. 그 외(미지정 포함)는 undefined → 스키마 default("all").
   const statusWhitelist: ReadonlySet<string> = new Set([

@@ -57,7 +57,12 @@ export type AttendanceStatus =
   | "결석"
   | "조퇴"
   | "보강";
-export type TemplateType = "SMS" | "LMS" | "ALIMTALK";
+/**
+ * 템플릿 발송 유형.
+ * 0059 마이그에서 ALIMTALK 제거 — 광고/안내 발송 채널로 부적합 (Phase 1 으로 보류).
+ * 신규/수정 시 SMS 또는 LMS 만 허용. 과거 ALIMTALK row 는 LMS 로 자동 변환됨.
+ */
+export type TemplateType = "SMS" | "LMS";
 export type CampaignStatus =
   | "임시저장"
   | "예약됨"
@@ -247,7 +252,6 @@ export interface TemplateRow {
   subject: string | null;
   body: string;
   type: TemplateType;
-  teacher_name: string | null;
   auto_captured: boolean;
   /** 광고성 여부. TRUE 면 [광고] prefix / 080 footer / 야간 차단 적용. */
   is_ad: boolean;
@@ -281,8 +285,12 @@ export interface CampaignRow {
   body: string | null;
   /** LMS/알림톡 제목 (SMS 는 NULL). 0027 추가. */
   subject: string | null;
-  /** 발송 유형 (SMS/LMS/ALIMTALK). 0027 추가. */
-  type: TemplateType | null;
+  /**
+   * 발송 유형. 0027 추가, 0059 에서 신규 템플릿은 SMS/LMS 만 허용.
+   * 다만 과거 캠페인 데이터에 'ALIMTALK' 값이 남아 있을 수 있어
+   * CampaignRow 자체는 'ALIMTALK' 까지 union 으로 둔다 (DB CHECK 도 동일 유지).
+   */
+  type: "SMS" | "LMS" | "ALIMTALK" | null;
   /** 광고성 여부. 예약 cron 시 야간 가드 재적용. 0027 추가. */
   is_ad: boolean;
   created_at: string;
@@ -400,10 +408,21 @@ export interface StudentProfileRow {
   phone: string | null;
   registered_at: string | null;
   enrollment_count: number;
+  /**
+   * 진행 중 수강 개수. 0060 추가.
+   * end_date IS NULL OR end_date >= CURRENT_DATE 이고 subject<>'설명회' 인 enrollment 수.
+   * COUNT 집계라 0 가능 — NOT NULL 보장.
+   */
+  active_enrollment_count: number;
   total_paid: number;
   subjects: Subject[] | null;
   teachers: string[] | null;
   attendance_rate: number | null;
+  /**
+   * 결석 횟수 (crm_attendances.status='결석' row count). 0060 추가.
+   * 분원 무관 단일 산식. attendance 0행이면 0. NOT NULL 보장.
+   */
+  absent_count: number;
   last_attended_at: string | null;
   last_paid_at: string | null;
   /**

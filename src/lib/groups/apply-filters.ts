@@ -44,6 +44,12 @@ export function applyGroupFiltersDev(
       ? new Set(filters.includeStudentIds)
       : null;
 
+  // 그룹 단건 삭제(2026-05-19) — 명시 제외 set.
+  const excludeSet =
+    filters.excludeStudentIds && filters.excludeStudentIds.length > 0
+      ? new Set(filters.excludeStudentIds)
+      : null;
+
   return profiles.filter((p) => {
     // 1) 분원
     if (branchTrim && p.branch !== branchTrim) return false;
@@ -53,6 +59,9 @@ export function applyGroupFiltersDev(
 
     // 3) 수신거부 제외 (학부모 연락처 기준)
     if (p.parent_phone && unsub.has(p.parent_phone)) return false;
+
+    // 3.5) 명시 제외 — includeStudentIds 분기보다 먼저 적용해 일관성 유지.
+    if (excludeSet && excludeSet.has(p.id)) return false;
 
     // 4) 직접 선택 모드 — includeStudentIds 만 매칭, 조건 절 무시.
     if (includeSet) {

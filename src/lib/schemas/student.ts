@@ -13,11 +13,13 @@ import {
 /**
  * 학생 리스트 정렬 옵션.
  * student_profiles 뷰의 컬럼을 그대로 활용:
- *  - registered_at         (등록일)
- *  - name                  (이름)
- *  - attendance_rate       (출석률 %)
- *  - enrollment_count      (수강 강좌 수)
- *  - total_paid            (누적 결제 금액)
+ *  - registered_at              (등록일)
+ *  - name                       (이름)
+ *  - attendance_rate            (출석률 %)
+ *  - enrollment_count           (수강 강좌 수 전체)
+ *  - active_enrollment_count    (진행 중 수강 수 · 0060 추가)
+ *  - absent_count               (결석 횟수 · 0060 추가)
+ *  - total_paid                 (누적 결제 금액)
  */
 export const STUDENT_SORT_VALUES = [
   "registered_desc",
@@ -27,6 +29,8 @@ export const STUDENT_SORT_VALUES = [
   "attendance_desc",
   "attendance_asc",
   "enrollment_count_desc",
+  "active_enrollment_count_desc",
+  "absent_count_desc",
   "total_paid_desc",
 ] as const;
 export const StudentSortSchema = z.enum(STUDENT_SORT_VALUES);

@@ -57,6 +57,16 @@ export const GroupFiltersSchema = z.object({
    * 콕 찍어 보낼 때 사용. 자동 제외(탈퇴·수신거부)는 동일하게 적용.
    */
   includeStudentIds: z.array(z.string().uuid()).default([]),
+  /**
+   * 그룹 단건 삭제(2026-05-19): 그룹 상세에서 특정 학생을 빼고 싶을 때 사용.
+   * - includeStudentIds 에 직접 박힌 학생이면 그 배열에서 제거.
+   * - 조건 매칭으로 들어온 학생이면 이 배열에 그 id 를 적재 →
+   *   수신자 산정 시 강제 제외.
+   * 빈 배열이면 조건 매칭 결과를 그대로 사용.
+   *
+   * 백워드 호환: `.default([])` 이라 옛 그룹 JSONB 에 없어도 안전.
+   */
+  excludeStudentIds: z.array(z.string().uuid()).default([]),
 });
 export type GroupFilters = z.infer<typeof GroupFiltersSchema>;
 

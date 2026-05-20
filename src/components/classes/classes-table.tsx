@@ -77,9 +77,9 @@ export function ClassesTable({ rows }: Props) {
                   {!r.active && (
                     <span
                       className="ml-2 inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-medium bg-[color:var(--bg-muted)] text-[color:var(--text-muted)] border border-[color:var(--border)]"
-                      title="V_class_list.미사용반구분 = Y"
+                      title="V_class_list.미사용반구분 = Y (종강·폐강 처리된 강좌)"
                     >
-                      미사용
+                      종강
                     </span>
                   )}
                 </Td>

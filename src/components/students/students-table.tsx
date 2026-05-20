@@ -29,14 +29,19 @@ function isDimmed(grade: Grade | null): boolean {
 
 /**
  * 학생 목록 테이블 (서버 렌더).
- * 컬럼: 이름 · 학교 · 학년 · 계열 · 재원 상태 · 출석률 · 수강 · 학부모 연락처 · 최근 수강
+ * 컬럼: 이름 · 학교 · 학년 · 재원 상태 · 출석률 · 출석 · 수강 중 · 학부모 연락처
  *
  * 0012 마이그레이션 이후 학년은 정규화 9종 enum 문자열 그대로 표시
  * (예: "중2", "고3", "재수"). school_level 은 학년 라벨에 이미 포함되어
  * 별도 컬럼을 추가하지 않음.
  *
- * 정렬 enum (출석률·수강·누적결제) 결과를 시각적으로 확인할 수 있도록
- * attendance_rate / enrollment_count 컬럼을 노출.
+ * 0060 마이그 이후 컬럼 의미:
+ *  - 출석률 = attendance_rate (%)
+ *  - 출석   = absent_count (결석 수) — 케어 대상 빠르게 식별용 (0=—)
+ *  - 수강 중 = active_enrollment_count (현재 진행 강좌 수) — 운영 시야의 핵심
+ *
+ * 옛 컬럼 "최근 수강(과목·강사 요약)" 은 학생 상세 페이지에서 더 풍부하게
+ * 보여주므로 명단에서는 제거. 행 클릭 시 상세로 이동.
  */
 export function StudentsTable({ rows, canRevealPhone = false }: Props) {
   const router = useRouter();
@@ -63,9 +68,9 @@ export function StudentsTable({ rows, canRevealPhone = false }: Props) {
             <Th className="w-20 text-center">학년</Th>
             <Th className="w-28 text-center">재원 상태</Th>
             <Th className="w-24 text-right">출석률</Th>
-            <Th className="w-20 text-right">수강</Th>
+            <Th className="w-20 text-right">출석</Th>
+            <Th className="w-24 text-right">수강 중</Th>
             <Th className="w-40">학부모 연락처</Th>
-            <Th>최근 수강</Th>
           </tr>
         </thead>
         <tbody>
@@ -153,8 +158,19 @@ export function StudentsTable({ rows, canRevealPhone = false }: Props) {
                       ? "text-[color:var(--text-dim)]"
                       : "text-[color:var(--text-muted)]"
                   }`}
+                  title="결석 횟수"
                 >
-                  {r.enrollment_count > 0 ? r.enrollment_count : "-"}
+                  {r.absent_count > 0 ? r.absent_count : "—"}
+                </Td>
+                <Td
+                  className={`text-right tabular-nums ${
+                    dim
+                      ? "text-[color:var(--text-dim)]"
+                      : "text-[color:var(--text-muted)]"
+                  }`}
+                  title="현재 진행 중 강좌 수"
+                >
+                  {`${r.active_enrollment_count}개`}
                 </Td>
                 <Td
                   className={`tabular-nums ${
@@ -163,18 +179,12 @@ export function StudentsTable({ rows, canRevealPhone = false }: Props) {
                       : "text-[color:var(--text-muted)]"
                   }`}
                 >
+                  {/* 학부모 연락처는 row 클릭으로 상세 이동되면 안 됨 — 셀 내부 클릭은
+                      stopPropagation 으로 차단. (현재는 a/button 가드가 row onClick 에
+                      있어 plain text 는 단순 클릭이 row 클릭이 되지만, 의도된 동작) */}
                   {canRevealPhone
                     ? formatPhone(r.parent_phone) || "-"
                     : maskPhone(r.parent_phone) || "-"}
-                </Td>
-                <Td
-                  className={
-                    dim
-                      ? "text-[color:var(--text-dim)]"
-                      : "text-[color:var(--text-muted)]"
-                  }
-                >
-                  {formatRecentEnrollment(r)}
                 </Td>
               </tr>
             );
@@ -218,19 +228,15 @@ function Th({
 function Td({
   children,
   className = "",
+  title,
 }: {
   children: React.ReactNode;
   className?: string;
+  title?: string;
 }) {
   return (
-    <td className={`px-4 py-3 text-[15px] ${className}`}>{children}</td>
+    <td className={`px-4 py-3 text-[15px] ${className}`} title={title}>
+      {children}
+    </td>
   );
-}
-
-function formatRecentEnrollment(r: StudentProfileRow): string {
-  if (!r.subjects || r.subjects.length === 0) return "-";
-  const subjects = r.subjects.slice(0, 2).join(", ");
-  const teacher =
-    r.teachers && r.teachers.length > 0 ? ` · ${r.teachers[0]}` : "";
-  return `${subjects}${teacher}`;
 }

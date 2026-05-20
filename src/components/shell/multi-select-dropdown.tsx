@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, Check } from "lucide-react";
+import { ChevronDown, Check, Search, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
@@ -11,8 +11,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
  * (참고 사례: `students/attendance-status-chip.tsx` 의 단일 소스 분리.)
  *
  * 정책:
- *  - 옵션 ~수십 개 수준 가정 → 검색창 없음. 검색이 필요한 케이스(학교 등)는
- *    별도의 ComboboxMulti 를 사용.
+ *  - 기본은 검색창 없음. `searchable=true` 인 경우 패널 상단에 in-memory
+ *    부분일치 검색창을 노출 (강사처럼 옵션이 50~200개 단위일 때 활성화).
  *  - 외부 클릭 / Esc 로 닫힘. 선택은 즉시 onToggle 로 위임 (드롭다운은 열린 상태 유지).
  *  - URL 동기화·페이지 리셋 등 상태 관리는 호출부 책임.
  *
@@ -26,6 +26,8 @@ export function MultiSelectDropdown({
   selected,
   onToggle,
   emptyHint,
+  searchable = false,
+  searchPlaceholder,
 }: {
   /** 트리거 버튼 라벨 ("강사 선택" 등). */
   label: string;
@@ -37,8 +39,13 @@ export function MultiSelectDropdown({
   onToggle: (value: string) => void;
   /** 옵션 0개일 때 안내 문구. 미지정 시 기본 문구 사용. */
   emptyHint?: string;
+  /** 패널 상단 검색창 노출 여부 (기본 false). */
+  searchable?: boolean;
+  /** 검색창 placeholder. searchable=true 일 때만 의미 있음. */
+  searchPlaceholder?: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -59,6 +66,20 @@ export function MultiSelectDropdown({
   }, [open]);
 
   const selectedSet = useMemo(() => new Set(selected), [selected]);
+
+  // 검색어 (in-memory 부분일치). 한글 입력은 그대로 includes 매칭.
+  // - 옵션 200개 이내 가정. 그 이상이면 별도 컴포넌트로 분리 권장.
+  // - 선택된 항목은 검색 결과 0개여도 항상 상단에 노출해 해제 가능하게 유지.
+  const normalized = query.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    if (!searchable || normalized.length === 0) return options;
+    return options.filter((opt) => opt.toLowerCase().includes(normalized));
+  }, [searchable, normalized, options]);
+
+  // 열릴 때마다 검색어 초기화 (이전 검색 잔재 제거).
+  useEffect(() => {
+    if (!open) setQuery("");
+  }, [open]);
 
   return (
     <div ref={wrapperRef} className="relative">
@@ -90,57 +111,104 @@ export function MultiSelectDropdown({
           aria-multiselectable="true"
           className="
             absolute left-0 top-full mt-2 z-30
-            min-w-56 max-w-72
-            max-h-72 overflow-y-auto
+            min-w-64 max-w-80
             rounded-lg
             bg-bg-card border border-[color:var(--border)]
             shadow-md
-            p-1
+            flex flex-col
           "
         >
-          {options.length === 0 ? (
-            <p className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
-              {emptyHint ?? "옵션이 없습니다"}
-            </p>
-          ) : (
-            options.map((opt) => {
-              const active = selectedSet.has(opt);
-              return (
-                <button
-                  key={opt}
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  onClick={() => onToggle(opt)}
+          {searchable && (
+            <div className="p-2 border-b border-[color:var(--border)]">
+              <label className="relative block">
+                <span className="sr-only">검색</span>
+                <Search
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder={searchPlaceholder ?? `${label} 검색...`}
+                  autoFocus
                   className="
-                    w-full flex items-center gap-2
-                    px-2 py-2 rounded-md
-                    text-left text-[14px]
-                    text-[color:var(--text)]
-                    hover:bg-[color:var(--bg-hover)]
-                    transition-colors
+                    w-full h-9 rounded-md
+                    pl-8 pr-8
+                    bg-bg-card border border-[color:var(--border)]
+                    text-[13px] text-[color:var(--text)]
+                    placeholder:text-[color:var(--text-dim)]
+                    focus:outline-none focus:border-[color:var(--border-strong)]
                   "
-                >
-                  <span
-                    className={`
-                      inline-flex items-center justify-center
-                      size-4 rounded
-                      border
-                      ${
-                        active
-                          ? "bg-[color:var(--action)] border-[color:var(--action)] text-[color:var(--action-text)]"
-                          : "bg-bg-card border-[color:var(--border-strong)]"
-                      }
-                    `}
-                    aria-hidden
+                />
+                {query.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setQuery("")}
+                    aria-label="검색어 지우기"
+                    className="
+                      absolute right-1.5 top-1/2 -translate-y-1/2
+                      inline-flex items-center justify-center size-5 rounded
+                      text-[color:var(--text-muted)] hover:text-[color:var(--text)]
+                      hover:bg-[color:var(--bg-hover)]
+                    "
                   >
-                    {active && <Check className="size-3" strokeWidth={2.5} />}
-                  </span>
-                  <span className="truncate">{opt}</span>
-                </button>
-              );
-            })
+                    <X className="size-3.5" strokeWidth={1.75} aria-hidden />
+                  </button>
+                )}
+              </label>
+            </div>
           )}
+          <div className="max-h-64 overflow-y-auto p-1">
+            {options.length === 0 ? (
+              <p className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
+                {emptyHint ?? "옵션이 없습니다"}
+              </p>
+            ) : filtered.length === 0 ? (
+              <p className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
+                일치하는 항목이 없습니다
+              </p>
+            ) : (
+              filtered.map((opt) => {
+                const active = selectedSet.has(opt);
+                return (
+                  <button
+                    key={opt}
+                    type="button"
+                    role="option"
+                    aria-selected={active}
+                    onClick={() => onToggle(opt)}
+                    className="
+                      w-full flex items-center gap-2
+                      px-2 py-2 rounded-md
+                      text-left text-[14px]
+                      text-[color:var(--text)]
+                      hover:bg-[color:var(--bg-hover)]
+                      transition-colors
+                    "
+                  >
+                    <span
+                      className={`
+                        inline-flex items-center justify-center
+                        size-4 rounded
+                        border
+                        ${
+                          active
+                            ? "bg-[color:var(--action)] border-[color:var(--action)] text-[color:var(--action-text)]"
+                            : "bg-bg-card border-[color:var(--border-strong)]"
+                        }
+                      `}
+                      aria-hidden
+                    >
+                      {active && <Check className="size-3" strokeWidth={2.5} />}
+                    </span>
+                    <span className="truncate">{opt}</span>
+                  </button>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
     </div>

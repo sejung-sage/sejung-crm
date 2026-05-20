@@ -27,7 +27,9 @@ import {
 } from "@/lib/schemas/group";
 import {
   countRecipients,
+  diffRecipients,
   type CountRecipientsResult,
+  type DiffRecipientsResult,
 } from "@/lib/groups/count-recipients";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -58,6 +60,15 @@ export type DeleteGroupsActionResult =
 export type CountRecipientsActionResult =
   | { status: "success"; data: CountRecipientsResult }
   | { status: "failed"; reason: string };
+
+export type DiffRecipientsActionResult =
+  | { status: "success"; data: DiffRecipientsResult }
+  | { status: "failed"; reason: string };
+
+export type RemoveStudentFromGroupActionResult =
+  | { status: "success"; newRecipientCount: number }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
 
 // ─── 권한 가드 ─────────────────────────────────────────────
 
@@ -424,4 +435,151 @@ export async function searchStudentsAction(
     const msg = e instanceof Error ? e.message : "학생 검색 실패";
     return { status: "failed", reason: msg };
   }
+}
+
+// ─── diffRecipientsAction ──────────────────────────────────
+// 그룹 수정 폼에서 필터를 바꿨을 때 "추가 N명 / 제거 M명" 미리보기 용.
+// 조회 전용 — 쓰기 권한 가드 없음 (필터값 자체는 민감하지 않음).
+
+export async function diffRecipientsAction(
+  oldFiltersInput: unknown,
+  newFiltersInput: unknown,
+  branch: unknown,
+): Promise<DiffRecipientsActionResult> {
+  let parsedOld: GroupFilters;
+  let parsedNew: GroupFilters;
+  try {
+    parsedOld = GroupFiltersSchema.parse(oldFiltersInput);
+    parsedNew = GroupFiltersSchema.parse(newFiltersInput);
+  } catch (e) {
+    if (e instanceof ZodError) {
+      return { status: "failed", reason: zodErrorToReason(e) };
+    }
+    return { status: "failed", reason: "필터 값이 올바르지 않습니다" };
+  }
+  if (typeof branch !== "string" || branch.trim().length === 0) {
+    return { status: "failed", reason: "분원은 필수입니다" };
+  }
+  try {
+    const data = await diffRecipients(parsedOld, parsedNew, branch.trim());
+    return { status: "success", data };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "수신자 변경 미리보기 실패";
+    return { status: "failed", reason: msg };
+  }
+}
+
+// ─── removeStudentFromGroupAction ──────────────────────────
+// 그룹 상세에서 특정 학생을 그룹에서 제외(건별 삭제).
+//   - includeStudentIds 에 박혀 있던 학생이면 그 배열에서 제거
+//   - 그 외 (조건 매칭으로 들어온 학생) 면 excludeStudentIds 에 적재
+// 재계산된 recipient_count 도 함께 저장. 권한: master/admin 본인 분원.
+
+export async function removeStudentFromGroupAction(
+  groupId: unknown,
+  studentId: unknown,
+): Promise<RemoveStudentFromGroupActionResult> {
+  if (isDevSeedMode()) {
+    return { status: "dev_seed_mode" };
+  }
+
+  if (typeof groupId !== "string" || groupId.length === 0) {
+    return { status: "failed", reason: "그룹 ID 가 유효하지 않습니다" };
+  }
+  if (typeof studentId !== "string" || studentId.length === 0) {
+    return { status: "failed", reason: "학생 ID 가 유효하지 않습니다" };
+  }
+
+  const auth = await assertWriteRole();
+  if (!auth.ok) {
+    return { status: "failed", reason: auth.reason };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // 현재 그룹 + 필터 로드.
+  const { data: current, error: fetchError } = await supabase
+    .from("crm_groups")
+    .select("*")
+    .eq("id", groupId)
+    .maybeSingle();
+  if (fetchError) {
+    return {
+      status: "failed",
+      reason: `기존 그룹 조회에 실패했습니다: ${fetchError.message}`,
+    };
+  }
+  if (!current) {
+    return { status: "failed", reason: "존재하지 않는 그룹입니다" };
+  }
+  const currentRow = current as GroupRow;
+
+  // 필터 정규화 (옛 그룹 JSONB 호환).
+  const parsedFilters = GroupFiltersSchema.safeParse(currentRow.filters);
+  if (!parsedFilters.success) {
+    return { status: "failed", reason: "그룹 필터 구조가 깨졌습니다" };
+  }
+  const filters = parsedFilters.data;
+
+  // 다음 필터 계산: includeStudentIds 에 있으면 거기서 제거, 아니면 excludeStudentIds 적재.
+  let nextFilters: GroupFilters;
+  if (filters.includeStudentIds.includes(studentId)) {
+    nextFilters = {
+      ...filters,
+      includeStudentIds: filters.includeStudentIds.filter(
+        (id) => id !== studentId,
+      ),
+    };
+  } else {
+    if (filters.excludeStudentIds.includes(studentId)) {
+      // 이미 제외 상태 — recipient_count 만 재계산하고 성공 처리.
+      const recount = await countRecipients(filters, currentRow.branch);
+      return { status: "success", newRecipientCount: recount.total };
+    }
+    nextFilters = {
+      ...filters,
+      excludeStudentIds: [...filters.excludeStudentIds, studentId],
+    };
+  }
+
+  // recipient_count 재계산 (UI 캐시 동기화).
+  let newRecipientCount = 0;
+  try {
+    const recount = await countRecipients(nextFilters, currentRow.branch);
+    newRecipientCount = recount.total;
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "수신자 수 재계산 실패";
+    return { status: "failed", reason: msg };
+  }
+
+  type GroupPatch = {
+    filters: GroupRow["filters"];
+    recipient_count: number;
+  };
+  const patch: GroupPatch = {
+    filters: nextFilters,
+    recipient_count: newRecipientCount,
+  };
+  const { error: updateError } = await (
+    supabase.from("crm_groups") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        eq: (col: string, val: string) => Promise<{
+          error: { message: string } | null;
+        }>;
+      };
+    }
+  )
+    .update(patch as unknown as Record<string, unknown>)
+    .eq("id", groupId);
+
+  if (updateError) {
+    return {
+      status: "failed",
+      reason: `그룹에서 학생 제외에 실패했습니다: ${updateError.message}`,
+    };
+  }
+
+  revalidatePath("/groups");
+  revalidatePath(`/groups/${groupId}`);
+  return { status: "success", newRecipientCount };
 }

@@ -233,7 +233,7 @@ export function ComposeStep3Preview({
                   최종 발송 본문
                 </span>
                 <span className="text-[12px] text-[color:var(--text-muted)] tabular-nums">
-                  {step2.type === "ALIMTALK" ? "알림톡" : step2.type}
+                  {step2.type}
                 </span>
               </div>
               {step2.subject && (
