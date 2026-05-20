@@ -37,6 +37,11 @@ export default async function EditTemplatePage({
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
           마지막 수정: {formatDateTime(template.updated_at)}
+          <span className="mx-2 text-[color:var(--text-dim)]">·</span>
+          작성자:{" "}
+          <span className="text-[color:var(--text)]">
+            {template.creator_name ?? "—"}
+          </span>
         </p>
       </header>
 

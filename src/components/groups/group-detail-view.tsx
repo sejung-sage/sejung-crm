@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
-import type { GroupRow, StudentProfileRow } from "@/types/database";
+import type { GroupListItem, StudentProfileRow } from "@/types/database";
 import type { GroupFilters } from "@/lib/schemas/group";
 import { BranchBadge } from "@/components/groups/branch-badge";
 import { GroupDetailActions } from "@/components/groups/group-detail-actions";
@@ -17,7 +17,7 @@ import { Pagination } from "@/components/students/pagination";
  *  4. 소속 학생 리스트 + 페이지네이션
  */
 interface Props {
-  group: GroupRow;
+  group: GroupListItem;
   students: StudentProfileRow[];
   studentsTotal: number;
   currentPage: number;
@@ -85,6 +85,12 @@ export function GroupDetailView({
                 <span className="mr-2">최근 발송</span>
                 <span className="tabular-nums text-[color:var(--text)]">
                   {formatDate(group.last_sent_at) ?? "—"}
+                </span>
+              </div>
+              <div className="text-[13px] text-[color:var(--text-muted)]">
+                <span className="mr-2">작성자</span>
+                <span className="text-[color:var(--text)]">
+                  {group.creator_name ?? "—"}
                 </span>
               </div>
             </div>

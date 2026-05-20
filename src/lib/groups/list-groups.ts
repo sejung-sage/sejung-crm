@@ -8,7 +8,7 @@
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { GroupListItem } from "@/types/database";
+import type { GroupListItem, GroupRow } from "@/types/database";
 import type { GroupListQuery } from "@/lib/schemas/group";
 import { isDevSeedMode, listDevGroups } from "@/lib/profile/students-dev-seed";
 
@@ -40,7 +40,10 @@ function listFromDevSeed(query: GroupListQuery): ListGroupsResult {
 
   const total = sorted.length;
   const from = (query.page - 1) * PAGE_SIZE;
-  const items = sorted.slice(from, from + PAGE_SIZE);
+  // dev-seed 는 사용자 매핑이 없으므로 creator_name = null (UI 는 "—").
+  const items: GroupListItem[] = sorted
+    .slice(from, from + PAGE_SIZE)
+    .map((g) => ({ ...g, creator_name: null }));
   return { items, total };
 }
 
@@ -88,8 +91,47 @@ async function listFromSupabase(
     );
   }
 
+  // 작성자 이름 매핑.
+  // crm_users_profile.user_id = auth.users.id. auth schema 는 PostgREST 외부라
+  // nested select 불가 → uuid 집합을 모아 별도 1쿼리 lookup 후 in-memory join.
+  // RLS 로 다른 분원 profile 이 안 보일 수 있는데 그건 매핑 실패 = null 로 두고
+  // UI 가 "—" 로 표시. 그룹 목록 자체를 막을 정도의 문제는 아님.
+  const rows = (dataResult.data ?? []) as GroupRow[];
+  const creatorIds = Array.from(
+    new Set(
+      rows
+        .map((r) => r.created_by)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  );
+  const nameMap = new Map<string, string>();
+  if (creatorIds.length > 0) {
+    const { data: profiles, error: profileError } = await supabase
+      .from("crm_users_profile")
+      .select("user_id, name")
+      .in("user_id", creatorIds);
+    if (profileError) {
+      // 발송그룹 목록 자체를 막을 정도의 문제 아님 — 경고만.
+      console.warn(
+        `[list-groups] 작성자 이름 조회 실패: ${profileError.message}`,
+      );
+    } else {
+      for (const p of (profiles ?? []) as Array<{
+        user_id: string;
+        name: string;
+      }>) {
+        nameMap.set(p.user_id, p.name);
+      }
+    }
+  }
+
+  const items: GroupListItem[] = rows.map((r) => ({
+    ...r,
+    creator_name: r.created_by ? (nameMap.get(r.created_by) ?? null) : null,
+  }));
+
   return {
-    items: (dataResult.data ?? []) as GroupListItem[],
+    items,
     total: countResult.error ? 0 : (countResult.count ?? 0),
   };
 }

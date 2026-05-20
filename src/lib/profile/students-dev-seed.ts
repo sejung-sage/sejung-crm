@@ -1518,6 +1518,8 @@ export function listDevCampaigns(args: {
       group_name: grp?.name ?? null,
       delivered_count: msgs.filter((m) => m.status === "도달").length,
       failed_count: msgs.filter((m) => m.status === "실패").length,
+      // dev-seed 는 사용자 매핑이 없으므로 creator_name = null.
+      creator_name: null,
     };
   });
 }

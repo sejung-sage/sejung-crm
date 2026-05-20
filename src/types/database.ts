@@ -242,9 +242,15 @@ export interface GroupRow {
 
 /**
  * 그룹 리스트 화면용 행 타입.
- * MVP 는 별도 필드 없이 GroupRow 와 동일. 조인 필드 추가 시 확장.
+ *
+ * GroupRow + 조인 필드. `created_by` 는 auth.users(id) FK 라 PostgREST nested
+ * select 가 불가하므로, 앱 레이어에서 crm_users_profile.name 을 별도 lookup
+ * 하여 `creator_name` 에 채운다. 매핑 실패(다른 분원 RLS·삭제된 사용자) 시 null.
  */
-export type GroupListItem = GroupRow;
+export type GroupListItem = GroupRow & {
+  /** 작성자 이름 (crm_users_profile.name). 매핑 실패 시 null. UI 는 "—" 표시. */
+  creator_name: string | null;
+};
 
 export interface TemplateRow {
   id: string;
@@ -263,6 +269,18 @@ export interface TemplateRow {
   created_at: string;
   updated_at: string;
 }
+
+/**
+ * 템플릿 리스트·상세 화면용 행 타입.
+ *
+ * TemplateRow + 조인 필드. `created_by` 는 auth.users(id) FK 라 PostgREST nested
+ * select 가 불가하므로, 앱 레이어에서 crm_users_profile.name 을 별도 lookup
+ * 하여 `creator_name` 에 채운다. 매핑 실패 시 null → UI 는 "—" 표시.
+ */
+export type TemplateListItem = TemplateRow & {
+  /** 작성자 이름 (crm_users_profile.name). 매핑 실패 시 null. */
+  creator_name: string | null;
+};
 
 export interface CampaignRow {
   id: string;
@@ -323,6 +341,13 @@ export type CampaignListItem = CampaignRow & {
   group_name: string | null;
   delivered_count: number;
   failed_count: number;
+  /**
+   * 발송자 이름 (crm_users_profile.name).
+   * `created_by` 는 auth.users(id) FK 라 PostgREST nested select 불가 → 앱
+   * 레이어에서 별도 lookup. 매핑 실패(다른 분원 RLS·삭제된 사용자) 시 null →
+   * UI 는 "—" 표시.
+   */
+  creator_name: string | null;
 };
 
 /**

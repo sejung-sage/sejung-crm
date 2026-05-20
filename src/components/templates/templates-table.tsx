@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Copy, MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import type { TemplateRow } from "@/types/database";
+import type { TemplateListItem } from "@/types/database";
 import {
   AdBadge,
   TemplateTypeBadge,
@@ -14,7 +14,7 @@ import { deleteTemplateAction } from "@/app/(features)/templates/actions";
 import { useToast } from "@/components/ui/toast";
 
 interface Props {
-  rows: TemplateRow[];
+  rows: TemplateListItem[];
 }
 
 /**
@@ -98,9 +98,10 @@ export function TemplatesTable({ rows }: Props) {
             <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
               <Th>제목</Th>
               <Th className="w-20">유형</Th>
-              <Th className="w-16">광고</Th>
+              <Th className="w-20">광고</Th>
               <Th className="w-32 text-right">바이트</Th>
               <Th className="w-32">최근 수정일</Th>
+              <Th className="w-28">작성자</Th>
               <Th className="w-12" aria-label="메뉴">
                 <span className="sr-only">메뉴</span>
               </Th>
@@ -156,6 +157,9 @@ export function TemplatesTable({ rows }: Props) {
                   </Td>
                   <Td className="text-[color:var(--text-muted)] tabular-nums">
                     {formatDate(t.updated_at)}
+                  </Td>
+                  <Td className="text-[color:var(--text-muted)]">
+                    {t.creator_name ?? "—"}
                   </Td>
                   <Td className="text-center relative" onClickStop>
                     <RowMenu

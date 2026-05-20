@@ -58,6 +58,7 @@ export function CampaignsTable({ rows }: Props) {
               <Th>제목</Th>
               <Th className="w-36">그룹명</Th>
               <Th className="w-40">발송 / 예약</Th>
+              <Th className="w-24">발송자</Th>
               <Th className="w-24">상태</Th>
               <Th className="w-24 text-right">도달률</Th>
               <Th className="w-28 text-right">비용</Th>
@@ -124,6 +125,9 @@ export function CampaignsTable({ rows }: Props) {
                     ) : (
                       <span className="text-[color:var(--text-dim)]">—</span>
                     )}
+                  </Td>
+                  <Td className="text-[color:var(--text-muted)]">
+                    {c.creator_name ?? "—"}
                   </Td>
                   <Td>
                     <CampaignStatusBadge status={c.status} />

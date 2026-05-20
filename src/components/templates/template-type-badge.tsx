@@ -27,7 +27,7 @@ export function TemplateTypeBadge({ type }: { type: TemplateType }) {
 export function AdBadge() {
   return (
     <span
-      className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[11px] font-medium border"
+      className="inline-flex items-center whitespace-nowrap px-1.5 py-0.5 rounded-md text-[11px] font-medium border"
       style={{
         borderColor: "var(--danger)",
         color: "var(--danger)",

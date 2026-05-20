@@ -11,7 +11,7 @@
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { TemplateRow } from "@/types/database";
+import type { TemplateListItem, TemplateRow } from "@/types/database";
 import type { TemplateListQuery } from "@/lib/schemas/template";
 import {
   isDevSeedMode,
@@ -21,7 +21,7 @@ import {
 const PAGE_SIZE = 50;
 
 export interface ListTemplatesResult {
-  items: TemplateRow[];
+  items: TemplateListItem[];
   total: number;
 }
 
@@ -47,7 +47,10 @@ function listFromDevSeed(query: TemplateListQuery): ListTemplatesResult {
 
   const total = sorted.length;
   const from = (query.page - 1) * PAGE_SIZE;
-  const items = sorted.slice(from, from + PAGE_SIZE);
+  // dev-seed 는 사용자 매핑이 없으므로 creator_name = null.
+  const items: TemplateListItem[] = sorted
+    .slice(from, from + PAGE_SIZE)
+    .map((t) => ({ ...t, creator_name: null }));
   return { items, total };
 }
 
@@ -95,8 +98,44 @@ async function listFromSupabase(
     );
   }
 
+  // 작성자 이름 매핑. auth.users 외부 schema 라 PostgREST nested select 불가 →
+  // crm_users_profile.user_id 로 별도 lookup. RLS 차단/삭제 사용자 시 null →
+  // UI 가 "—" 표시.
+  const rows = (dataResult.data ?? []) as TemplateRow[];
+  const creatorIds = Array.from(
+    new Set(
+      rows
+        .map((r) => r.created_by)
+        .filter((v): v is string => typeof v === "string" && v.length > 0),
+    ),
+  );
+  const nameMap = new Map<string, string>();
+  if (creatorIds.length > 0) {
+    const { data: profiles, error: profileError } = await supabase
+      .from("crm_users_profile")
+      .select("user_id, name")
+      .in("user_id", creatorIds);
+    if (profileError) {
+      console.warn(
+        `[list-templates] 작성자 이름 조회 실패: ${profileError.message}`,
+      );
+    } else {
+      for (const p of (profiles ?? []) as Array<{
+        user_id: string;
+        name: string;
+      }>) {
+        nameMap.set(p.user_id, p.name);
+      }
+    }
+  }
+
+  const items: TemplateListItem[] = rows.map((r) => ({
+    ...r,
+    creator_name: r.created_by ? (nameMap.get(r.created_by) ?? null) : null,
+  }));
+
   return {
-    items: (dataResult.data ?? []) as TemplateRow[],
+    items,
     total: countResult.error ? 0 : (countResult.count ?? 0),
   };
 }

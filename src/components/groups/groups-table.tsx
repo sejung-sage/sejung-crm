@@ -218,6 +218,7 @@ export function GroupsTable({ rows }: Props) {
               <Th className="w-28 text-right">총 연락처</Th>
               <Th className="w-32">최근 발송일</Th>
               <Th>마지막 발송 내용</Th>
+              <Th className="w-28">작성자</Th>
               <Th className="w-12" aria-label="메뉴">
                 <span className="sr-only">메뉴</span>
               </Th>
@@ -274,6 +275,9 @@ export function GroupsTable({ rows }: Props) {
                     <span className="line-clamp-1 block max-w-[32ch]">
                       {r.last_message_preview ?? "—"}
                     </span>
+                  </Td>
+                  <Td className="text-[color:var(--text-muted)]">
+                    {r.creator_name ?? "—"}
                   </Td>
                   <Td className="text-center relative" onClickStop>
                     <RowMenu

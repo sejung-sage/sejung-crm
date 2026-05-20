@@ -117,7 +117,7 @@ export function CampaignDetailView({
               </p>
             )}
 
-            {/* 발송·예약시각 */}
+            {/* 발송·예약시각 + 발송자 */}
             <div className="flex flex-wrap items-baseline gap-x-6 gap-y-2 pt-2 text-[13px]">
               {campaign.sent_at && (
                 <div>
@@ -139,6 +139,14 @@ export function CampaignDetailView({
                   </span>
                 </div>
               )}
+              <div>
+                <span className="text-[color:var(--text-muted)] mr-2">
+                  발송자
+                </span>
+                <span className="text-[color:var(--text)]">
+                  {campaign.creator_name ?? "—"}
+                </span>
+              </div>
             </div>
           </div>
 
