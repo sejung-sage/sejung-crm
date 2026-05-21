@@ -5,14 +5,28 @@
  * - dev-seed: `applyGroupFiltersDev` 재사용
  * - Supabase: `count-recipients.ts` 와 같은 분기 정책 (includeStudentIds 우선)
  *
- * 주의:
- *   - 수신거부 phone 제외는 SQL 단(.or)에서 처리. 1000-cap 우회 위해
- *     count(head=true) + range 페이지 패턴.
- *   - includeStudentIds 가 있으면 grades/schools/subjects 조건은 무시.
+ * 쿼리 전략 (statement timeout 해소 — 4만+ 학생 규모):
+ *   `student_profiles` 뷰는 crm_students + crm_enrollments + crm_attendances +
+ *   crm_school_regions 풀 집계 (LEFT JOIN + GROUP BY). 4만+ 학생 × 수만
+ *   attendance 를 매번 집계하면 8s statement_timeout 초과 → 그룹 상세가
+ *   "일시적인 오류" 페이지로 떨어진다.
+ *
+ *   count-recipients 와 동일한 두 단계 패턴 적용:
+ *     1) count + page 는 crm_students 직접 쿼리 (0046 인덱스 활용, view 우회)
+ *     2) 표시 슬라이스(50명) 만 enrollments+classes 페치해 subjects/teachers 보강
+ *
+ *   집계 필드 (enrollment_count, active_enrollment_count, total_paid,
+ *   last_*_at) 는 현재 그룹 상세 UI(group-students-table)가 사용하지 않으므로
+ *   0/null 로 채워 반환한다. 추후 표시 필요 시 별도 페치 추가.
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { StudentProfileRow } from "@/types/database";
+import type {
+  StudentProfileRow,
+  Subject,
+  Grade,
+  StudentStatus,
+} from "@/types/database";
 import {
   DEV_STUDENT_PROFILES,
   isDevSeedMode,
@@ -102,19 +116,40 @@ export async function listGroupStudents(
     subjectMatchedStudentIds = Array.from(set);
   }
 
-  // count + page 두 쿼리. count-recipients.ts 와 동일 분기 정책.
+  // regions 필터 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
+  // student_profiles 뷰의 region 컬럼을 우회. count-recipients 와 동일.
+  let allowedSchools: string[] | null = null;
+  if (
+    group.filters.regions.length > 0 &&
+    group.filters.includeStudentIds.length === 0
+  ) {
+    const { data: regionRows, error: regErr } = await supabase
+      .from("crm_school_regions")
+      .select("school")
+      .in("region", group.filters.regions);
+    if (regErr) {
+      throw new Error(`지역 매핑 조회에 실패했습니다: ${regErr.message}`);
+    }
+    allowedSchools = (regionRows ?? [])
+      .map((r) => (r as { school: string }).school)
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
+    if (allowedSchools.length === 0) return { items: [], total: 0 };
+  }
+
+  // crm_students 직접 쿼리 빌더 — count 와 page 가 동일 조건 공유.
+  // 0046 인덱스(branch+status+school_level+grade, school) 활용 → view 풀 집계 회피.
+  type StudentsQuery = ReturnType<ReturnType<typeof supabase.from>["select"]>;
   const buildQuery = (
     selectExpr: string,
     options: { count?: "exact"; head?: boolean } = {},
-  ) => {
+  ): StudentsQuery => {
     let q = supabase
-      .from("student_profiles")
+      .from("crm_students")
       .select(selectExpr, options)
       .neq("status", "탈퇴")
       .eq("branch", group.branch);
 
     // 재원 상태 — count-recipients 와 동일. 빈 배열 default = 탈퇴 빼고 전체.
-    // 옛 그룹 JSONB 호환 (statuses 키 부재 = "전체" 의미).
     const wantedStatuses =
       group.filters.statuses.length > 0
         ? group.filters.statuses
@@ -132,17 +167,14 @@ export async function listGroupStudents(
         q = q.in("school", group.filters.schools);
       }
       if (subjectMatchedStudentIds) {
-        // classes.subject → enrollments → student_id 사전 매핑 결과로 좁힘.
-        // 옛 .overlaps("subjects",...) 는 view 의 array_agg 컬럼이 항상 빈 배열
-        // (enrollments.subject NULL) 이라 매칭 0 → 항상 0명 산출.
         q = q.in("id", subjectMatchedStudentIds);
       }
-      if (group.filters.regions.length > 0) {
-        q = q.in("region", group.filters.regions);
+      if (allowedSchools) {
+        q = q.in("school", allowedSchools);
       }
     }
 
-    // 그룹 단건 삭제(2026-05-19) — 명시 제외 학생.
+    // 그룹 단건 삭제 — 명시 제외 학생.
     const excludeIds = group.filters.excludeStudentIds ?? [];
     if (excludeIds.length > 0) {
       q = q.not("id", "in", `(${excludeIds.join(",")})`);
@@ -155,10 +187,10 @@ export async function listGroupStudents(
       );
     }
 
-    return q;
+    return q as StudentsQuery;
   };
 
-  // 1) head + count=exact 로 total
+  // 1) head + count=exact
   const { count, error: countError } = await buildQuery("id", {
     count: "exact",
     head: true,
@@ -169,18 +201,128 @@ export async function listGroupStudents(
     );
   }
 
-  // 2) page slice
+  // 2) page slice — 표시에 필요한 crm_students 컬럼만.
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
-  const { data, error } = await buildQuery("*")
+  type PageRow = {
+    id: string;
+    name: string;
+    school: string | null;
+    grade: Grade | null;
+    grade_raw: string | null;
+    school_level: StudentProfileRow["school_level"];
+    status: StudentStatus;
+    branch: string;
+    parent_phone: string | null;
+    phone: string | null;
+    registered_at: string | null;
+  };
+  const pageQuery = buildQuery(
+    "id, name, school, grade, grade_raw, school_level, status, branch, parent_phone, phone, registered_at",
+  );
+  const { data: pageData, error: pageError } = await (
+    pageQuery as unknown as {
+      order: (
+        c: string,
+        o: { ascending: boolean; nullsFirst?: boolean },
+      ) => {
+        range: (
+          f: number,
+          t: number,
+        ) => Promise<{
+          data: PageRow[] | null;
+          error: { message: string } | null;
+        }>;
+      };
+    }
+  )
     .order("registered_at", { ascending: false, nullsFirst: false })
     .range(from, to);
-  if (error) {
-    throw new Error(`그룹 수신자 목록 조회에 실패했습니다: ${error.message}`);
+  if (pageError) {
+    throw new Error(`그룹 수신자 목록 조회에 실패했습니다: ${pageError.message}`);
+  }
+  const pageRows = (pageData ?? []) as PageRow[];
+
+  // 3) 표시 슬라이스의 subjects/teachers 만 보강 — enrollments+classes 한 번 페치.
+  //    50명 학생에 한정되므로 view 풀 집계 대비 쿼리 비용이 작다.
+  //    "최근 수강" 표시 (formatRecent: 상위 2개 과목 + 첫 강사) 용도.
+  const subjectsByStudent = new Map<string, Subject[]>();
+  const teachersByStudent = new Map<string, string[]>();
+  if (pageRows.length > 0) {
+    const studentIds = pageRows.map((r) => r.id);
+    const { data: enrollRows } = await supabase
+      .from("crm_enrollments")
+      .select("student_id, aca_class_id")
+      .in("student_id", studentIds);
+    type EnrollRow = { student_id: string; aca_class_id: string | null };
+    const enrolls = (enrollRows ?? []) as EnrollRow[];
+
+    const acaClassIds = Array.from(
+      new Set(
+        enrolls
+          .map((e) => e.aca_class_id)
+          .filter((v): v is string => typeof v === "string" && v.length > 0),
+      ),
+    );
+
+    type ClassRow = {
+      aca_class_id: string;
+      subject: Subject | null;
+      teacher: string | null;
+    };
+    let classMap = new Map<string, ClassRow>();
+    if (acaClassIds.length > 0) {
+      const { data: classRows } = await supabase
+        .from("crm_classes")
+        .select("aca_class_id, subject, teacher")
+        .in("aca_class_id", acaClassIds);
+      classMap = new Map(
+        ((classRows ?? []) as ClassRow[]).map((c) => [c.aca_class_id, c]),
+      );
+    }
+
+    for (const e of enrolls) {
+      if (!e.aca_class_id) continue;
+      const cls = classMap.get(e.aca_class_id);
+      if (!cls) continue;
+      if (cls.subject) {
+        const arr = subjectsByStudent.get(e.student_id) ?? [];
+        if (!arr.includes(cls.subject)) arr.push(cls.subject);
+        subjectsByStudent.set(e.student_id, arr);
+      }
+      if (cls.teacher) {
+        const arr = teachersByStudent.get(e.student_id) ?? [];
+        if (!arr.includes(cls.teacher)) arr.push(cls.teacher);
+        teachersByStudent.set(e.student_id, arr);
+      }
+    }
   }
 
+  // 4) StudentProfileRow shape 으로 매핑. UI 미사용 집계 필드는 0/null 채움.
+  const items: StudentProfileRow[] = pageRows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    school: r.school,
+    grade: r.grade,
+    grade_raw: r.grade_raw,
+    school_level: r.school_level,
+    status: r.status,
+    branch: r.branch,
+    parent_phone: r.parent_phone,
+    phone: r.phone,
+    registered_at: r.registered_at,
+    enrollment_count: 0,
+    active_enrollment_count: 0,
+    total_paid: 0,
+    subjects: subjectsByStudent.get(r.id) ?? null,
+    teachers: teachersByStudent.get(r.id) ?? null,
+    last_attended_at: null,
+    last_paid_at: null,
+    region: "기타",
+  }));
+
   return {
-    items: (data ?? []) as StudentProfileRow[],
+    items,
     total: count ?? 0,
   };
 }
