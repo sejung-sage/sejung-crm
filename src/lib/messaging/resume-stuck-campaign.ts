@@ -19,7 +19,7 @@
  *     문서 참조). 강한 원자성이 필요하면 advisory lock 으로 보강.
  */
 
-import { after } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { getCampaign } from "@/lib/campaigns/get-campaign";
@@ -87,23 +87,22 @@ export async function resumeStuckCampaign(
   }
 
   // 드레인 endpoint 1회 트리거 — 거기서부터 자가호출 chain 이 다시 돈다.
-  // `after()` 로 응답 송출 후 발사해 사용자 클릭이 30초 응답 대기로 굳지 않게 함.
-  after(async () => {
-    const url = `${getMessagingBaseUrl()}/api/messaging/drain`;
-    try {
-      await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-drain-secret": secret,
-        },
-        body: JSON.stringify({ campaignId }),
-        keepalive: true,
-      });
-    } catch {
+  // next/server 의 after() 가 Next 16 + production 조합에서 fire-and-forget
+  // 콜백을 발사하지 않는 회귀가 관측되어 @vercel/functions/waitUntil 로 통일.
+  // drain route 의 self-invoke 와 동일 API.
+  waitUntil(
+    fetch(`${getMessagingBaseUrl()}/api/messaging/drain`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-drain-secret": secret,
+      },
+      body: JSON.stringify({ campaignId }),
+      keepalive: true,
+    }).catch(() => {
       // 첫 킥 실패는 무시 — 사용자가 버튼을 다시 누르거나 다음 일배치에서 회복.
-    }
-  });
+    }),
+  );
 
   return { status: "kicked", pendingCount: counts.대기 };
 }

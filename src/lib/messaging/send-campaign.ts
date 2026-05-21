@@ -22,7 +22,7 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { after } from "next/server";
+import { waitUntil } from "@vercel/functions";
 import { previewRecipients, type PreviewResult } from "./preview-recipients";
 import { applyAllGuards, type Recipient } from "./guards";
 import { getMessagingBaseUrl } from "./base-url";
@@ -255,23 +255,24 @@ async function runImmediateSend(args: {
     };
   }
 
-  after(async () => {
-    const url = `${getMessagingBaseUrl()}/api/messaging/drain`;
-    try {
-      await fetch(url, {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-drain-secret": drainSecret,
-        },
-        body: JSON.stringify({ campaignId }),
-        keepalive: true,
-      });
-    } catch {
+  // Vercel runtime 에서 응답 송출 후에도 fetch 가 resolve 될 때까지 함수
+  // 인스턴스 수명을 연장. next/server 의 after() 가 Next 16 + production
+  // 조합에서 발사 안 되는 회귀가 관측되어 @vercel/functions/waitUntil 로 통일.
+  // drain route 의 self-invoke 도 동일 API 를 쓰므로 운영상 일관성 ↑.
+  waitUntil(
+    fetch(`${getMessagingBaseUrl()}/api/messaging/drain`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-drain-secret": drainSecret,
+      },
+      body: JSON.stringify({ campaignId }),
+      keepalive: true,
+    }).catch(() => {
       // 첫 킥 실패는 무시 — 캠페인은 '발송중' 으로 남아있고,
       // 운영팀이 수동 재킥 또는 cron 으로 회복 가능.
-    }
-  });
+    }),
+  );
 
   revalidatePath("/campaigns");
   revalidatePath(`/campaigns/${campaignId}`);
