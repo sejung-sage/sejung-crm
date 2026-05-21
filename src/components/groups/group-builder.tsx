@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ChevronLeft, Search, X } from "lucide-react";
+import { ChevronLeft, Loader2, Search, X } from "lucide-react";
 import type { GroupFilters } from "@/lib/schemas/group";
 import type { Grade, StudentStatus, Subject } from "@/types/database";
 import type {
@@ -785,7 +785,25 @@ export function GroupBuilder({
 
         {/* 우측: 프리뷰 */}
         <aside className="lg:sticky lg:top-6 h-fit">
-          <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4">
+          <div
+            className={`
+              relative rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4
+              transition-colors
+              ${previewLoading ? "border-[color:var(--border-strong)]" : ""}
+            `}
+          >
+            {/* 로딩 중일 때 카드 우상단에 항상 보이는 스피너.
+                좌측 칩 클릭 직후 즉시 켜져 "눌렸다" 신호를 준다. */}
+            {previewLoading && (
+              <span
+                className="absolute top-4 right-4 inline-flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]"
+                aria-live="polite"
+              >
+                <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                계산 중...
+              </span>
+            )}
+
             <h2 className="text-[13px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
               수신자 미리보기
             </h2>
@@ -793,19 +811,23 @@ export function GroupBuilder({
             <div>
               <div className="flex items-baseline gap-2">
                 <span
-                  className="text-[36px] font-semibold tabular-nums text-[color:var(--text)] leading-none"
+                  className={`
+                    text-[36px] font-semibold tabular-nums leading-none
+                    transition-opacity
+                    ${
+                      previewLoading
+                        ? "text-[color:var(--text-muted)] opacity-60"
+                        : "text-[color:var(--text)]"
+                    }
+                  `}
                   aria-live="polite"
+                  aria-busy={previewLoading}
                 >
                   {preview.total.toLocaleString()}
                 </span>
                 <span className="text-[15px] text-[color:var(--text-muted)]">
                   명
                 </span>
-                {previewLoading && (
-                  <span className="ml-auto text-[12px] text-[color:var(--text-dim)]">
-                    계산 중...
-                  </span>
-                )}
               </div>
               {previewError && (
                 <p className="mt-2 text-[13px] text-[color:var(--danger)]">
