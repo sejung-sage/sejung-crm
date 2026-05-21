@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Copy, Pencil, Send, Trash2 } from "lucide-react";
 import { deleteGroupAction } from "@/app/(features)/groups/actions";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface Props {
   groupId: string;
@@ -118,60 +119,15 @@ export function GroupDetailActions({ groupId, groupName }: Props) {
       )}
 
       {confirming && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="delete-title"
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20"
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setConfirming(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") setConfirming(false);
-          }}
-        >
-          <div className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4">
-            <h2
-              id="delete-title"
-              className="text-[18px] font-semibold text-[color:var(--text)]"
-            >
-              그룹을 삭제할까요?
-            </h2>
-            <p className="text-[14px] text-[color:var(--text-muted)] leading-relaxed">
-              &lsquo;{groupName}&rsquo; 그룹을 삭제합니다. 이미 발송된 캠페인 기록은 보존됩니다.
-            </p>
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setConfirming(false)}
-                disabled={isPending}
-                className="
-                  inline-flex items-center h-10 px-4 rounded-lg
-                  border border-[color:var(--border)] bg-bg-card
-                  text-[14px] text-[color:var(--text)]
-                  hover:bg-[color:var(--bg-hover)]
-                  disabled:opacity-50 transition-colors
-                "
-              >
-                취소
-              </button>
-              <button
-                type="button"
-                onClick={onDelete}
-                disabled={isPending}
-                className="
-                  inline-flex items-center h-10 px-4 rounded-lg
-                  bg-[color:var(--danger)] text-white
-                  text-[14px] font-medium
-                  hover:opacity-90 disabled:opacity-50
-                  transition-colors
-                "
-              >
-                {isPending ? "처리 중..." : "삭제"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmDialog
+          title="그룹을 삭제할까요?"
+          description={`'${groupName}' 그룹을 삭제합니다. 이미 발송된 캠페인 기록은 보존됩니다.`}
+          confirmLabel="삭제"
+          confirmTone="danger"
+          busy={isPending}
+          onCancel={() => setConfirming(false)}
+          onConfirm={onDelete}
+        />
       )}
     </div>
   );

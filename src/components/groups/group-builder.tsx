@@ -23,6 +23,7 @@ import { REGION_OPTIONS } from "@/config/regions";
 import { formatPhone, maskPhone } from "@/lib/phone";
 import { BranchBadge } from "@/components/students/branch-badge";
 import { useToast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface DirectStudent {
   id: string;
@@ -262,6 +263,9 @@ export function GroupBuilder({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [devNotice, setDevNotice] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  // 그룹 수정 저장 확인 — 사용자 요청(2026-05-21): 수신자 조건 변경은 발송
+  // 영향이 크므로 한 번 더 확인. 신규는 즉시 저장.
+  const [confirmingSave, setConfirmingSave] = useState(false);
 
   // 디바운스·요청 취소
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -428,6 +432,16 @@ export function GroupBuilder({
       return;
     }
 
+    // 수정 모드는 발송 영향이 크므로 한 번 더 확인. 신규는 즉시 저장.
+    if (mode === "edit") {
+      setConfirmingSave(true);
+      return;
+    }
+    doSave();
+  };
+
+  const doSave = () => {
+    const trimmed = name.trim();
     startTransition(async () => {
       if (mode === "create") {
         const result = await createGroupAction({
@@ -450,6 +464,7 @@ export function GroupBuilder({
       } else {
         if (!groupId) {
           setSubmitError("그룹 ID 가 없습니다");
+          setConfirmingSave(false);
           return;
         }
         const result = await updateGroupAction({
@@ -466,9 +481,11 @@ export function GroupBuilder({
           setDevNotice(
             "개발용 시드 데이터 상태라 실제 저장되지 않습니다. Supabase 연결 후 저장됩니다.",
           );
+          setConfirmingSave(false);
         } else {
           setSubmitError(result.reason);
           showToast("error", `그룹 수정 실패: ${result.reason}`);
+          setConfirmingSave(false);
         }
       }
     });
@@ -916,6 +933,48 @@ export function GroupBuilder({
           </div>
         </aside>
       </div>
+
+      {confirmingSave && (
+        <ConfirmDialog
+          title="그룹 변경사항을 저장할까요?"
+          description={
+            <div className="space-y-2">
+              <p>
+                <strong className="text-[color:var(--text)]">
+                  &lsquo;{name.trim()}&rsquo;
+                </strong>{" "}
+                그룹의 수신자 조건이 즉시 갱신됩니다.
+              </p>
+              <p>
+                현재 조건의 수신자는{" "}
+                <strong className="text-[color:var(--text)] tabular-nums">
+                  {preview.total.toLocaleString()}명
+                </strong>
+                입니다.
+              </p>
+              {diff && (diff.added > 0 || diff.removed > 0) && (
+                <p className="tabular-nums">
+                  변동: {diff.added > 0 && (
+                    <span className="text-red-600 font-medium">
+                      +{diff.added.toLocaleString()}명 추가
+                    </span>
+                  )}
+                  {diff.added > 0 && diff.removed > 0 && (
+                    <span className="mx-1 text-[color:var(--text-dim)]">·</span>
+                  )}
+                  {diff.removed > 0 && (
+                    <span>−{diff.removed.toLocaleString()}명 제외</span>
+                  )}
+                </p>
+              )}
+            </div>
+          }
+          confirmLabel="저장"
+          busy={isPending}
+          onCancel={() => setConfirmingSave(false)}
+          onConfirm={doSave}
+        />
+      )}
     </form>
   );
 }

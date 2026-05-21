@@ -11,6 +11,7 @@ import {
   reactivateAccountAction,
 } from "@/app/(features)/accounts/actions";
 import { BRANCHES as BRANCH_OPTIONS } from "@/config/branches";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface TargetAccount {
   user_id: string;
@@ -73,6 +74,17 @@ export function AccountEditForm({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
+  // 권한·분원 등 위험도 높은 변경 확인용. 사용자 요청(2026-05-21).
+  // role/branch 변경이 포함된 경우 confirm, 단순 이름·active 만이면 즉시 저장.
+  type PendingPatch = {
+    user_id: string;
+    name?: string;
+    role?: UserRole;
+    branch?: string;
+    active?: boolean;
+  };
+  const [pendingSave, setPendingSave] = useState<PendingPatch | null>(null);
+
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
     const trimmed = name.trim();
@@ -89,13 +101,7 @@ export function AccountEditForm({
     if (!validate()) return;
 
     // 변경분만 patch 로 묶어서 보낸다 (서버는 어차피 동일 검증 수행).
-    const patch: {
-      user_id: string;
-      name?: string;
-      role?: UserRole;
-      branch?: string;
-      active?: boolean;
-    } = { user_id: target.user_id };
+    const patch: PendingPatch = { user_id: target.user_id };
 
     const trimmedName = name.trim();
     if (trimmedName !== target.name) patch.name = trimmedName;
@@ -114,17 +120,27 @@ export function AccountEditForm({
       return;
     }
 
+    // 권한 변경은 항상 confirm. 단순 이름 변경도 사용자 요청에 따라 confirm.
+    setPendingSave(patch);
+  };
+
+  const doSave = () => {
+    if (!pendingSave) return;
+    const patch = pendingSave;
     startTransition(async () => {
       const result = await updateAccountAction(patch);
       if (result.status === "success") {
         setNotice("저장되었습니다.");
+        setPendingSave(null);
         router.refresh();
       } else if (result.status === "dev_seed_mode") {
         setNotice(
           "개발용 시드 데이터라 실제 수정되지 않습니다. Supabase 연결 후 동작합니다.",
         );
+        setPendingSave(null);
       } else {
         setErrorMsg(result.reason);
+        setPendingSave(null);
       }
     });
   };
@@ -419,10 +435,72 @@ export function AccountEditForm({
           confirmLabel={
             pendingToggle === "deactivate" ? "비활성화" : "활성화"
           }
-          confirmTone={pendingToggle === "deactivate" ? "danger" : "default"}
+          confirmTone={pendingToggle === "deactivate" ? "danger" : "primary"}
           busy={isToggling}
           onCancel={() => setPendingToggle(null)}
           onConfirm={onConfirmToggle}
+        />
+      )}
+
+      {/* 변경 저장 확인 다이얼로그 — 권한·분원 변경은 위험도 높음 */}
+      {pendingSave && (
+        <ConfirmDialog
+          title="계정 변경사항을 저장할까요?"
+          description={
+            <div className="space-y-1.5">
+              <p>
+                <strong className="text-[color:var(--text)]">
+                  &lsquo;{target.name}&rsquo;
+                </strong>{" "}
+                계정의 다음 항목이 변경됩니다.
+              </p>
+              <ul className="list-disc pl-5 space-y-0.5">
+                {pendingSave.name !== undefined && (
+                  <li>
+                    이름: {target.name} → {pendingSave.name}
+                  </li>
+                )}
+                {pendingSave.role !== undefined && (
+                  <li>
+                    권한:{" "}
+                    <span className="text-[color:var(--danger)] font-medium">
+                      {target.role} → {pendingSave.role}
+                    </span>
+                  </li>
+                )}
+                {pendingSave.branch !== undefined && (
+                  <li>
+                    분원:{" "}
+                    <span className="text-[color:var(--danger)] font-medium">
+                      {target.branch} → {pendingSave.branch}
+                    </span>
+                  </li>
+                )}
+                {pendingSave.active !== undefined && (
+                  <li>
+                    활성 상태:{" "}
+                    {target.active ? "활성" : "비활성"} →{" "}
+                    {pendingSave.active ? "활성" : "비활성"}
+                  </li>
+                )}
+              </ul>
+              {(pendingSave.role !== undefined ||
+                pendingSave.branch !== undefined) && (
+                <p className="text-[color:var(--danger)] text-[13px] pt-1">
+                  권한·분원 변경은 즉시 사용자의 접근 범위에 영향을 줍니다.
+                </p>
+              )}
+            </div>
+          }
+          confirmLabel="저장"
+          confirmTone={
+            pendingSave.role !== undefined || pendingSave.branch !== undefined
+              ? "danger"
+              : "primary"
+          }
+          busy={isPending}
+          onCancel={() => setPendingSave(null)}
+          onConfirm={doSave}
         />
       )}
     </>
@@ -458,85 +536,6 @@ function Field({
       ) : hint ? (
         <p className="text-[13px] text-[color:var(--text-dim)]">{hint}</p>
       ) : null}
-    </div>
-  );
-}
-
-function ConfirmDialog({
-  title,
-  description,
-  confirmLabel,
-  confirmTone = "default",
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  confirmTone?: "default" | "danger";
-  busy?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="confirm-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onCancel();
-      }}
-    >
-      <div className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4">
-        <h2
-          id="confirm-title"
-          className="text-[18px] font-semibold text-[color:var(--text)]"
-        >
-          {title}
-        </h2>
-        <p className="text-[14px] text-[color:var(--text-muted)] leading-relaxed">
-          {description}
-        </p>
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="
-              inline-flex items-center h-11 px-4 rounded-lg
-              border border-[color:var(--border)] bg-bg-card
-              text-[14px] text-[color:var(--text)]
-              hover:bg-[color:var(--bg-hover)]
-              disabled:opacity-50
-              transition-colors
-            "
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className={`
-              inline-flex items-center h-11 px-4 rounded-lg
-              text-[14px] font-medium
-              disabled:opacity-50 transition-colors
-              ${
-                confirmTone === "danger"
-                  ? "bg-[color:var(--danger)] text-white hover:opacity-90"
-                  : "bg-[color:var(--action)] text-[color:var(--action-text)] hover:bg-[color:var(--action-hover)]"
-              }
-            `}
-          >
-            {busy ? "처리 중..." : confirmLabel}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

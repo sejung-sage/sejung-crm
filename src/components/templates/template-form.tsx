@@ -12,6 +12,7 @@ import {
 } from "@/app/(features)/templates/actions";
 import { testSendAction } from "@/app/(features)/compose/actions";
 import { useToast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 /**
  * F3-01 · 템플릿 생성/수정 공용 폼.
@@ -67,6 +68,9 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // 변경 저장 확인 다이얼로그 — 사용자 요청(2026-05-21): 템플릿 수정 저장 시
+  // 한 번 더 확인. 신규 생성은 가벼운 작업이라 그대로 즉시 저장.
+  const [confirmingSave, setConfirmingSave] = useState(false);
 
   const progress = useMemo(() => byteProgress(body, type), [body, type]);
   const overflow = progress.bytes > progress.limit;
@@ -118,6 +122,15 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
     setErrorMsg(null);
     if (!validate()) return;
 
+    // 수정 모드는 한 번 더 확인. 신규는 즉시 저장.
+    if (mode === "edit") {
+      setConfirmingSave(true);
+      return;
+    }
+    doSave();
+  };
+
+  const doSave = () => {
     startTransition(async () => {
       const payload = {
         name: name.trim(),
@@ -144,6 +157,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
       } else {
         if (!templateId) {
           setErrorMsg("템플릿 ID 가 없습니다");
+          setConfirmingSave(false);
           return;
         }
         const result = await updateTemplateAction({
@@ -152,13 +166,16 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
         });
         if (result.status === "success") {
           setNotice("저장되었습니다.");
+          setConfirmingSave(false);
           router.refresh();
         } else if (result.status === "dev_seed_mode") {
           setNotice(
             "개발용 시드 데이터라 실제 수정되지 않습니다. Supabase 연결 후 동작합니다.",
           );
+          setConfirmingSave(false);
         } else {
           setErrorMsg(result.reason);
+          setConfirmingSave(false);
         }
       }
     });
@@ -459,6 +476,17 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           isAd={isAd}
         />
       </aside>
+
+      {confirmingSave && (
+        <ConfirmDialog
+          title="변경사항을 저장할까요?"
+          description="저장하면 템플릿의 본문·유형이 즉시 갱신되며, 이후 발송부터 새 내용이 사용됩니다."
+          confirmLabel="저장"
+          busy={isPending}
+          onCancel={() => setConfirmingSave(false)}
+          onConfirm={doSave}
+        />
+      )}
     </form>
   );
 }

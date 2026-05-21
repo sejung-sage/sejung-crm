@@ -17,6 +17,7 @@ import {
   deleteGroupsAction,
 } from "@/app/(features)/groups/actions";
 import { useToast } from "@/components/ui/toast";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 
 interface Props {
   rows: GroupListItem[];
@@ -494,85 +495,6 @@ function MenuItem({
       <Icon className="size-4" strokeWidth={1.75} aria-hidden />
       {children}
     </button>
-  );
-}
-
-function ConfirmDialog({
-  title,
-  description,
-  confirmLabel,
-  confirmTone = "default",
-  busy,
-  onCancel,
-  onConfirm,
-}: {
-  title: string;
-  description: string;
-  confirmLabel: string;
-  confirmTone?: "default" | "danger";
-  busy?: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="confirm-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onCancel();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape") onCancel();
-      }}
-    >
-      <div className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4">
-        <h2
-          id="confirm-title"
-          className="text-[18px] font-semibold text-[color:var(--text)]"
-        >
-          {title}
-        </h2>
-        <p className="text-[14px] text-[color:var(--text-muted)] leading-relaxed">
-          {description}
-        </p>
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="
-              inline-flex items-center h-10 px-4 rounded-lg
-              border border-[color:var(--border)] bg-bg-card
-              text-[14px] text-[color:var(--text)]
-              hover:bg-[color:var(--bg-hover)]
-              disabled:opacity-50
-              transition-colors
-            "
-          >
-            취소
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={busy}
-            className={`
-              inline-flex items-center h-10 px-4 rounded-lg
-              text-[14px] font-medium
-              disabled:opacity-50 transition-colors
-              ${
-                confirmTone === "danger"
-                  ? "bg-[color:var(--danger)] text-white hover:opacity-90"
-                  : "bg-[color:var(--action)] text-[color:var(--action-text)] hover:bg-[color:var(--action-hover)]"
-              }
-            `}
-          >
-            {busy ? "처리 중..." : confirmLabel}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
 
