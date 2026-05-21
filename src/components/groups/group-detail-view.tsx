@@ -6,6 +6,7 @@ import { BranchBadge } from "@/components/groups/branch-badge";
 import { GroupDetailActions } from "@/components/groups/group-detail-actions";
 import { GroupStudentsTable } from "@/components/groups/group-students-table";
 import { Pagination } from "@/components/students/pagination";
+import { formatKstDate } from "@/lib/datetime";
 
 /**
  * F2-03 · 발송 그룹 상세 뷰 (Server Component).
@@ -155,7 +156,5 @@ function summarizeFilters(f: GroupFilters): string {
 
 function formatDate(iso: string | null): string | null {
   if (!iso) return null;
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (!m) return iso;
-  return `${m[1]}-${m[2]}-${m[3]}`;
+  return formatKstDate(iso);
 }

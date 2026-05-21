@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import type { CampaignMessageRow, MessageStatus } from "@/types/database";
 import { MessageStatusBadge } from "@/components/campaigns/campaign-status-badge";
 import { formatPhone, maskPhone } from "@/lib/phone";
+import { formatKstDateTime } from "@/lib/datetime";
 
 interface Props {
   rows: CampaignMessageRow[];
@@ -241,8 +242,7 @@ function PageBtn({
 }
 
 function formatDateTime(iso: string | null): string {
-  if (!iso) return "—";
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (!m) return iso;
-  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+  // KST 변환. 옛 substring 패턴은 UTC 가 그대로 노출되어 사용자가
+  // "발송시각이 이상하다" 호소 — datetime 유틸로 통일.
+  return formatKstDateTime(iso);
 }

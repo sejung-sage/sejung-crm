@@ -1,5 +1,6 @@
 import type { MessageStatus, StudentMessageRow } from "@/types/database";
 import { formatPhone, maskPhone } from "@/lib/phone";
+import { formatKstDateTime } from "@/lib/datetime";
 
 interface Props {
   messages: StudentMessageRow[];
@@ -233,9 +234,6 @@ function ChevronIcon({ className }: { className?: string }) {
 }
 
 function formatSentAt(iso: string | null): string {
-  if (!iso) return "—";
-  // ISO 문자열에서 YYYY-MM-DD HH:MM 까지만 보여준다.
-  const d = iso.replace("T", " ");
-  if (d.length >= 16) return d.slice(0, 16);
-  return d;
+  // 옛 substring 방식은 UTC 시각이 그대로 노출되는 버그. KST 변환으로 통일.
+  return formatKstDateTime(iso);
 }

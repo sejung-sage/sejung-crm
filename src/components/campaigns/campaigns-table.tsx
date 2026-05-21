@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Copy, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react";
 import type { CampaignListItem } from "@/types/database";
+import { formatKstDateTime } from "@/lib/datetime";
 import { CampaignStatusBadge } from "@/components/campaigns/campaign-status-badge";
 
 interface Props {
@@ -338,7 +339,5 @@ function MenuItem({
 }
 
 function formatDateTime(iso: string): string {
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (!m) return iso;
-  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+  return formatKstDateTime(iso);
 }
