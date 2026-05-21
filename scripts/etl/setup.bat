@@ -11,13 +11,14 @@ setlocal enabledelayedexpansion
 
 cd /d "%~dp0\..\.."
 
-echo [1/4] Python 확인...
+echo [1/4] Python 확인 (3.12 권장)...
 python --version >nul 2>&1
 if errorlevel 1 (
-  echo [ERROR] Python 이 PATH 에 없습니다. python.org 에서 설치 시 "Add to PATH" 체크하세요.
+  echo [ERROR] Python 이 PATH 에 없습니다. python.org 에서 3.12 설치 시 "Add to PATH" 체크하세요.
   pause
   exit /b 1
 )
+python --version
 
 echo [2/4] 가상환경 생성 (.venv)...
 if not exist .venv (

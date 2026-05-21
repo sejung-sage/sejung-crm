@@ -1,13 +1,18 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>세정학원 CRM · Aca2000 MSSQL → Supabase 매일 ETL 동기화 (11:00 KST)</Description>
-    <URI>\Sejung\CRM-ETL-Daily</URI>
+    <Description>세정학원 CRM · Aca2000 MSSQL → Supabase ETL 매 시간 동기화 (KST)</Description>
+    <URI>\Sejung\CRM-ETL-Hourly</URI>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2026-05-22T11:00:00</StartBoundary>
+      <StartBoundary>2026-05-22T00:00:00</StartBoundary>
       <Enabled>true</Enabled>
+      <Repetition>
+        <Interval>PT1H</Interval>
+        <Duration>P1D</Duration>
+        <StopAtDurationEnd>false</StopAtDurationEnd>
+      </Repetition>
       <ScheduleByDay>
         <DaysInterval>1</DaysInterval>
       </ScheduleByDay>
@@ -20,6 +25,7 @@
     </Principal>
   </Principals>
   <Settings>
+    <!-- 이전 실행이 안 끝났으면 새 실행 무시 (중복 발사 차단) -->
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
@@ -35,13 +41,14 @@
     <Hidden>false</Hidden>
     <RunOnlyIfIdle>false</RunOnlyIfIdle>
     <WakeToRun>true</WakeToRun>
-    <ExecutionTimeLimit>PT2H</ExecutionTimeLimit>
+    <!-- ETL 1회 평균 5~15분. 다음 시간 전에 무조건 끝나도록 55분 한도. -->
+    <ExecutionTimeLimit>PT55M</ExecutionTimeLimit>
     <Priority>7</Priority>
   </Settings>
   <Actions Context="Author">
     <Exec>
       <Command>cmd.exe</Command>
-      <!-- 작업 스케줄러 import 후 "C:\path\to\sejung-crm" 부분을 실제 경로로 바꿔주세요. -->
+      <!-- import 후 "C:\path\to\sejung-crm" 부분을 실제 경로로 바꿔주세요. -->
       <Arguments>/c "C:\path\to\sejung-crm\scripts\etl\run_all.bat"</Arguments>
       <WorkingDirectory>C:\path\to\sejung-crm</WorkingDirectory>
     </Exec>
