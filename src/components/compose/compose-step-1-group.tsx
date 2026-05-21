@@ -141,7 +141,9 @@ function summarizeFilters(group: GroupListItem): string {
   const parts: string[] = [];
   const f = group.filters;
   if (f.grades.length > 0) {
-    parts.push(`학년: ${f.grades.map((g) => `고${g}`).join(", ")}`);
+    // grades 는 0012 이후 "고1"/"중2"/"초등" 등 완전한 enum 값이라
+    // 추가 "고" prefix 가 붙으면 "고고1" 처럼 중복됨. 그대로 join.
+    parts.push(`학년: ${f.grades.join(", ")}`);
   } else {
     parts.push("학년: 전체");
   }

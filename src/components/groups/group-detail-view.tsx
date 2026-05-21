@@ -142,9 +142,10 @@ export function GroupDetailView({
  */
 function summarizeFilters(f: GroupFilters): string {
   const parts: string[] = [];
-  parts.push(
-    f.grades.length > 0 ? f.grades.map((g) => `고${g}`).join("·") : "전 학년",
-  );
+  // grades 는 0012 enum 정규화 이후 이미 "고1"/"중2"/"초등" 등 완전한 라벨이므로
+  // 추가 prefix 없이 그대로 표시. (옛 raw 숫자 시절 "고"+g 가 남아있어 "고고1"
+  // 표시되던 회귀 fix.)
+  parts.push(f.grades.length > 0 ? f.grades.join("·") : "전 학년");
   parts.push(f.schools.length > 0 ? f.schools.join("·") : "전 학교");
   parts.push(
     f.subjects.length > 0 ? f.subjects.join("·") : "전 과목",
