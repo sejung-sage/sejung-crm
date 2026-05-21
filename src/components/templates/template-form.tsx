@@ -283,17 +283,31 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
 
         {/* 제목 */}
         <div className="space-y-1.5">
-          <label
-            htmlFor="tpl-subject"
-            className="text-[14px] font-medium text-[color:var(--text)]"
-          >
-            제목
-            {!subjectRequired && (
-              <span className="ml-2 text-[12px] text-[color:var(--text-dim)]">
-                SMS 는 제목 없음
+          <div className="flex items-center justify-between gap-2">
+            <label
+              htmlFor="tpl-subject"
+              className="text-[14px] font-medium text-[color:var(--text)]"
+            >
+              제목
+              {!subjectRequired && (
+                <span className="ml-2 text-[12px] text-[color:var(--text-dim)]">
+                  SMS 는 제목 없음
+                </span>
+              )}
+            </label>
+            {subjectRequired && (
+              <span
+                className={`text-[12px] tabular-nums ${
+                  subject.length > 40
+                    ? "text-[color:var(--danger)] font-medium"
+                    : "text-[color:var(--text-muted)]"
+                }`}
+                aria-label={`제목 글자 수 ${subject.length} / 40`}
+              >
+                {subject.length} / 40
               </span>
             )}
-          </label>
+          </div>
           <input
             id="tpl-subject"
             type="text"

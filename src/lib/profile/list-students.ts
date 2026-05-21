@@ -5,7 +5,17 @@ import {
 } from "@/lib/supabase/server";
 import type { StudentProfileRow } from "@/types/database";
 import type { ListStudentsInput, StudentSort } from "@/lib/schemas/student";
-import { HIDDEN_GRADES_BY_DEFAULT } from "@/lib/schemas/common";
+import {
+  HIDDEN_GRADES_BY_DEFAULT,
+  UNMAPPED_SCHOOL_PATTERNS,
+} from "@/lib/schemas/common";
+
+/**
+ * '학교 미등록' 필터를 PostgREST `.or(...)` 표현식으로 변환.
+ * school IS NULL OR school IN (placeholder set).
+ * 입력 값(고/중/대학교 등)은 한글이지만 메타문자 없음 — 인젝션 안전.
+ */
+const UNMAPPED_SCHOOL_OR_EXPR = `school.is.null,school.in.(${UNMAPPED_SCHOOL_PATTERNS.join(",")})`;
 import {
   DEV_ENROLLMENTS,
   DEV_STUDENT_PROFILES,
@@ -132,6 +142,11 @@ async function listFromSupabase(
   if (input.schools.length > 0) {
     countQuery = countQuery.in("school", input.schools);
   }
+  // 학교 미등록 필터 — NULL 또는 placeholder set.
+  // unmappedSchool=true 일 때만 적용. schools 와 동시 적용 가능 (교집합).
+  if (input.unmappedSchool) {
+    countQuery = countQuery.or(UNMAPPED_SCHOOL_OR_EXPR);
+  }
   if (regionPlan) {
     countQuery = applyRegionPlanToCount(countQuery, regionPlan);
   }
@@ -208,6 +223,9 @@ async function listFromSupabase(
   // 학교 필터 — students.school (뷰에 그대로 노출) 정확 일치.
   if (input.schools.length > 0) {
     query = query.in("school", input.schools);
+  }
+  if (input.unmappedSchool) {
+    query = query.or(UNMAPPED_SCHOOL_OR_EXPR);
   }
 
   // 지역 필터 — student_profiles.region (school_regions 매핑) 정확 일치.
@@ -397,6 +415,9 @@ async function fetchTwoStage(args: {
   }
   if (input.schools.length > 0) {
     idsQuery = idsQuery.in("school", input.schools);
+  }
+  if (input.unmappedSchool) {
+    idsQuery = idsQuery.or(UNMAPPED_SCHOOL_OR_EXPR);
   }
   if (regionPlan) {
     idsQuery = applyRegionPlanToCount(idsQuery, regionPlan);
@@ -733,6 +754,13 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
   if (input.schools.length > 0) {
     const wanted = new Set<string>(input.schools);
     rows = rows.filter((r) => r.school !== null && wanted.has(r.school));
+  }
+
+  if (input.unmappedSchool) {
+    const ph = new Set<string>(UNMAPPED_SCHOOL_PATTERNS);
+    rows = rows.filter(
+      (r) => r.school === null || ph.has(r.school.trim()),
+    );
   }
 
   if (input.regions.length > 0) {

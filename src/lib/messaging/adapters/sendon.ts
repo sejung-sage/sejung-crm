@@ -158,6 +158,9 @@ async function sendLive(
     from: opts.fromNumber,
     to: [req.to],
     message: req.body,
+    // sendon `isAd` default 는 true → 미명시 시 정보성 발송도 광고로 분류됨.
+    // 호출자(drain-campaign)가 campaign.is_ad 를 그대로 흘려보낸다.
+    isAd: req.isAd,
   };
   // LMS/MMS 제목 필수 — req.subject 가 없으면 sendon 측에서 거절될 수 있어
   // 빈 문자열 대신 본문 앞 20자 fallback 으로 채워 넣는다 (운영 안전망).
@@ -247,6 +250,8 @@ async function sendBatchLive(
     from: opts.fromNumber,
     to: req.to,
     message: req.body,
+    // sendon `isAd` default = true → 명시하지 않으면 광고로 분류됨.
+    isAd: req.isAd,
   };
   if (req.type === "LMS") {
     payload.title =

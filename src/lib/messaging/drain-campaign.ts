@@ -123,6 +123,7 @@ export async function drainCampaignChunk(
       subject: campaign.subject,
       type,
       fromNumber,
+      isAd: campaign.is_ad,
       campaignId,
     });
     totalAttempted += result.attempted;
@@ -164,6 +165,7 @@ async function processOneBatch(args: {
   subject: string | null;
   type: TemplateType;
   fromNumber: string;
+  isAd: boolean;
   campaignId: string;
 }): Promise<{
   attempted: number;
@@ -171,8 +173,17 @@ async function processOneBatch(args: {
   failed: number;
   addedCost: number;
 }> {
-  const { supabase, pending, adapter, finalBody, subject, type, fromNumber, campaignId } =
-    args;
+  const {
+    supabase,
+    pending,
+    adapter,
+    finalBody,
+    subject,
+    type,
+    fromNumber,
+    isAd,
+    campaignId,
+  } = args;
 
   const nowIso = new Date().toISOString();
   const ids = pending.map((p) => p.id);
@@ -186,6 +197,7 @@ async function processOneBatch(args: {
     subject,
     type,
     fromNumber,
+    isAd,
   });
 
   if (batchResult.status === "queued") {

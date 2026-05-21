@@ -59,6 +59,7 @@ describe("sendon mock 모드 · send()", () => {
       subject: null,
       type: "SMS",
       fromNumber: "01099999999",
+      isAd: false,
     });
     if (out.status !== "queued") {
       throw new Error(`expected queued, got ${out.status}`);
@@ -76,6 +77,7 @@ describe("sendon mock 모드 · send()", () => {
       subject: "제목",
       type: "LMS",
       fromNumber: "01099999999",
+      isAd: false,
     });
     if (out.status !== "queued") throw new Error("not queued");
     expect(out.cost).toBe(24);
@@ -90,6 +92,7 @@ describe("sendon mock 모드 · send()", () => {
       subject: "알림톡",
       type: "ALIMTALK",
       fromNumber: "01099999999",
+      isAd: false,
     });
     if (out.status !== "queued") throw new Error("not queued");
     expect(out.cost).toBe(6.4);
@@ -104,6 +107,7 @@ describe("sendon mock 모드 · send()", () => {
       subject: null,
       type: "SMS" as const,
       fromNumber: "01099999999",
+      isAd: false,
     };
     const out1 = await a.send(req);
     const out2 = await a.send(req);
@@ -137,6 +141,7 @@ describe("sendon live 모드 · 가드 + 시크릿 미노출", () => {
       subject: null,
       type: "SMS",
       fromNumber: "01099999999",
+      isAd: false,
     });
     expect(r.status).toBe("failed");
     if (r.status === "failed") {
@@ -156,6 +161,7 @@ describe("sendon live 모드 · 가드 + 시크릿 미노출", () => {
       subject: null,
       type: "SMS",
       fromNumber: "01099999999",
+      isAd: false,
     });
     expect(r.status).toBe("failed");
     if (r.status === "failed") {
@@ -175,6 +181,7 @@ describe("sendon live 모드 · 가드 + 시크릿 미노출", () => {
       subject: null,
       type: "SMS",
       fromNumber: "01099999999",
+      isAd: false,
     });
     expect(r.status).toBe("failed");
     if (r.status === "failed") {
@@ -194,6 +201,7 @@ describe("sendon live 모드 · 가드 + 시크릿 미노출", () => {
       subject: "알림톡",
       type: "ALIMTALK",
       fromNumber: "01099999999",
+      isAd: false,
     });
     expect(r.status).toBe("failed");
     if (r.status === "failed") {
@@ -216,6 +224,7 @@ describe("sendon live 모드 · 가드 + 시크릿 미노출", () => {
       subject: null,
       type: "SMS",
       fromNumber: "01099999999",
+      isAd: false,
     });
     expect(["queued", "failed"]).toContain(r.status);
     const serialized = JSON.stringify(r);

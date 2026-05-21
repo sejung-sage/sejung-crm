@@ -150,6 +150,7 @@ export async function testSend(
       subject: input.subject,
       type: input.type,
       fromNumber,
+      isAd: input.isAd,
     });
   } catch (e) {
     const reason = e instanceof Error ? e.message : "벤더 응답 오류";

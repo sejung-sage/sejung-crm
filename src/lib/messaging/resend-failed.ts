@@ -176,6 +176,7 @@ export async function resendFailedMessages(
           subject: template.subject,
           type: template.type,
           fromNumber,
+          isAd: template.is_ad,
         }),
       ),
     );

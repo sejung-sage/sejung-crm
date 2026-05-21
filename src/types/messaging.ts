@@ -23,6 +23,12 @@ export type SmsSendRequest = {
   type: SmsType;
   /** 발신번호. 사전에 벤더에 등록된 번호. */
   fromNumber: string;
+  /**
+   * 광고성 발송 여부. sendon API 의 `isAd` 필드에 그대로 매핑.
+   * sendon 스펙 default 가 `true` 라 명시하지 않으면 모든 발송이 광고로 분류된다.
+   * 정보성/광고성 분리를 위해 호출자(=drain-campaign 등) 가 반드시 채워서 전달할 것.
+   */
+  isAd: boolean;
 };
 
 export type SmsSendResult =
@@ -49,6 +55,11 @@ export type SmsBatchSendRequest = {
   type: SmsType;
   /** 발신번호. 사전에 벤더에 등록된 번호. */
   fromNumber: string;
+  /**
+   * 광고성 발송 여부. sendon `isAd` 필드 매핑.
+   * sendon 스펙 default = true → 미설정 시 모든 발송이 광고로 분류된다.
+   */
+  isAd: boolean;
 };
 
 /**

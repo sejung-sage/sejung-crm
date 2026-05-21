@@ -61,6 +61,12 @@ export const ListStudentsInputSchema = z.object({
   regions: z.array(z.string().trim().max(30)).optional().default([]),
   /** 졸업·미정 같은 기본 숨김 학년을 포함할지 여부. URL ?include_hidden=1 */
   includeHidden: z.coerce.boolean().optional().default(false),
+  /**
+   * 학교 미등록 학생만 노출. URL ?no_school=1
+   * students.school IS NULL OR 빈 문자열 매칭.
+   * true 일 때 기본 학교 필터(schools) 는 의미 없어 무시.
+   */
+  unmappedSchool: z.coerce.boolean().optional().default(false),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
   /** 정렬 옵션. 기본은 최근 등록순. */
@@ -139,6 +145,7 @@ export function parseStudentsSearchParams(
     regions: cleanFreeText(toArray(raw.region)),
     sort,
     includeHidden: raw.include_hidden ?? false,
+    unmappedSchool: raw.no_school ?? false,
     page: raw.page ?? 1,
     pageSize: raw.size ?? 50,
   });

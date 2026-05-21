@@ -48,6 +48,28 @@ export type SchoolLevel = z.infer<typeof SchoolLevelSchema>;
  */
 export const HIDDEN_GRADES_BY_DEFAULT: ReadonlyArray<Grade> = ["졸업", "미정"];
 
+/**
+ * '학교 미등록' 으로 간주할 placeholder 학교명 set.
+ * 운영자가 학교 정보를 못 적었을 때 ETL 이 받아오는 형태 — 정상 학교명이
+ * 아닌 일반어. school IS NULL 과 함께 OR 매칭해 미등록 학생 필터에 사용.
+ *
+ * 운영 raw 분포 (2026-05-21):
+ *   '고' 8,540 / '대학교' 1,122 / '중' 1,068 / '재수' 10 등
+ */
+export const UNMAPPED_SCHOOL_PATTERNS: ReadonlyArray<string> = [
+  "고",
+  "고고",
+  "고등학교",
+  "중",
+  "중중",
+  "중학교",
+  "초",
+  "초등",
+  "초등학교",
+  "대학교",
+  "재수",
+];
+
 export const StudentStatusSchema = z.enum([
   "재원생",
   "수강이력자",
