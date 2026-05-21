@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, MessageSquare, Megaphone } from "lucide-react";
+import { AlertTriangle, MessageSquare, Megaphone, Send } from "lucide-react";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { byteProgress, countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import {
   createTemplateAction,
   updateTemplateAction,
 } from "@/app/(features)/templates/actions";
+import { testSendAction } from "@/app/(features)/compose/actions";
 import { useToast } from "@/components/ui/toast";
 
 /**
@@ -440,7 +441,14 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
       </div>
 
       {/* ─── 우측 미리보기 ───────────────────────────────── */}
-      <aside className="lg:sticky lg:top-6 h-fit">
+      <aside className="lg:sticky lg:top-6 h-fit space-y-3">
+        <TestSendCard
+          type={type}
+          subject={subjectRequired ? subject : null}
+          body={body}
+          isAd={isAd}
+          disabled={!body.trim() || overflow || isPending}
+        />
         <SmsPreviewCard
           type={type}
           subject={subjectRequired ? subject : ""}
@@ -574,4 +582,124 @@ function SmsPreviewCard({
       </p>
     </section>
   );
+}
+
+// ─── 테스트 발송 카드 ─────────────────────────────────────────
+/**
+ * 본인(또는 임의) 휴대폰 번호 1건으로 즉시 테스트 발송.
+ * compose 의 testSendAction 을 그대로 호출 — is_test=true 캠페인으로 기록되어
+ * 운영 통계에 섞이지 않는다. server 단 광고 가드도 동일 적용.
+ *
+ * 활성 조건: 본문이 있고, 바이트 한도 통과, 다른 저장 작업이 진행 중이지 않음.
+ * SMS 단가 7.4원 / LMS 24원 — 발송될 때마다 비용 발생 (테스트 모드라도).
+ */
+function TestSendCard({
+  type,
+  subject,
+  body,
+  isAd,
+  disabled,
+}: {
+  type: TemplateTypeLiteral;
+  subject: string | null;
+  body: string;
+  isAd: boolean;
+  disabled: boolean;
+}) {
+  const { show: showToast } = useToast();
+  const [phone, setPhone] = useState("");
+  const [sending, startSending] = useTransition();
+
+  const normalized = phone.replace(/\D/g, "");
+  const phoneValid = /^01[016789][0-9]{7,8}$/.test(normalized);
+
+  const onSend = () => {
+    if (!phoneValid) {
+      showToast("error", "휴대폰 번호 형식이 올바르지 않습니다 (010-...)");
+      return;
+    }
+    startSending(async () => {
+      const result = await testSendAction({
+        step2: { type, subject, body, isAd },
+        toPhone: normalized,
+      });
+      if (result.status === "success") {
+        showToast("success", `테스트 발송 완료 — ${formatPhoneShort(normalized)}`);
+      } else if (result.status === "dev_seed_mode") {
+        showToast("error", "개발 시드 모드 — 실 발송 차단됨");
+      } else if (result.status === "blocked") {
+        showToast("error", `차단: ${result.reason ?? "야간 광고 차단"}`);
+      } else {
+        showToast(
+          "error",
+          `테스트 발송 실패: ${"reason" in result ? result.reason : "알 수 없는 오류"}`,
+        );
+      }
+    });
+  };
+
+  return (
+    <section
+      aria-label="테스트 발송"
+      className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 space-y-2"
+    >
+      <div className="flex items-center gap-2">
+        <Send
+          className="size-4 text-[color:var(--text-muted)]"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <h3 className="text-[13px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+          테스트 발송
+        </h3>
+      </div>
+      <div className="flex gap-2">
+        <input
+          type="tel"
+          inputMode="numeric"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="010-0000-0000"
+          aria-label="테스트 수신 번호"
+          className="
+            flex-1 min-w-0 h-10 px-3 rounded-lg
+            border border-[color:var(--border)] bg-bg-card
+            text-[14px] text-[color:var(--text)] tabular-nums
+            placeholder:text-[color:var(--text-dim)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+          "
+        />
+        <button
+          type="button"
+          onClick={onSend}
+          disabled={disabled || !phoneValid || sending}
+          className="
+            shrink-0 inline-flex items-center justify-center
+            h-10 px-4 rounded-lg
+            bg-[color:var(--action)] text-[color:var(--action-text)]
+            text-[14px] font-medium
+            hover:opacity-90 disabled:opacity-40 disabled:cursor-not-allowed
+            transition-opacity
+          "
+        >
+          {sending ? "발송 중…" : "보내기"}
+        </button>
+      </div>
+      <p className="text-[12px] text-[color:var(--text-dim)] leading-relaxed">
+        입력한 번호로 1건만 보냅니다. is_test 캠페인으로 기록되어 통계에는 섞이지 않으나
+        실 발송 비용은 발생합니다 (SMS 7.4원 / LMS 24원).
+      </p>
+    </section>
+  );
+}
+
+function formatPhoneShort(digits: string): string {
+  // '01012345678' → '010-1234-5678' (mask 없이, 본인 입력 번호라 OK)
+  if (digits.length === 11) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `${digits.slice(0, 3)}-${digits.slice(3, 6)}-${digits.slice(6)}`;
+  }
+  return digits;
 }
