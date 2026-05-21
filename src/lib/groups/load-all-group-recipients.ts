@@ -8,7 +8,8 @@
  * 본 함수는 발송 큐 적재 직전 eligible 재조회 전용. 다음을 보장한다:
  *   - unsubscribes 1회만 페치
  *   - getGroup 1회만 호출
- *   - student_profiles 를 PostgREST `max_rows` cap (1,000) 청크로 range 페치
+ *   - crm_students 직접 청크 range 페치 (view 풀집계 우회 — count-recipients 와
+ *     동일 패턴. subjects/regions 사전 매핑으로 좁힘)
  *   - 60K 기준 약 62 쿼리 (1 + 1 + 60)
  *
  * 주의: CHUNK_SIZE 는 반드시 PostgREST `max_rows` (supabase/config.toml 의
@@ -16,8 +17,12 @@
  * `rows.length < requestedSize` early break 조건에 즉시 걸려 첫 cap 분량만
  * 수집되는 버그가 난다. (2026-05-11 10,083명 캠페인이 1,000명만 발송된 회귀.)
  *
- * 필터 정책은 count-recipients.ts 와 동일. includeStudentIds 우선, 분원·탈퇴·
- * 수신거부 가드는 항상 적용.
+ * 필터 정책은 count-recipients.ts 와 동일.
+ *   - includeStudentIds 우선
+ *   - subjects: classes JOIN enrollments 사전 매핑 (ETL 상 enrollments.subject NULL)
+ *   - regions: crm_school_regions 사전 매핑
+ *   - 빈 statuses default = ['재원생', '수강이력자', '수강 x'] (탈퇴 제외)
+ *   - 분원·탈퇴·수신거부 가드 항상 적용
  *
  * 호출자는 Supabase 클라이언트를 주입한다 — Server Action 은 server 클라이언트,
  * cron 디스패처는 service 클라이언트를 사용.
@@ -26,6 +31,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGroup } from "./get-group";
 import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
+import { isAllSubjects } from "@/lib/schemas/common";
 import type { Database, StudentStatus } from "@/types/database";
 
 /** PostgREST `max_rows` cap (supabase/config.toml). 이보다 크게 잡으면 cap 으로
@@ -50,7 +56,65 @@ export async function loadAllGroupRecipients(
   // 1) 수신거부 phone — React cache dedupe (preview/count-recipients 와 공유).
   const safeUnsubPhones = await getUnsubscribedPhones();
 
-  // 2) student_profiles 를 청크 range 페치
+  // 2) subjects 사전 매핑 — count-recipients 와 동일 정책.
+  //    ETL 상 enrollments.subject 는 NULL → classes.subject 로 두 단계 매핑.
+  //    7종 전체 체크 = "조건 없음" 으로 정규화.
+  let subjectMatchedStudentIds: string[] | null = null;
+  if (
+    group.filters.includeStudentIds.length === 0 &&
+    group.filters.subjects.length > 0 &&
+    !isAllSubjects(group.filters.subjects)
+  ) {
+    const { data: classRows, error: classErr } = await supabase
+      .from("crm_classes")
+      .select("aca_class_id")
+      .in("subject", group.filters.subjects)
+      .not("aca_class_id", "is", null);
+    if (classErr) {
+      throw new Error(`강좌 조회에 실패했습니다: ${classErr.message}`);
+    }
+    const acaClassIds = (
+      (classRows ?? []) as Array<{ aca_class_id: string | null }>
+    )
+      .map((r) => r.aca_class_id)
+      .filter((v): v is string => typeof v === "string" && v.length > 0);
+    if (acaClassIds.length === 0) return [];
+
+    const { data: enrollRows, error: enrollErr } = await supabase
+      .from("crm_enrollments")
+      .select("student_id")
+      .in("aca_class_id", acaClassIds);
+    if (enrollErr) {
+      throw new Error(`수강 정보 조회에 실패했습니다: ${enrollErr.message}`);
+    }
+    const set = new Set<string>();
+    for (const r of (enrollRows ?? []) as Array<{ student_id: string }>) {
+      if (r.student_id) set.add(r.student_id);
+    }
+    if (set.size === 0) return [];
+    subjectMatchedStudentIds = Array.from(set);
+  }
+
+  // 3) regions 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
+  let allowedSchools: string[] | null = null;
+  if (
+    group.filters.regions.length > 0 &&
+    group.filters.includeStudentIds.length === 0
+  ) {
+    const { data: regionRows, error: regErr } = await supabase
+      .from("crm_school_regions")
+      .select("school")
+      .in("region", group.filters.regions);
+    if (regErr) {
+      throw new Error(`지역 매핑 조회에 실패했습니다: ${regErr.message}`);
+    }
+    allowedSchools = (regionRows ?? [])
+      .map((r) => (r as { school: string }).school)
+      .filter((s): s is string => typeof s === "string" && s.length > 0);
+    if (allowedSchools.length === 0) return [];
+  }
+
+  // 4) crm_students 직접 청크 range 페치 (view 풀집계 우회).
   const collected: GroupRecipient[] = [];
   let from = 0;
 
@@ -58,16 +122,17 @@ export async function loadAllGroupRecipients(
     const to = Math.min(from + CHUNK_SIZE - 1, maxRecipients - 1);
 
     let q = supabase
-      .from("student_profiles")
+      .from("crm_students")
       .select("id, name, parent_phone, status")
       .neq("status", "탈퇴")
       .eq("branch", group.branch);
 
-    // 재원 상태 — count-recipients 와 동일하게 빈 배열이면 default '재원생'.
+    // 재원 상태 — count-recipients 와 동일. 빈 배열 default = 탈퇴 빼고 3종 통합.
+    // 옛 그룹 JSONB 에 statuses 키가 없으면 빈 배열 → "탈퇴 빼고 전체" 의미 보존.
     const wantedStatuses =
       group.filters.statuses.length > 0
         ? group.filters.statuses
-        : ["재원생"];
+        : ["재원생", "수강이력자", "수강 x"];
     q = q.in("status", wantedStatuses);
 
     if (group.filters.includeStudentIds.length > 0) {
@@ -79,15 +144,14 @@ export async function loadAllGroupRecipients(
       if (group.filters.schools.length > 0) {
         q = q.in("school", group.filters.schools);
       }
-      if (group.filters.subjects.length > 0) {
-        q = q.overlaps("subjects", group.filters.subjects);
+      if (subjectMatchedStudentIds) {
+        q = q.in("id", subjectMatchedStudentIds);
       }
-      if (group.filters.regions.length > 0) {
-        q = q.in("region", group.filters.regions);
+      if (allowedSchools) {
+        q = q.in("school", allowedSchools);
       }
     }
 
-    // 그룹 단건 삭제(2026-05-19) — 명시 제외 학생.
     const excludeIds = group.filters.excludeStudentIds ?? [];
     if (excludeIds.length > 0) {
       q = q.not("id", "in", `(${excludeIds.join(",")})`);

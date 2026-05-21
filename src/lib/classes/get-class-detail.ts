@@ -99,12 +99,15 @@ async function getFromSupabase(
     ),
   );
 
-  // 3) 학생 메타 (student_profiles 뷰) — studentIds 가 0 개면 query skip.
+  // 3) 학생 메타 — crm_students 직접 (view 풀집계 우회).
+  //    표시 컬럼이 students 원본 5종(id/name/school/grade/parent_phone) 이라
+  //    student_profiles 뷰의 enrollment/attendance 집계가 불필요. 강좌 수강생이
+  //    30~100명 수준이라도 view 정의가 GROUP BY 라 timeout 위험이 있어 직접 쿼리.
   // 4) 출결 데이터 (attendances) — 병렬 실행 가능.
   const [profilesRes, attendancesRes] = await Promise.all([
     studentIds.length > 0
       ? supabase
-          .from("student_profiles")
+          .from("crm_students")
           .select("id, name, school, grade, parent_phone")
           .in("id", studentIds)
       : Promise.resolve({

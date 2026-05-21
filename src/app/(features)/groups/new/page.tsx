@@ -81,8 +81,10 @@ async function fetchPrefillFromStudent(
     };
   }
   const supabase = await createSupabaseServerClient();
+  // student_profiles 뷰는 enrollment/attendance 풀 집계라 1명 lookup 도 비용↑.
+  // 표시 컬럼은 모두 students 원본이므로 crm_students 직접.
   const { data, error } = await supabase
-    .from("student_profiles")
+    .from("crm_students")
     .select("id, name, parent_phone, school, grade, branch")
     .eq("id", studentId)
     .maybeSingle();
