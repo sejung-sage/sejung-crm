@@ -6,6 +6,9 @@ REM - Create Python venv (.venv\)
 REM - pip install -r requirements.txt
 REM - Copy .env.example to .env and open in notepad
 REM ============================================================
+chcp 65001 >nul
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 setlocal enabledelayedexpansion
 
 cd /d "%~dp0\..\.."

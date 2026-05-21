@@ -5,6 +5,9 @@ REM ------------------------------------------------------------
 REM Calls run_all.bat but keeps the console open at the end so
 REM the operator can see the result before closing.
 REM ============================================================
+chcp 65001 >nul
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
 title Sejung CRM - Manual Sync
 
 cd /d "%~dp0\..\.."

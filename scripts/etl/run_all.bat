@@ -11,6 +11,13 @@ REM   1  one or more stages failed (see log)
 REM ============================================================
 setlocal enabledelayedexpansion
 
+REM Force UTF-8 for both the console and the Python child process so
+REM the ETL scripts can print Korean labels / emoji without crashing
+REM on the cp949 default on Korean Windows.
+chcp 65001 >nul
+set PYTHONUTF8=1
+set PYTHONIOENCODING=utf-8
+
 REM 1) cd to repo root
 cd /d "%~dp0\..\.."
 
