@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
-import { AlertTriangle, MessageSquare, Megaphone, Send } from "lucide-react";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { AlertTriangle, Megaphone, Send } from "lucide-react";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { byteProgress, countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import {
@@ -13,6 +13,7 @@ import {
 import { testSendAction } from "@/app/(features)/compose/actions";
 import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 
 /**
  * F3-01 · 템플릿 생성/수정 공용 폼.
@@ -50,9 +51,12 @@ const TYPE_OPTIONS: Array<{
   { value: "LMS", label: "LMS · 장문", hint: "2000바이트" },
 ];
 
-/** 광고성 발송 시 자동 삽입되는 머리말·꼬리. 실 발송 가드와 표기 일치. */
+/** 광고성 발송 시 자동 삽입되는 머리말. 실 발송 가드와 표기 일치 (법령 강제). */
 const AD_PREFIX = "(광고)";
-const AD_SUFFIX = "\n무료수신거부 080-XXX-XXXX";
+/** 학원명 기본값 — 운영팀이 footer 편집 가능. */
+const DEFAULT_ACADEMY_NAME = "세정학원";
+/** sendon 정책상 발송 시 공식 080 번호로 치환될 수 있음을 안내. */
+const DEFAULT_UNSUBSCRIBE_PHONE = "080-XXX-XXXX";
 
 export function TemplateForm({ mode, templateId, initial }: Props) {
   const router = useRouter();
@@ -65,6 +69,14 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
   const [body, setBody] = useState(initial.body);
   const [isAd, setIsAd] = useState(initial.is_ad);
 
+  // 광고 footer — 운영팀이 미리보기에서 편집 가능. 템플릿 DB 에는 저장 X
+  // (캠페인 메타 단위 정책이며, 컬럼 추가 시 영구 저장으로 옮길 예정).
+  const [footerUseDefault, setFooterUseDefault] = useState(true);
+  const [academyName, setAcademyName] = useState(DEFAULT_ACADEMY_NAME);
+  const [unsubscribePhone, setUnsubscribePhone] = useState(
+    DEFAULT_UNSUBSCRIBE_PHONE,
+  );
+
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -76,20 +88,35 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
   const overflow = progress.bytes > progress.limit;
   const subjectRequired = type === "LMS";
 
+  /** footer "기본값 사용" 토글이 켜져 있으면 footer state 를 기본값으로 강제 동기. */
+  useEffect(() => {
+    if (footerUseDefault) {
+      setAcademyName(DEFAULT_ACADEMY_NAME);
+      setUnsubscribePhone(DEFAULT_UNSUBSCRIBE_PHONE);
+    }
+  }, [footerUseDefault]);
+
   /**
-   * 미리보기 본문 — 광고 가드 시뮬레이션.
-   * (광고) prefix 와 080 무료수신거부 suffix 를 본문 앞뒤에 자동 부착.
-   * 실 발송 시 server 측에서 동일 가드가 한 번 더 적용된다.
+   * 말풍선에 노출할 본문 — (광고) prefix 만 본문 말풍선 앞에 합치고,
+   * 학원명·080 footer 는 PhonePreviewCard 가 별도 말풍선으로 렌더.
+   *
+   * 단, 바이트 계산은 실 발송본 기준이므로 footer 까지 포함해서 셈한다.
    */
-  const previewBody = useMemo(() => {
+  const bubbleBody = useMemo(() => {
     if (!isAd) return body;
-    const trimmedBody = body.trimEnd();
-    return `${AD_PREFIX} ${trimmedBody}${AD_SUFFIX}`;
+    const trimmed = body.trimEnd();
+    return `${AD_PREFIX} ${trimmed}`;
   }, [body, isAd]);
 
+  const finalSendBody = useMemo(() => {
+    if (!isAd) return body;
+    const trimmed = body.trimEnd();
+    return `${AD_PREFIX} ${trimmed}\n${academyName}\n무료수신거부 ${unsubscribePhone}`;
+  }, [body, isAd, academyName, unsubscribePhone]);
+
   const previewBytes = useMemo(
-    () => countEucKrBytes(previewBody),
-    [previewBody],
+    () => countEucKrBytes(finalSendBody),
+    [finalSendBody],
   );
   const previewOverflow = previewBytes > BYTE_LIMITS[type];
 
@@ -441,6 +468,96 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           )}
         </div>
 
+        {/* ─── 광고 footer 편집 ──────────────────────────── */}
+        {isAd && (
+          <section
+            aria-label="광고 푸터 편집"
+            className="space-y-3 rounded-lg border border-[color:var(--border-strong)] bg-bg-card p-4"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-[14px] font-medium text-[color:var(--text)]">
+                  광고 푸터 편집
+                </h3>
+                <p className="mt-0.5 text-[12px] text-[color:var(--text-muted)] leading-relaxed">
+                  광고 캠페인 말미에 붙는 학원명·수신거부 번호입니다.
+                  미리보기 말풍선 하단에 동일한 모습으로 표시됩니다.
+                </p>
+              </div>
+              <label className="flex items-center gap-2 shrink-0 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={footerUseDefault}
+                  onChange={(e) => setFooterUseDefault(e.target.checked)}
+                  className="size-4 accent-[color:var(--action)]"
+                />
+                <span className="text-[13px] text-[color:var(--text)]">
+                  기본값 사용
+                </span>
+              </label>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label
+                  htmlFor="tpl-footer-name"
+                  className="text-[13px] text-[color:var(--text-muted)]"
+                >
+                  학원명
+                </label>
+                <input
+                  id="tpl-footer-name"
+                  type="text"
+                  value={academyName}
+                  onChange={(e) => setAcademyName(e.target.value)}
+                  disabled={footerUseDefault}
+                  maxLength={20}
+                  className="
+                    w-full h-10 rounded-lg px-3
+                    bg-bg-card border border-[color:var(--border-strong)]
+                    text-[14px] text-[color:var(--text)]
+                    placeholder:text-[color:var(--text-dim)]
+                    focus:outline-none focus:border-[color:var(--action)]
+                    disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-dim)]
+                    disabled:cursor-not-allowed
+                    transition-colors
+                  "
+                />
+              </div>
+              <div className="space-y-1">
+                <label
+                  htmlFor="tpl-footer-phone"
+                  className="text-[13px] text-[color:var(--text-muted)]"
+                >
+                  수신거부 번호
+                </label>
+                <input
+                  id="tpl-footer-phone"
+                  type="text"
+                  value={unsubscribePhone}
+                  onChange={(e) => setUnsubscribePhone(e.target.value)}
+                  disabled={footerUseDefault}
+                  maxLength={20}
+                  className="
+                    w-full h-10 rounded-lg px-3
+                    bg-bg-card border border-[color:var(--border-strong)]
+                    text-[14px] tabular-nums text-[color:var(--text)]
+                    placeholder:text-[color:var(--text-dim)]
+                    focus:outline-none focus:border-[color:var(--action)]
+                    disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-dim)]
+                    disabled:cursor-not-allowed
+                    transition-colors
+                  "
+                />
+              </div>
+            </div>
+
+            <p className="text-[12px] text-[color:var(--text-muted)] leading-relaxed">
+              발송 시 sendon 의 공식 080 번호로 자동 치환될 수 있습니다.
+            </p>
+          </section>
+        )}
+
         {/* 버튼 */}
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-[color:var(--border)]">
           <Link
@@ -480,15 +597,52 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           isAd={isAd}
           disabled={!body.trim() || overflow || isPending}
         />
-        <SmsPreviewCard
+        <PhonePreviewCard
           type={type}
-          subject={subjectRequired ? subject : ""}
-          body={previewBody}
+          subject={subjectRequired ? subject : null}
+          body={bubbleBody}
+          isAd={isAd}
           rawBytes={previewBytes}
           rawOverflow={previewOverflow}
           limit={BYTE_LIMITS[type]}
-          isAd={isAd}
+          editable
+          onSubjectChange={
+            subjectRequired ? (next) => setSubject(next) : undefined
+          }
+          onBodyChange={(next) => {
+            // bubbleBody 는 (광고) prefix 가 붙은 상태. 사용자가 미리보기 textarea
+            // 에서 편집할 때는 prefix 를 그대로 보존하고, 그 뒤 본문만 setBody.
+            if (isAd) {
+              // prefix 가 "(광고) " (공백 1개) 형태로 시작한다고 가정.
+              const stripped = next.startsWith(`${AD_PREFIX} `)
+                ? next.slice(AD_PREFIX.length + 1)
+                : next.startsWith(AD_PREFIX)
+                  ? next.slice(AD_PREFIX.length)
+                  : next;
+              setBody(stripped);
+            } else {
+              setBody(next);
+            }
+          }}
+          footer={
+            isAd
+              ? {
+                  academyName,
+                  unsubscribePhone,
+                  onAcademyNameChange: footerUseDefault
+                    ? undefined
+                    : (v) => setAcademyName(v),
+                  onUnsubscribePhoneChange: footerUseDefault
+                    ? undefined
+                    : (v) => setUnsubscribePhone(v),
+                }
+              : undefined
+          }
         />
+        <p className="text-[12px] text-[color:var(--text-dim)] leading-relaxed px-1">
+          발송 직전 server 단에서 동일한 가드(광고 머리말·080·야간 차단)가
+          한 번 더 적용됩니다.
+        </p>
       </aside>
 
       {confirmingSave && (
@@ -502,127 +656,6 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
         />
       )}
     </form>
-  );
-}
-
-// ─── 미리보기 카드 ─────────────────────────────────────────────
-
-/**
- * 채팅 말풍선 형태의 SMS 미리보기.
- * 운영자가 수신자가 보게 될 화면을 상상할 수 있도록 가벼운 말풍선으로 표현.
- * 본문은 광고 가드(머리말·꼬리) 자동 부착 후 바이트까지 함께 안내.
- */
-function SmsPreviewCard({
-  type,
-  subject,
-  body,
-  rawBytes,
-  rawOverflow,
-  limit,
-  isAd,
-}: {
-  type: TemplateTypeLiteral;
-  subject: string;
-  body: string;
-  rawBytes: number;
-  rawOverflow: boolean;
-  limit: number;
-  isAd: boolean;
-}) {
-  return (
-    <section
-      aria-label="문자 미리보기"
-      className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 space-y-4"
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <MessageSquare
-            className="size-4 text-[color:var(--text-muted)]"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-          <h3 className="text-[13px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
-            미리보기
-          </h3>
-        </div>
-        <span
-          className="
-            inline-flex items-center px-2 py-0.5 rounded-md
-            text-[11px] font-medium border
-            bg-[color:var(--bg-muted)] text-[color:var(--text)]
-            border-[color:var(--border-strong)]
-          "
-        >
-          {type}
-          {isAd && (
-            <span className="ml-1.5 text-[color:var(--warning)]">광고</span>
-          )}
-        </span>
-      </div>
-
-      {/* 채팅 말풍선 */}
-      <div className="rounded-2xl rounded-tl-md bg-[color:var(--bg-muted)] p-4 space-y-2">
-        {subject && (
-          <p className="text-[13px] font-semibold text-[color:var(--text)] leading-tight">
-            {subject}
-          </p>
-        )}
-        <pre
-          className="
-            whitespace-pre-wrap break-words
-            text-[14px] leading-relaxed text-[color:var(--text)]
-            min-h-24
-          "
-          style={{ fontFamily: "var(--font-sans)" }}
-        >
-          {body || (
-            <span className="text-[color:var(--text-dim)]">
-              본문을 입력하면 여기에 표시됩니다.
-            </span>
-          )}
-        </pre>
-      </div>
-
-      {/* 메타 */}
-      <dl className="space-y-1.5 text-[13px]">
-        <div className="flex items-center justify-between">
-          <dt className="text-[color:var(--text-muted)]">최종 바이트</dt>
-          <dd
-            className={`tabular-nums ${
-              rawOverflow
-                ? "text-[color:var(--danger)] font-medium"
-                : "text-[color:var(--text)]"
-            }`}
-          >
-            {rawBytes.toLocaleString()} / {limit.toLocaleString()}
-          </dd>
-        </div>
-        <div className="flex items-center justify-between">
-          <dt className="text-[color:var(--text-muted)]">유형</dt>
-          <dd className="text-[color:var(--text)]">{type}</dd>
-        </div>
-      </dl>
-
-      {rawOverflow && (
-        <p
-          role="alert"
-          className="flex items-start gap-1.5 text-[12px] text-[color:var(--danger)] leading-relaxed"
-        >
-          <AlertTriangle
-            className="size-3.5 mt-0.5 shrink-0"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-          광고 머리말·꼬리까지 합치면 {type} 한도를 넘습니다. LMS 로 바꾸거나
-          본문을 줄여주세요.
-        </p>
-      )}
-
-      <p className="pt-2 border-t border-[color:var(--border)] text-[12px] text-[color:var(--text-dim)] leading-relaxed">
-        발송 직전 server 단에서 동일한 가드(광고 머리말·080·야간 차단)가
-        한 번 더 적용됩니다.
-      </p>
-    </section>
   );
 }
 

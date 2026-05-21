@@ -10,6 +10,9 @@ import {
   testSendAction,
 } from "@/app/(features)/compose/actions";
 import { maskPhone } from "@/lib/phone";
+import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
+import { BYTE_LIMITS } from "@/lib/schemas/template";
+import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import type { ComposeStep2State } from "./compose-wizard";
 
 /**
@@ -223,43 +226,24 @@ export function ComposeStep3Preview({
               )}
             </section>
 
-            {/* 우: 최종 본문 */}
-            <section
-              aria-label="최종 본문"
-              className="rounded-lg border border-[color:var(--border)] p-4 space-y-3"
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[14px] font-medium text-[color:var(--text)]">
-                  최종 발송 본문
-                </span>
-                <span className="text-[12px] text-[color:var(--text-muted)] tabular-nums">
-                  {step2.type}
-                </span>
-              </div>
-              {step2.subject && (
-                <div className="text-[13px] text-[color:var(--text-muted)]">
-                  <span className="font-medium text-[color:var(--text)]">
-                    제목{" "}
-                  </span>
-                  {step2.subject}
-                </div>
-              )}
-              <pre
-                className="
-                  whitespace-pre-wrap break-words
-                  text-[14px] leading-relaxed text-[color:var(--text)]
-                  p-3 rounded-md bg-[color:var(--bg-muted)]
-                  min-h-32
-                "
-                style={{ fontFamily: "var(--font-sans)" }}
-              >
-                {preview.finalBody}
-              </pre>
-              <p className="text-[12px] text-[color:var(--text-dim)]">
-                [광고] 머리말과 080 수신거부 안내는 광고 체크 시 자동
-                삽입됩니다.
+            {/* 우: 최종 본문 — 핸드폰 미리보기 (read-only) */}
+            <div className="space-y-2">
+              <PhonePreviewCard
+                type={step2.type}
+                subject={step2.subject}
+                body={preview.finalBody}
+                isAd={step2.isAd}
+                rawBytes={countEucKrBytes(preview.finalBody)}
+                rawOverflow={
+                  countEucKrBytes(preview.finalBody) > BYTE_LIMITS[step2.type]
+                }
+                limit={BYTE_LIMITS[step2.type]}
+              />
+              <p className="text-[12px] text-[color:var(--text-dim)] px-1">
+                광고 머리말·080 수신거부는 광고 체크 시 자동 삽입되며,
+                위 미리보기는 server 가드를 적용한 최종 발송본 그대로입니다.
               </p>
-            </section>
+            </div>
           </div>
 
           {/* 비용 카드 */}
