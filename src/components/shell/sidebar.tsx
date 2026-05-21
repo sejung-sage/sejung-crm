@@ -4,7 +4,6 @@ import {
   GraduationCap,
   BookOpen,
   MessageSquare,
-  Upload,
   MapPin,
   UserCircle2,
   Building2,
@@ -77,17 +76,20 @@ const NAV_ITEMS: NavItem[] = [
       { href: "/campaigns", label: "문자 발송 내역" },
     ],
   },
-  {
-    href: "/admin/import",
-    label: "엑셀 가져오기",
-    icon: Upload,
-    sectionLabel: "데이터 관리",
-    roles: ["master", "admin"],
-  },
+  // 엑셀 가져오기 — 2026-05-21 잠시 숨김 (Phase 1 고도화 후 재노출 예정).
+  // 백엔드 route(/admin/import) + actions 는 보존 — 메뉴만 미노출.
+  // {
+  //   href: "/admin/import",
+  //   label: "엑셀 가져오기",
+  //   icon: Upload,
+  //   sectionLabel: "데이터 관리",
+  //   roles: ["master", "admin"],
+  // },
   {
     href: "/regions",
     label: "학교 지역매핑",
     icon: MapPin,
+    sectionLabel: "데이터 관리",
     roles: ["master", "admin"],
   },
 ];
