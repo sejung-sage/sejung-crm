@@ -1,4 +1,5 @@
 import { listCampaigns } from "@/lib/campaigns/list-campaigns";
+import { listCampaignSenders } from "@/lib/campaigns/list-campaign-senders";
 import { CampaignListQuerySchema } from "@/lib/schemas/campaign";
 import { CampaignsToolbar } from "@/components/campaigns/campaigns-toolbar";
 import { CampaignsTable } from "@/components/campaigns/campaigns-table";
@@ -26,13 +27,19 @@ export default async function CampaignsPage({
 
   const parsed = CampaignListQuerySchema.parse({
     q: pick(raw.q) ?? "",
+    teacher: pick(raw.teacher) ?? "",
+    klass: pick(raw.klass) ?? "",
     status: pick(raw.status),
     from: pick(raw.from),
     to: pick(raw.to),
+    sender: pick(raw.sender),
     page: pick(raw.page) ?? 1,
   });
 
-  const result = await listCampaigns(parsed);
+  const [result, senders] = await Promise.all([
+    listCampaigns(parsed),
+    listCampaignSenders(),
+  ]);
   const devMode = isDevSeedMode();
 
   return (
@@ -46,7 +53,7 @@ export default async function CampaignsPage({
         </p>
       </header>
 
-      <CampaignsToolbar />
+      <CampaignsToolbar senders={senders} />
 
       {devMode && (
         <div

@@ -15,13 +15,23 @@ const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
   { value: "취소", label: "취소" },
 ];
 
+interface SenderOption {
+  userId: string;
+  name: string;
+}
+
+interface Props {
+  /** 발송자 옵션 — server prefetch. 지금까지 캠페인 1건+ 발송한 사용자만. */
+  senders?: SenderOption[];
+}
+
 /**
  * F3-02 · 캠페인 리스트 상단 툴바.
  *
- * - 좌: 제목 검색 · 상태 드롭다운 · 기간(from/to)
- * - URL `?q=&status=&from=&to=` 동기화. 값 변경 시 page=1 리셋.
+ * - 좌: 제목 검색 · 상태 드롭다운 · 기간(from/to) · 발송자
+ * - URL `?q=&status=&from=&to=&sender=` 동기화. 값 변경 시 page=1 리셋.
  */
-export function CampaignsToolbar() {
+export function CampaignsToolbar({ senders = [] }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -33,6 +43,7 @@ export function CampaignsToolbar() {
   const status = searchParams.get("status") ?? "";
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
+  const sender = searchParams.get("sender") ?? "";
 
   // 폼 input 들의 현재 값을 status/date onChange 시점에도 읽어 보존하기 위함.
   // 사용자가 q 텍스트를 입력하고 Enter 안 누른 상태로 status 만 바꾸면 텍스트가
@@ -68,7 +79,10 @@ export function CampaignsToolbar() {
       mutator(next);
       next.delete("page");
       startTransition(() => {
+        // memory/feedback_filter_refresh — push + refresh + isPending 3종 패턴.
+        // Next prefetch cache stale 방어 (강사 chip 제거 회귀와 동일).
         router.push(`${pathname}?${next.toString()}`);
+        router.refresh();
       });
     },
     [router, pathname, searchParams],
@@ -107,11 +121,19 @@ export function CampaignsToolbar() {
     });
   };
 
+  const onSenderChange = (value: string) => {
+    updateParams((p) => {
+      setTextParams(p);
+      if (value) p.set("sender", value);
+      else p.delete("sender");
+    });
+  };
+
   return (
     <form
       ref={formRef}
       onSubmit={onSearchSubmit}
-      className="flex flex-col md:flex-row md:flex-wrap md:items-center gap-3"
+      className={`flex flex-col md:flex-row md:flex-wrap md:items-center gap-3 transition-opacity ${isPending ? "opacity-60 pointer-events-none" : ""}`}
       aria-busy={isPending}
     >
       {/* 1행: 제목·내용 통합 검색 (q) — 가장 자주 쓰는 자유 텍스트 */}
@@ -257,6 +279,28 @@ export function CampaignsToolbar() {
           />
         </label>
       </div>
+
+      {senders.length > 0 && (
+        <select
+          aria-label="발송자 선택"
+          value={sender}
+          onChange={(e) => onSenderChange(e.target.value)}
+          className="
+            h-10 min-w-32 rounded-lg px-3
+            bg-bg-card border border-[color:var(--border)]
+            text-[15px] text-[color:var(--text)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+            cursor-pointer
+          "
+        >
+          <option value="">전체 발송자</option>
+          {senders.map((s) => (
+            <option key={s.userId} value={s.userId}>
+              {s.name}
+            </option>
+          ))}
+        </select>
+      )}
 
       <Link
         href="/compose"

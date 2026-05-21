@@ -109,6 +109,7 @@ async function listFromSupabase(
     }
     if (query.from) next = next.gte("sent_at", `${query.from}T00:00:00+09:00`);
     if (query.to) next = next.lte("sent_at", `${query.to}T23:59:59+09:00`);
+    if (query.sender) next = next.eq("created_by", query.sender);
     return next;
   };
 

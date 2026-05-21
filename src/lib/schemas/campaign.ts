@@ -16,6 +16,7 @@ import { CampaignStatusSchema } from "./common";
  * - klass: 본문에 강좌명/반명 포함 (body ilike)
  * - status: 캠페인 상태 필터
  * - from/to: 발송일(sent_at 또는 scheduled_at) 범위. YYYY-MM-DD
+ * - sender: 발송자(created_by) UUID 정확 일치
  * - page: 1-base 페이지
  */
 export const CampaignListQuerySchema = z.object({
@@ -31,6 +32,7 @@ export const CampaignListQuerySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "날짜 형식이 YYYY-MM-DD 가 아닙니다")
     .optional(),
+  sender: z.string().uuid("발송자 ID 가 유효하지 않습니다").optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
 });
 export type CampaignListQuery = z.infer<typeof CampaignListQuerySchema>;
