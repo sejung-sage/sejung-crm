@@ -81,6 +81,27 @@ export function GroupDetailView({
                 <span className="text-[14px] text-[color:var(--text-muted)] ml-1">
                   명
                 </span>
+                {/* snapshot 과 현재 fresh count 차이 — 저장 후 신규 학생 추가 or
+                    제외 시 보여줘 운영자 인지. 차이 없으면 표시 X. */}
+                {group.recipient_count !== studentsTotal && (
+                  <span
+                    className="ml-3 text-[12px] text-[color:var(--text-muted)] tabular-nums"
+                    title={`저장 시점 ${group.recipient_count.toLocaleString()}명 → 현재 ${studentsTotal.toLocaleString()}명 (학생 추가/제외/탈퇴 등으로 변동)`}
+                  >
+                    저장 시{" "}
+                    {group.recipient_count.toLocaleString()}명 →{" "}
+                    <span
+                      className={
+                        studentsTotal > group.recipient_count
+                          ? "text-[color:var(--danger)] font-medium"
+                          : "text-[color:var(--text-muted)]"
+                      }
+                    >
+                      {studentsTotal > group.recipient_count ? "+" : ""}
+                      {(studentsTotal - group.recipient_count).toLocaleString()}
+                    </span>
+                  </span>
+                )}
               </div>
               <div className="text-[13px] text-[color:var(--text-muted)]">
                 <span className="mr-2">최근 발송</span>
