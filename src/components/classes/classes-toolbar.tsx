@@ -184,7 +184,11 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
       // 필터 변경 시 페이지 1 로 리셋
       next.delete("page");
       startTransition(() => {
+        // push 만 하면 Next prefetch cache 가 stale 결과 노출 (강사 chip
+        // 제거해도 list 안 갱신되던 회귀, 2026-05-21). refresh 동반으로
+        // server component 강제 재페치. 이후 모든 필터 토글에 동일 패턴 적용.
         router.push(`${pathname}?${next.toString()}`);
+        router.refresh();
       });
     },
     [router, pathname, searchParams],
@@ -330,7 +334,10 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
   };
 
   return (
-    <div className="space-y-4" aria-busy={isPending}>
+    <div
+      className={`space-y-4 transition-opacity ${isPending ? "opacity-60 pointer-events-none" : ""}`}
+      aria-busy={isPending}
+    >
       {/* 1행: 검색 + 분원 + 과목 + 정렬 + 진행/종강 segment */}
       <div className="flex flex-col md:flex-row md:items-center gap-3">
         <form onSubmit={onSearchSubmit} className="flex-1">
