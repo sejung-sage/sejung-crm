@@ -1,0 +1,5 @@
+# Batch / PowerShell 스크립트는 항상 CRLF 줄바꿈으로 체크아웃.
+# macOS 에서 commit 한 .bat 가 Windows 에서 LF 로 풀려 cmd 가 못 읽는 회귀 차단.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
