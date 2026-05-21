@@ -4,6 +4,7 @@ import {
   updateAccountAction,
   deactivateAccountAction,
   reactivateAccountAction,
+  adminResetPasswordAction,
 } from "@/app/(features)/accounts/actions";
 import { DEV_ACCOUNTS } from "@/lib/profile/students-dev-seed";
 
@@ -58,6 +59,24 @@ describe("Account Server Actions · dev-seed 조기 반환", () => {
 
   it("빈 userId 로 deactivate 호출이어도 dev_seed 가 우선", async () => {
     const r = await deactivateAccountAction("");
+    expect(r.status).toBe("dev_seed_mode");
+  });
+
+  it("adminResetPasswordAction → dev_seed_mode (Zod 검증보다 dev_seed 가드 우선)", async () => {
+    // newPassword 가 너무 짧아 Zod 가 fail 시킬 입력이지만
+    // dev-seed 가드가 먼저 작동해야 한다.
+    const r = await adminResetPasswordAction({
+      userId: "00000000-0000-0000-0000-000000000000",
+      newPassword: "x",
+    });
+    expect(r.status).toBe("dev_seed_mode");
+  });
+
+  it("adminResetPasswordAction · 빈 입력이어도 dev_seed 가 우선", async () => {
+    const r = await adminResetPasswordAction({
+      userId: "",
+      newPassword: "",
+    });
     expect(r.status).toBe("dev_seed_mode");
   });
 });

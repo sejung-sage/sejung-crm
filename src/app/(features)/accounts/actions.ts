@@ -19,8 +19,10 @@
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import {
+  AdminResetPasswordInputSchema,
   CreateAccountInputSchema,
   UpdateAccountInputSchema,
+  type AdminResetPasswordInput,
   type CreateAccountInput,
   type UpdateAccountInput,
 } from "@/lib/schemas/auth";
@@ -51,6 +53,11 @@ export type DeactivateAccountActionResult =
 
 export type ReactivateAccountActionResult =
   | { status: "success" }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
+
+export type AdminResetPasswordActionResult =
+  | { status: "success"; message: string }
   | { status: "failed"; reason: string }
   | { status: "dev_seed_mode" };
 
@@ -279,6 +286,101 @@ export async function updateAccountAction(
 
   revalidatePath("/accounts");
   return { status: "success" };
+}
+
+// ─── adminResetPasswordAction ─────────────────────────────
+//
+// master 가 다른 사용자의 비밀번호를 임시로 재발급한다.
+//
+// 정책:
+//  - master 만 사용 가능 (admin 도 차단). 권한 위임의 위험이 크기 때문.
+//  - 본인 계정 reset 은 금지 — /me 페이지의 정상 변경 흐름을 쓰도록 유도.
+//  - 재설정 직후 must_change_password=true 로 다시 잠가 다음 로그인 시
+//    사용자 본인이 즉시 임시 비번을 자기 비번으로 교체하도록 강제.
+//
+// 임시 비번 평문은 액션 반환에 담지 않는다 (호출자 = 클라이언트가
+// 자기가 생성한 평문을 그대로 가지고 있으므로 화면에서 노출 가능).
+// 서버 로그·DB 어디에도 평문 저장 금지.
+
+export async function adminResetPasswordAction(
+  input: AdminResetPasswordInput,
+): Promise<AdminResetPasswordActionResult> {
+  if (isDevSeedMode()) {
+    return { status: "dev_seed_mode" };
+  }
+
+  // 1) Zod
+  const parsed = AdminResetPasswordInputSchema.safeParse(input);
+  if (!parsed.success) {
+    return { status: "failed", reason: zodErrorToReason(parsed.error) };
+  }
+  const { userId, newPassword } = parsed.data;
+
+  // 2) 현재 사용자
+  const cur = await requireCurrentUser();
+  if (!cur.ok) return { status: "failed", reason: cur.reason };
+
+  // 3) master 전용 가드
+  const guard = requireMaster(cur.user);
+  if (!guard.ok) {
+    return { status: "failed", reason: guard.reason };
+  }
+
+  // 4) 본인 계정 차단
+  if (userId === cur.user.user_id) {
+    return {
+      status: "failed",
+      reason: "본인 비밀번호는 내 정보(/me) 페이지에서 변경하세요",
+    };
+  }
+
+  // 5) 대상 프로필 (존재·branch 확인 — master 라 branch 검사는 생략)
+  const target = await loadTargetProfile(userId);
+  if (!target.ok) return { status: "failed", reason: target.reason };
+
+  // 6) Supabase Admin API 로 비밀번호 갱신
+  const svc = createSupabaseServiceClient();
+  const { error: authErr } = await svc.auth.admin.updateUserById(userId, {
+    password: newPassword,
+  });
+
+  if (authErr) {
+    return {
+      status: "failed",
+      reason: `비밀번호 재설정에 실패했습니다: ${authErr.message}`,
+    };
+  }
+
+  // 7) must_change_password = true 로 다시 잠그기.
+  //    auth 업데이트는 성공했지만 플래그가 안 잠겨도 보안에 직접적 문제는 없다
+  //    (임시 비번은 어차피 master 가 사용자에게 직접 전달). 다만 강제 변경이
+  //    안 걸리므로 사용자에게 명확한 경고를 돌려준다.
+  const { error: flagErr } = await (
+    svc.from("crm_users_profile") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        eq: (col: string, val: string) => Promise<{
+          error: { message: string } | null;
+        }>;
+      };
+    }
+  )
+    .update({ must_change_password: true })
+    .eq("user_id", userId);
+
+  if (flagErr) {
+    return {
+      status: "failed",
+      reason:
+        "비밀번호는 재설정되었지만 강제 변경 플래그를 잠그지 못했습니다. 사용자에게 즉시 비번을 다시 바꾸도록 안내하세요",
+    };
+  }
+
+  revalidatePath("/accounts");
+  return {
+    status: "success",
+    message:
+      "비밀번호가 재설정되었습니다. 사용자에게 임시 비밀번호를 전달하세요.",
+  };
 }
 
 // ─── deactivateAccountAction ──────────────────────────────

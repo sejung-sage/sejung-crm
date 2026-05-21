@@ -8,6 +8,7 @@ import { CampaignMessagesTable } from "@/components/campaigns/campaign-messages-
 import { ResendFailedButton } from "@/components/campaigns/resend-failed-button";
 import { ResumeStuckButton } from "@/components/campaigns/resume-stuck-button";
 import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
+import { formatKstDateTime } from "@/lib/datetime";
 
 /**
  * F3-02 · 캠페인 상세 뷰 (Server Component).
@@ -229,8 +230,8 @@ function formatMeta(c: CampaignListItem): string {
   return parts.join(" · ");
 }
 
+// KST 포맷터로 위임. Supabase timestamptz 는 UTC ISO 라서
+// 옛 substring 방식은 UTC 시각이 그대로 노출되는 버그가 있었다.
 function formatDateTime(iso: string): string {
-  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
-  if (!m) return iso;
-  return `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+  return formatKstDateTime(iso);
 }

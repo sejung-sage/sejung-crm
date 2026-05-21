@@ -16,6 +16,7 @@ import { RoleBadge } from "@/components/auth/role-badge";
 import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { SidebarNavLink } from "./sidebar-nav-link";
 import { SidebarBranchSwitcher } from "./sidebar-branch-switcher";
+import { SidebarClock } from "./sidebar-clock";
 import type { UserRole } from "@/types/database";
 
 /**
@@ -205,9 +206,10 @@ export async function Sidebar() {
         </ul>
       </nav>
 
-      {/* 하단 프로필 */}
+      {/* 하단 — KST 시계 + 프로필 */}
       {currentUser && (
-        <div className="border-t border-[color:var(--border)] px-3 py-3">
+        <div className="border-t border-[color:var(--border)] px-3 py-3 space-y-2">
+          <SidebarClock />
           <div className="flex items-center gap-2.5">
             <UserCircle2
               className="size-7 shrink-0 text-[color:var(--text-muted)]"

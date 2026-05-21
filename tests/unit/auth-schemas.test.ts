@@ -5,6 +5,7 @@ import {
   UpdateAccountInputSchema,
   ChangePasswordInputSchema,
   AccountListQuerySchema,
+  AdminResetPasswordInputSchema,
 } from "@/lib/schemas/auth";
 
 /**
@@ -190,6 +191,51 @@ describe("ChangePasswordInputSchema", () => {
       expect(mismatch).toBeDefined();
       expect(mismatch?.message).toBe("비밀번호 확인이 일치하지 않습니다");
     }
+  });
+});
+
+describe("AdminResetPasswordInputSchema", () => {
+  const validUuid = "11111111-1111-4111-8111-111111111111";
+
+  it("정상: UUID + 8자 비번 → success", () => {
+    const r = AdminResetPasswordInputSchema.safeParse({
+      userId: validUuid,
+      newPassword: "abcd1234",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("실패: userId 가 UUID 아님", () => {
+    const r = AdminResetPasswordInputSchema.safeParse({
+      userId: "not-a-uuid",
+      newPassword: "abcd1234",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("실패: 비번 7자", () => {
+    const r = AdminResetPasswordInputSchema.safeParse({
+      userId: validUuid,
+      newPassword: "abc1234",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("실패: 비번 101자", () => {
+    const r = AdminResetPasswordInputSchema.safeParse({
+      userId: validUuid,
+      newPassword: "a".repeat(101),
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("정상: 문자 종류 강제 없음 (admin 발급용 임시값 허용)", () => {
+    // changePassword 와 달리 영문/숫자 regex 가 없어야 한다.
+    const r = AdminResetPasswordInputSchema.safeParse({
+      userId: validUuid,
+      newPassword: "12345678",
+    });
+    expect(r.success).toBe(true);
   });
 });
 

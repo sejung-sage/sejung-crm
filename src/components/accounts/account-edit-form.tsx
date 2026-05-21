@@ -3,15 +3,29 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Loader2, Lock, PowerOff, Power } from "lucide-react";
+import {
+  Loader2,
+  Lock,
+  PowerOff,
+  Power,
+  Eye,
+  EyeOff,
+  Sparkles,
+  KeyRound,
+  Copy,
+  Check,
+} from "lucide-react";
 import type { UserRole } from "@/types/database";
 import {
   updateAccountAction,
   deactivateAccountAction,
   reactivateAccountAction,
+  adminResetPasswordAction,
 } from "@/app/(features)/accounts/actions";
 import { BRANCHES as BRANCH_OPTIONS } from "@/config/branches";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { useToast } from "@/components/ui/toast";
+import { generateTempPassword } from "@/lib/auth/generate-password";
 
 interface TargetAccount {
   user_id: string;
@@ -56,11 +70,14 @@ export function AccountEditForm({
   target,
 }: Props) {
   const router = useRouter();
+  const { show: showToast } = useToast();
   const [isPending, startTransition] = useTransition();
   const [isToggling, startTogglingTransition] = useTransition();
+  const [isResetting, startResetTransition] = useTransition();
 
   const isSelf = target.user_id === currentUserId;
   const canEditRoleBranch = currentUserRole === "master";
+  const canResetPassword = currentUserRole === "master";
 
   const [name, setName] = useState(target.name);
   const [role, setRole] = useState<UserRole>(target.role);
@@ -84,6 +101,16 @@ export function AccountEditForm({
     active?: boolean;
   };
   const [pendingSave, setPendingSave] = useState<PendingPatch | null>(null);
+
+  // 비밀번호 재설정용 상태 (master 전용).
+  // `lastIssued` 는 재설정 성공 직후 화면에 한 번만 노출되는 평문.
+  // 라우터 refresh 또는 페이지 이동 시 자연 소실되도록 별도 저장 X.
+  const [pwInput, setPwInput] = useState<string>("");
+  const [pwVisible, setPwVisible] = useState<boolean>(false);
+  const [pwError, setPwError] = useState<string | null>(null);
+  const [pendingReset, setPendingReset] = useState<boolean>(false);
+  const [lastIssued, setLastIssued] = useState<string | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
@@ -143,6 +170,70 @@ export function AccountEditForm({
         setPendingSave(null);
       }
     });
+  };
+
+  // ── 비밀번호 재설정 핸들러 ──────────────────────────────
+  const onClickGenerate = () => {
+    const generated = generateTempPassword(12);
+    setPwInput(generated);
+    setPwVisible(true);
+    setPwError(null);
+  };
+
+  const onClickReset = () => {
+    setPwError(null);
+    const trimmed = pwInput;
+    if (trimmed.length < 8) {
+      setPwError("비밀번호는 8자 이상이어야 합니다");
+      return;
+    }
+    if (trimmed.length > 100) {
+      setPwError("비밀번호가 너무 깁니다 (최대 100자)");
+      return;
+    }
+    setPendingReset(true);
+  };
+
+  const doReset = () => {
+    if (pendingReset !== true) return;
+    const issued = pwInput;
+    startResetTransition(async () => {
+      const result = await adminResetPasswordAction({
+        userId: target.user_id,
+        newPassword: issued,
+      });
+
+      if (result.status === "success") {
+        // 평문은 화면 노출용으로만 보존. 즉시 input 에서 지우지 않는다
+        // (사용자가 자동생성 결과를 복사할 시간 필요).
+        setLastIssued(issued);
+        setCopied(false);
+        showToast("success", result.message);
+        router.refresh();
+      } else if (result.status === "dev_seed_mode") {
+        showToast(
+          "error",
+          "개발용 시드 데이터라 실제 재설정되지 않습니다. Supabase 연결 후 동작합니다.",
+        );
+      } else {
+        setPwError(result.reason);
+        showToast("error", result.reason);
+      }
+      setPendingReset(false);
+    });
+  };
+
+  const onClickCopy = async () => {
+    if (!lastIssued) return;
+    try {
+      await navigator.clipboard.writeText(lastIssued);
+      setCopied(true);
+      showToast("success", "비밀번호를 클립보드에 복사했습니다");
+      // 2초 후 복사 표시 해제 (시각 피드백)
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      showToast("error", "클립보드 복사에 실패했습니다");
+    }
   };
 
   const onConfirmToggle = () => {
@@ -418,6 +509,235 @@ export function AccountEditForm({
           </div>
         </div>
       </form>
+
+      {/* 비밀번호 재설정 (master 전용) */}
+      {canResetPassword && (
+        <section
+          aria-labelledby="reset-pw-heading"
+          className="mt-10 max-w-2xl rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4"
+        >
+          <header className="flex items-center gap-2">
+            <KeyRound
+              className="size-5 text-[color:var(--text-muted)]"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <h2
+              id="reset-pw-heading"
+              className="text-[16px] font-semibold text-[color:var(--text)]"
+            >
+              비밀번호 재설정
+              <span className="ml-2 text-[12px] font-normal text-[color:var(--text-dim)]">
+                마스터 전용
+              </span>
+            </h2>
+          </header>
+
+          {isSelf ? (
+            <p className="text-[14px] text-[color:var(--text-muted)] leading-relaxed">
+              본인 비밀번호는{" "}
+              <Link
+                href="/me"
+                className="underline text-[color:var(--text)] hover:opacity-80"
+              >
+                내 정보 페이지
+              </Link>{" "}
+              에서 변경하세요.
+            </p>
+          ) : (
+            <>
+              <p className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
+                임시 비밀번호를 발급합니다. 재설정 후 사용자는 다음 로그인 시
+                본인이 직접 비밀번호를 다시 변경해야 합니다.
+              </p>
+
+              <Field
+                id="reset-pw-input"
+                label="새 비밀번호"
+                hint="8자 이상. 자동 생성 또는 직접 입력."
+                error={pwError ?? undefined}
+              >
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <input
+                      id="reset-pw-input"
+                      type={pwVisible ? "text" : "password"}
+                      value={pwInput}
+                      onChange={(e) => {
+                        setPwInput(e.target.value);
+                        if (pwError) setPwError(null);
+                      }}
+                      placeholder="8자 이상"
+                      maxLength={100}
+                      autoComplete="new-password"
+                      className={`${inputClass} pr-10 font-mono`}
+                      spellCheck={false}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setPwVisible((v) => !v)}
+                      aria-label={
+                        pwVisible ? "비밀번호 숨기기" : "비밀번호 보기"
+                      }
+                      className="
+                        absolute right-2 top-1/2 -translate-y-1/2
+                        inline-flex items-center justify-center
+                        size-7 rounded-md
+                        text-[color:var(--text-muted)]
+                        hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]
+                        transition-colors
+                      "
+                    >
+                      {pwVisible ? (
+                        <EyeOff
+                          className="size-4"
+                          strokeWidth={1.75}
+                          aria-hidden
+                        />
+                      ) : (
+                        <Eye
+                          className="size-4"
+                          strokeWidth={1.75}
+                          aria-hidden
+                        />
+                      )}
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={onClickGenerate}
+                    disabled={isResetting}
+                    className="
+                      inline-flex items-center gap-1.5 h-11 px-3 rounded-lg
+                      border border-[color:var(--border)] bg-bg-card
+                      text-[14px] text-[color:var(--text)]
+                      hover:bg-[color:var(--bg-hover)]
+                      disabled:opacity-50 disabled:cursor-not-allowed
+                      transition-colors
+                    "
+                  >
+                    <Sparkles
+                      className="size-4"
+                      strokeWidth={1.75}
+                      aria-hidden
+                    />
+                    자동 생성
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={onClickReset}
+                    disabled={isResetting || pwInput.length === 0}
+                    className="
+                      inline-flex items-center gap-1.5 h-11 px-4 rounded-lg
+                      bg-[color:var(--danger)] text-white
+                      text-[14px] font-medium
+                      hover:opacity-90
+                      disabled:opacity-40 disabled:cursor-not-allowed
+                      transition-colors
+                    "
+                  >
+                    {isResetting && (
+                      <Loader2
+                        className="size-4 animate-spin"
+                        strokeWidth={2}
+                        aria-hidden
+                      />
+                    )}
+                    {isResetting ? "재설정 중..." : "재설정"}
+                  </button>
+                </div>
+              </Field>
+
+              {lastIssued && (
+                <div
+                  role="status"
+                  className="
+                    mt-3 rounded-lg border border-[color:var(--border-strong)]
+                    bg-[color:var(--bg-muted)] p-4 space-y-2.5
+                  "
+                >
+                  <p className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
+                    이 비밀번호는 <strong>한 번만 표시</strong> 됩니다. 페이지를
+                    벗어나면 다시 확인할 수 없습니다. 사용자에게 안전하게
+                    전달하세요.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <code
+                      className="
+                        flex-1 px-3 py-2 rounded-md
+                        bg-bg-card border border-[color:var(--border)]
+                        font-mono text-[18px] tracking-wider text-[color:var(--text)]
+                        select-all break-all
+                      "
+                    >
+                      {lastIssued}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={onClickCopy}
+                      className="
+                        inline-flex items-center gap-1.5 h-11 px-3 rounded-lg
+                        border border-[color:var(--border)] bg-bg-card
+                        text-[14px] text-[color:var(--text)]
+                        hover:bg-[color:var(--bg-hover)]
+                        transition-colors
+                      "
+                    >
+                      {copied ? (
+                        <>
+                          <Check
+                            className="size-4 text-[color:var(--success)]"
+                            strokeWidth={2}
+                            aria-hidden
+                          />
+                          복사됨
+                        </>
+                      ) : (
+                        <>
+                          <Copy
+                            className="size-4"
+                            strokeWidth={1.75}
+                            aria-hidden
+                          />
+                          복사
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </section>
+      )}
+
+      {/* 비밀번호 재설정 확인 다이얼로그 */}
+      {pendingReset && (
+        <ConfirmDialog
+          title="비밀번호를 재설정할까요?"
+          description={
+            <div className="space-y-2">
+              <p>
+                <strong className="text-[color:var(--text)]">
+                  &lsquo;{target.name}&rsquo;
+                </strong>{" "}
+                계정의 비밀번호를 새로 발급합니다.
+              </p>
+              <p className="text-[color:var(--danger)] text-[13px]">
+                재설정 후 사용자는 다음 로그인 시 본인이 직접 비밀번호를 다시
+                변경해야 합니다.
+              </p>
+            </div>
+          }
+          confirmLabel="재설정"
+          confirmTone="danger"
+          busy={isResetting}
+          onCancel={() => setPendingReset(false)}
+          onConfirm={doReset}
+        />
+      )}
 
       {/* 비활성/활성 확인 다이얼로그 */}
       {pendingToggle && (

@@ -72,6 +72,25 @@ export const ChangePasswordInputSchema = z
 
 export type ChangePasswordInput = z.infer<typeof ChangePasswordInputSchema>;
 
+// ─── 관리자 비밀번호 재설정 ──────────────────────────────────
+//
+// master 가 다른 계정의 비밀번호를 임시 발급.
+// 일반 changePassword 와 달리 currentPassword 가 없고, 영문/숫자 등
+// 문자종류 강제도 없다 (자동생성 비번이 임시값이므로 다음 로그인 시
+// 사용자가 본인 비번으로 즉시 교체하도록 강제 — must_change_password=true).
+
+export const AdminResetPasswordInputSchema = z.object({
+  userId: z.string().uuid("계정 ID 가 유효하지 않습니다"),
+  newPassword: z
+    .string()
+    .min(8, "비밀번호는 8자 이상입니다")
+    .max(100, "비밀번호가 너무 깁니다"),
+});
+
+export type AdminResetPasswordInput = z.infer<
+  typeof AdminResetPasswordInputSchema
+>;
+
 // ─── 계정 목록 쿼리 ──────────────────────────────────────────
 
 export const AccountListQuerySchema = z.object({
