@@ -184,6 +184,7 @@ export function StudentsFilters({
       ? levelRaw[0]
       : "전체";
   const includeHidden = searchParams.get("include_hidden") === "1";
+  const unmappedSchool = searchParams.get("no_school") === "1";
 
   const sortRaw = searchParams.get("sort");
   const sort: StudentSort =
@@ -307,6 +308,13 @@ export function StudentsFilters({
     });
   };
 
+  const toggleUnmappedSchool = () => {
+    updateParams((p) => {
+      if (unmappedSchool) p.delete("no_school");
+      else p.set("no_school", "1");
+    });
+  };
+
   const hasActiveFilters =
     q !== "" ||
     branch !== "전체" ||
@@ -315,7 +323,8 @@ export function StudentsFilters({
     status !== "재원생" ||
     regions.length > 0 ||
     schools.length > 0 ||
-    includeHidden;
+    includeHidden ||
+    unmappedSchool;
 
   const clearAll = () => {
     updateParams((p) => {
@@ -327,6 +336,7 @@ export function StudentsFilters({
       p.delete("region");
       p.delete("school");
       p.delete("include_hidden");
+      p.delete("no_school");
       // 정렬은 의도적으로 유지 — 사용자가 명시적으로 바꾼 보기 옵션.
     });
   };
@@ -485,6 +495,26 @@ export function StudentsFilters({
         >
           <Eye className="size-3.5" strokeWidth={1.75} aria-hidden />
           졸업·미정 포함 보기
+        </button>
+
+        {/* 학교 미등록 토글 — NULL 또는 '고/중/대학교/재수' 같은 placeholder */}
+        <button
+          type="button"
+          onClick={toggleUnmappedSchool}
+          aria-pressed={unmappedSchool}
+          title="학교 정보가 비어 있거나 '고/중/고등학교' 같이 학교명이 정확하지 않은 학생만"
+          className={`
+            inline-flex items-center gap-1.5 h-8 px-3 rounded-full
+            text-[13px] font-medium
+            border transition-colors
+            ${
+              unmappedSchool
+                ? "bg-[color:var(--bg-hover)] text-[color:var(--text)] border-[color:var(--border-strong)]"
+                : "bg-bg-card text-[color:var(--text-muted)] border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+            }
+          `}
+        >
+          학교 미등록만
         </button>
       </div>
 
