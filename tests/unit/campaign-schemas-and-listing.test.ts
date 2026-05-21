@@ -57,30 +57,30 @@ describe("listCampaigns · dev-seed", () => {
   });
 
   it("필터 없음 → 6건 전부", async () => {
-    const r = await listCampaigns({ q: "", page: 1 });
+    const r = await listCampaigns({ q: "", teacher: "", klass: "", page: 1 });
     expect(r.total).toBe(DEV_CAMPAIGNS.length);
     expect(r.items).toHaveLength(DEV_CAMPAIGNS.length);
   });
 
   it("status='완료' → 완료 캠페인만", async () => {
-    const r = await listCampaigns({ q: "", page: 1, status: "완료" });
+    const r = await listCampaigns({ q: "", teacher: "", klass: "", page: 1, status: "완료" });
     expect(r.items.every((c) => c.status === "완료")).toBe(true);
     expect(r.total).toBeGreaterThan(0);
   });
 
   it("status='실패' → 실패 캠페인만", async () => {
-    const r = await listCampaigns({ q: "", page: 1, status: "실패" });
+    const r = await listCampaigns({ q: "", teacher: "", klass: "", page: 1, status: "실패" });
     expect(r.items.every((c) => c.status === "실패")).toBe(true);
   });
 
   it("q='개강' → 제목 매칭", async () => {
-    const r = await listCampaigns({ q: "개강", page: 1 });
+    const r = await listCampaigns({ q: "개강", teacher: "", klass: "", page: 1 });
     expect(r.items.length).toBeGreaterThan(0);
     expect(r.items.every((c) => c.title.includes("개강"))).toBe(true);
   });
 
   it("조인·집계 필드(template_name, group_name, delivered_count, failed_count) 존재", async () => {
-    const r = await listCampaigns({ q: "", page: 1 });
+    const r = await listCampaigns({ q: "", teacher: "", klass: "", page: 1 });
     for (const c of r.items) {
       expect(c).toHaveProperty("template_name");
       expect(c).toHaveProperty("group_name");
@@ -92,6 +92,8 @@ describe("listCampaigns · dev-seed", () => {
   it("from/to 범위 필터 동작 · 2026-04-15~04-22", async () => {
     const r = await listCampaigns({
       q: "",
+      teacher: "",
+      klass: "",
       page: 1,
       from: "2026-04-15",
       to: "2026-04-22",

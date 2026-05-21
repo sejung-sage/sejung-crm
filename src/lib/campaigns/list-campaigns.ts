@@ -35,6 +35,8 @@ export async function listCampaigns(
 function listFromDevSeed(query: CampaignListQuery): ListCampaignsResult {
   const all = listDevCampaigns({
     q: query.q,
+    teacher: query.teacher,
+    klass: query.klass,
     status: query.status,
     from: query.from,
     to: query.to,
@@ -55,6 +57,16 @@ function listFromDevSeed(query: CampaignListQuery): ListCampaignsResult {
   return { items, total };
 }
 
+/**
+ * PostgREST or()/ilike() 사용자 입력 sanitize.
+ * - or() 안의 콤마/괄호 는 항 분리자 → 제거.
+ * - %, _ 는 ilike 와일드카드 → 의도치 않은 매칭 방지 위해 공백 치환.
+ * 결과가 빈 문자열이면 호출부가 필터 자체를 스킵.
+ */
+function sanitizeIlike(v: string): string {
+  return v.replace(/[%_,()]/g, " ").trim();
+}
+
 async function listFromSupabase(
   query: CampaignListQuery,
 ): Promise<ListCampaignsResult> {
@@ -71,13 +83,30 @@ async function listFromSupabase(
       ilike(col: string, val: string): Q;
       gte(col: string, val: string): Q;
       lte(col: string, val: string): Q;
+      or(filter: string): Q;
     },
   >(
     q: Q,
   ): Q => {
     let next = q;
     if (query.status) next = next.eq("status", query.status);
-    if (query.q) next = next.ilike("title", `%${query.q}%`);
+    // q: 제목 OR 본문 ilike. PostgREST or() 안의 콤마/괄호/% 는 항 분리자라
+    // 사용자 입력에 섞이면 syntax error → sanitize 한 뒤 사용.
+    if (query.q) {
+      const safe = sanitizeIlike(query.q);
+      if (safe) {
+        next = next.or(`title.ilike.%${safe}%,body.ilike.%${safe}%`);
+      }
+    }
+    // 강사명 / 강좌명 검색은 본문 ilike. 운영팀이 "○○선생", "○○반" 으로 발송이력 추적.
+    if (query.teacher) {
+      const safe = sanitizeIlike(query.teacher);
+      if (safe) next = next.ilike("body", `%${safe}%`);
+    }
+    if (query.klass) {
+      const safe = sanitizeIlike(query.klass);
+      if (safe) next = next.ilike("body", `%${safe}%`);
+    }
     if (query.from) next = next.gte("sent_at", `${query.from}T00:00:00+09:00`);
     if (query.to) next = next.lte("sent_at", `${query.to}T23:59:59+09:00`);
     return next;

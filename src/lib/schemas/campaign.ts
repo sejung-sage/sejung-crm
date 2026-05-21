@@ -11,13 +11,17 @@ import { CampaignStatusSchema } from "./common";
 
 /**
  * 캠페인 리스트 searchParams 검증.
- * - q: 캠페인 제목 또는 템플릿명 부분일치 (실제 검색 범위는 backend)
+ * - q: 캠페인 제목 또는 본문 부분일치 (title OR body ilike)
+ * - teacher: 본문에 강사명 포함 (body ilike) — 운영팀이 강사명으로 발송이력 찾을 때
+ * - klass: 본문에 강좌명/반명 포함 (body ilike)
  * - status: 캠페인 상태 필터
  * - from/to: 발송일(sent_at 또는 scheduled_at) 범위. YYYY-MM-DD
  * - page: 1-base 페이지
  */
 export const CampaignListQuerySchema = z.object({
   q: z.string().trim().optional().default(""),
+  teacher: z.string().trim().optional().default(""),
+  klass: z.string().trim().optional().default(""),
   status: CampaignStatusSchema.optional(),
   from: z
     .string()

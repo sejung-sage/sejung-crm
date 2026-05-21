@@ -1488,17 +1488,29 @@ export function findDevCampaignById(id: string): CampaignRow | null {
  */
 export function listDevCampaigns(args: {
   q?: string;
+  teacher?: string;
+  klass?: string;
   status?: string;
   from?: string;
   to?: string;
 }): CampaignListItem[] {
   const q = args.q?.trim().toLowerCase() ?? "";
+  const teacher = args.teacher?.trim().toLowerCase() ?? "";
+  const klass = args.klass?.trim().toLowerCase() ?? "";
   const status = args.status?.trim() ?? "";
   const from = args.from?.trim() ?? "";
   const to = args.to?.trim() ?? "";
 
   return DEV_CAMPAIGNS.filter((c) => {
-    if (q && !c.title.toLowerCase().includes(q)) return false;
+    // q: 제목 OR 본문 부분일치 (backend 와 일치).
+    if (q) {
+      const title = c.title.toLowerCase();
+      const body = (c.body ?? "").toLowerCase();
+      if (!title.includes(q) && !body.includes(q)) return false;
+    }
+    // teacher/klass: 본문 부분일치.
+    if (teacher && !(c.body ?? "").toLowerCase().includes(teacher)) return false;
+    if (klass && !(c.body ?? "").toLowerCase().includes(klass)) return false;
     if (status && c.status !== status) return false;
     const ref = c.sent_at ?? c.scheduled_at;
     if (from || to) {
