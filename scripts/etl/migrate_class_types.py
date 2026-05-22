@@ -122,6 +122,7 @@ def fetch_class_types(db_config: dict) -> list[dict]:
         database=db_config["database"],
         timeout=60,
         charset="CP949",
+        tds_version="7.0",
     )
     try:
         cur = conn.cursor(as_dict=True)
