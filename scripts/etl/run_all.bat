@@ -56,6 +56,11 @@ call :RUN migrate_unpaid
 call :RUN migrate_enrollments
 call :RUN migrate_attendances
 
+REM Final step - sync aca_* (raw) to crm_* (curated).
+REM Without this, the CRM web UI (sejung-crm.vercel.app) still shows
+REM the stale data because it reads from crm_students, not aca_students.
+call :RUN apply_to_crm
+
 echo. >> "%LOG%"
 if %FAIL_COUNT% gtr 0 (
   echo [END] %DATE% %TIME%  %FAIL_COUNT% step(s) failed - check log >> "%LOG%"
