@@ -142,8 +142,7 @@ def fetch_teacher_subjects(db_config: dict) -> list[dict]:
         password=PASSWORD,
         database=db_config["database"],
         timeout=60,
-        charset="CP949",
-        tds_version="7.0",
+        charset="UTF-8",
     )
     try:
         cur = conn.cursor(as_dict=True)
