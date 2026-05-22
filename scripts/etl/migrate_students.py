@@ -186,7 +186,7 @@ def transform(row: dict, branch_short: str, branch_id: str) -> dict | None:
         "school_level": derive_school_level(raw_grade, school),
         "branch": branch_short,
         "status": "재원생",
-        "track": None,
+        # 0044 마이그에서 track(문과·이과) 컬럼 폐기됨 — 더 이상 전송하지 않음.
         "registered_at": None,
     }
 
