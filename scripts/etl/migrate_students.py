@@ -141,12 +141,15 @@ def fetch_students(db_config: dict) -> list[dict]:
         cur = conn.cursor(as_dict=True)
         cur.execute(
             """
+            -- VARCHAR(cp949) 컬럼을 NVARCHAR 로 CAST 해서 FreeTDS 가
+            -- UCS-2 path 로 가져오게 한다. Windows pymssql wheel 에서
+            -- VARCHAR 가 latin-1 으로 잘못 디코드되는 회귀 회피.
             SELECT
                 학생_코드,
-                학생명,
+                CAST(학생명 AS NVARCHAR(50)) AS 학생명,
                 HP_부모,
                 HP_학생,
-                학교,
+                CAST(학교 AS NVARCHAR(100)) AS 학교,
                 학년,
                 학원_코드
             FROM dbo.V_student_list
