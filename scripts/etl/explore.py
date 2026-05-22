@@ -72,7 +72,7 @@ def explore(db_config: dict) -> None:
             password=PASSWORD,
             database=db_config["database"],
             timeout=10,
-            charset="UTF-8",
+            charset="CP949",
         )
     except Exception as e:
         print(f"❌ 접속 실패: {e}")

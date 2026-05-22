@@ -133,7 +133,7 @@ def fetch_students(db_config: dict) -> list[dict]:
         password=PASSWORD,
         database=db_config["database"],
         timeout=30,
-        charset="UTF-8",
+        charset="CP949",
     )
     try:
         cur = conn.cursor(as_dict=True)
