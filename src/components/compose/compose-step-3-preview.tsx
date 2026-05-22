@@ -248,8 +248,10 @@ export function ComposeStep3Preview({
         </div>
       )}
 
-      {/* 단일 column — 폼 + 미리보기 + 변수 */}
-      <div className="max-w-3xl space-y-4">
+      {/* 2 column — 좌: 폼, 우: 미리보기(sticky) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6 items-start">
+        {/* 좌측 — 폼 */}
+        <div className="space-y-4 min-w-0">
         {/* 템플릿 빠른 불러오기 (선택) */}
         {templates.length > 0 && (
           <div className="space-y-1">
@@ -468,29 +470,32 @@ export function ComposeStep3Preview({
             초과했습니다.
           </p>
         )}
+        </div>
 
-        {/* 실시간 미리보기 카드 — preview 있으면 finalBody (가드 적용),
-            없으면 step2.body raw fallback. samples 로 변수 치환 미리보기 노출. */}
-        <PhonePreviewCard
-          type={step2.type}
-          subject={step2.subject}
-          body={preview ? preview.finalBody : step2.body}
-          isAd={step2.isAd}
-          rawBytes={finalBodyBytes}
-          rawOverflow={bodyOverflow}
-          limit={bodyLimit}
-          samples={sampleValues}
-          recipientCount={preview?.recipientCount}
-        />
-        <p className="text-[11px] text-[color:var(--text-dim)] px-1">
-          위 미리보기는 광고 머리말·080 수신거부가 자동 적용된 최종 발송본
-          그대로입니다. 본문 바이트도 그 가공 결과 기준이에요.
-        </p>
+        {/* 우측 — 실시간 미리보기 (sticky). lg 이상에서 우측 column.
+            모바일에서는 form 아래로 흘러내림. */}
+        <aside className="space-y-2 lg:sticky lg:top-4 self-start">
+          <PhonePreviewCard
+            type={step2.type}
+            subject={step2.subject}
+            body={preview ? preview.finalBody : step2.body}
+            isAd={step2.isAd}
+            rawBytes={finalBodyBytes}
+            rawOverflow={bodyOverflow}
+            limit={bodyLimit}
+            samples={sampleValues}
+            recipientCount={preview?.recipientCount}
+          />
+          <p className="text-[11px] text-[color:var(--text-dim)] px-1">
+            위 미리보기는 광고 머리말·080 수신거부가 자동 적용된 최종 발송본
+            그대로입니다. 본문 바이트도 그 가공 결과 기준이에요.
+          </p>
+        </aside>
       </div>
 
       {/* 비용 카드 + 캠페인 제목 — preview 있을 때만. */}
       {preview && !loading && (
-        <div className="max-w-3xl space-y-4">
+        <div className="space-y-4">
           <section
             aria-label="예상 비용"
             className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] p-4 flex items-center justify-between gap-4 flex-wrap"
