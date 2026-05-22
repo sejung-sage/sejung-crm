@@ -181,6 +181,7 @@ export function ComposeWizard({
             onPreview={setPreview}
             title={title}
             onTitleChange={setTitle}
+            scheduleAt={scheduleAt}
           />
         )}
         {step === 3 && selectedGroup && preview && (

@@ -76,6 +76,25 @@ export interface PhonePreviewCardProps {
 
   /** 헤더 시각 — 기본은 현재 KST 의 HH:mm. SSR/Hydration 안정성을 위해 부모가 넘김. */
   timeLabel?: string;
+
+  /**
+   * 변수 치환 sample.
+   *
+   * 운영자가 본문에 `{이름}` `{날짜}` 같은 변수를 직접 타이핑하면
+   * 그대로 textarea·state 에 저장되지만, 미리보기에는 sample 값으로 치환된
+   * 결과가 함께 표시되어야 수신자 입장을 가늠할 수 있다.
+   *
+   * 이 props 가 주어지면 read-only 본문 영역 아래에 "예시 학생 기준 미리보기"
+   * 라는 라벨과 함께 치환된 결과 말풍선이 한 번 더 추가로 노출된다.
+   * editable=true 거나 본문에 변수가 없거나 samples 가 없으면 노출 X.
+   */
+  samples?: {
+    name: string;
+    date: string;
+  };
+
+  /** 수신자 인원 — 헤더 우측 시각 옆에 "수신자 N명" 텍스트로 표시. 없으면 숨김. */
+  recipientCount?: number;
 }
 
 export function PhonePreviewCard({
@@ -91,6 +110,8 @@ export function PhonePreviewCard({
   onBodyChange,
   footer,
   timeLabel,
+  samples,
+  recipientCount,
 }: PhonePreviewCardProps) {
   // 부모가 timeLabel 을 안 줬다면 현재 KST 시각.
   // SSR 에서는 빈 문자열 → 클라이언트 hydrate 시 useMemo 가 한 번 계산.
@@ -107,6 +128,24 @@ export function PhonePreviewCard({
   }, [timeLabel]);
 
   const subjectVisible = type === "LMS";
+
+  // 변수 치환 sample — read-only 모드에서만 노출. body / subject 에 {이름}·{날짜}
+  // 가 실제로 포함된 경우에만 보조 말풍선을 띄운다.
+  const hasVariableTokens =
+    !editable &&
+    !!samples &&
+    (body.includes("{이름}") ||
+      body.includes("{날짜}") ||
+      (subject?.includes("{이름}") ?? false) ||
+      (subject?.includes("{날짜}") ?? false));
+
+  const renderedSampleSubject =
+    subjectVisible && subject && samples
+      ? replaceTokens(subject, samples)
+      : null;
+  const renderedSampleBody = samples
+    ? replaceTokens(body, samples)
+    : body;
 
   return (
     <section
@@ -146,12 +185,19 @@ export function PhonePreviewCard({
             </span>
           </div>
         </div>
-        <span
-          className="text-[12px] text-[color:var(--text-muted)] tabular-nums shrink-0"
-          aria-label={`현재 시각 ${time}`}
-        >
-          {time}
-        </span>
+        <div className="flex flex-col items-end gap-0.5 shrink-0">
+          <span
+            className="text-[12px] text-[color:var(--text-muted)] tabular-nums"
+            aria-label={`현재 시각 ${time}`}
+          >
+            {time}
+          </span>
+          {typeof recipientCount === "number" && (
+            <span className="text-[11px] text-[color:var(--text-muted)] tabular-nums">
+              수신자 {recipientCount.toLocaleString()}명
+            </span>
+          )}
+        </div>
       </header>
 
       {/* ── 말풍선 영역 ───────────────────────────────── */}
@@ -179,6 +225,37 @@ export function PhonePreviewCard({
             />
           </div>
         </div>
+
+        {/* 변수 치환 sample 말풍선 — read-only & 본문에 {이름}/{날짜} 포함 시 노출 */}
+        {hasVariableTokens && samples && (
+          <div className="space-y-1.5">
+            <p className="text-[11px] text-[color:var(--text-muted)] px-1">
+              예시: {samples.name} · {samples.date}
+            </p>
+            <div className="flex justify-start">
+              <div
+                className="
+                  max-w-[85%] rounded-2xl rounded-tl-md
+                  border border-dashed border-[color:var(--border-strong)]
+                  bg-bg-card
+                  px-4 py-3 space-y-2
+                "
+              >
+                {subjectVisible && renderedSampleSubject && (
+                  <p className="text-[15px] font-semibold text-[color:var(--text)] leading-tight">
+                    {renderedSampleSubject}
+                  </p>
+                )}
+                <pre
+                  className="whitespace-pre-wrap break-words text-[15px] leading-relaxed text-[color:var(--text)] font-sans"
+                  style={{ fontFamily: "var(--font-sans)" }}
+                >
+                  {renderedSampleBody}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* 광고 footer — 별도 말풍선 */}
         {isAd && footer && (
@@ -389,4 +466,21 @@ function FooterField({
       <div className="tabular-nums">무료수신거부 {unsubscribePhone}</div>
     </div>
   );
+}
+
+/**
+ * 변수 치환 helper.
+ *
+ * `{이름}` `{날짜}` 토큰을 sample 값으로 치환.
+ * 다른 토큰(`{선생}`, `{강좌}` 등)은 그대로 둔다 — 현재 정책상 지원 X.
+ */
+function replaceTokens(
+  source: string,
+  samples: { name: string; date: string },
+): string {
+  return source
+    .split("{이름}")
+    .join(samples.name)
+    .split("{날짜}")
+    .join(samples.date);
 }
