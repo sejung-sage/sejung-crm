@@ -1,27 +1,49 @@
 "use client";
 
 import Link from "next/link";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { ClassListItem } from "@/types/database";
 import { BranchBadge } from "@/components/groups/branch-badge";
+import { SEASON_VALUES, type Season } from "@/lib/schemas/common";
+import { updateClassSeasonAction } from "@/app/(features)/classes/actions";
+import { useToast } from "@/components/ui/toast";
 
 interface Props {
   rows: ClassListItem[];
+  /** 시즌 인라인 수정 노출 여부 — master/admin 만 true (page.tsx 에서 판단). */
+  canEditSeason: boolean;
+  /** 로그인 사용자 분원 (admin 분원 교차 검증용). master 는 무시. */
+  userBranch: string | null;
+  /** 로그인 사용자 역할 — master 면 모든 분원 강좌 시즌 수정 가능. */
+  userRole: "master" | "admin" | "manager" | "viewer" | null;
+  /** 개발용 시드 모드 — 시즌 변경 액션이 즉시 dev_seed_mode 반환. UI 안내용. */
+  devMode: boolean;
 }
 
 /**
  * F0 · 강좌 리스트 테이블 (Client Component).
  *
- * 컬럼:
- *   반명 · 분원 · 과목 · 강사 · 요일/시간 · 회당단가 · 총회차 · 정가 · 수강생
+ * 컬럼 (좌→우):
+ *   반명 · 분원 · 과목 · 시즌 · 강사 · 요일/시간 · 회당단가 · 총회차 · 정가 · 수강생
  *
- * - 반명 셀에 `/classes/[id]` 로 링크. 상세 페이지는 Phase B 에서 생성 예정.
+ * - 반명 셀에 `/classes/[id]` 로 링크.
  * - 미사용 강좌(active=false)는 회색조 dim. (`active=0` 토글 시에만 노출됨)
+ * - 시즌 셀:
+ *     - master  → 모든 분원 강좌 시즌 dropdown 으로 인라인 편집.
+ *     - admin   → 본인 분원 강좌만 편집, 다른 분원은 read-only chip.
+ *     - manager/viewer/비로그인 → 항상 read-only chip.
+ *   변경은 updateClassSeasonAction 호출 + toast + router.refresh.
+ *   dev-seed 모드는 액션이 즉시 dev_seed_mode 반환 — toast 로 안내.
  * - 빈 상태: "검색 조건에 해당하는 강좌가 없습니다."
- *
- * Server Component 로도 충분하지만, 향후 인라인 액션(즐겨찾기 등) 추가 여지를
- * 두고 Client 로 시작. 현재 클라이언트 상태는 없음.
  */
-export function ClassesTable({ rows }: Props) {
+export function ClassesTable({
+  rows,
+  canEditSeason,
+  userBranch,
+  userRole,
+  devMode,
+}: Props) {
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
@@ -43,6 +65,7 @@ export function ClassesTable({ rows }: Props) {
             <Th>반명</Th>
             <Th className="w-20">분원</Th>
             <Th className="w-20 text-center">과목</Th>
+            <Th className="w-36 text-center">시즌</Th>
             <Th className="w-28">강사</Th>
             <Th className="w-36">요일/시간</Th>
             <Th className="w-28 text-right">회당단가</Th>
@@ -54,6 +77,14 @@ export function ClassesTable({ rows }: Props) {
         <tbody>
           {rows.map((r) => {
             const dim = !r.active;
+            // 현재 사용자가 이 강좌의 시즌을 편집 가능한가?
+            //   - canEditSeason=false → 즉시 read-only
+            //   - master → 모든 분원 OK
+            //   - admin → 본인 분원만 OK
+            const editable =
+              canEditSeason &&
+              (userRole === "master" || r.branch === userBranch);
+
             return (
               <tr
                 key={r.id}
@@ -94,6 +125,15 @@ export function ClassesTable({ rows }: Props) {
                   }`}
                 >
                   {r.subject ?? "—"}
+                </Td>
+                <Td className="text-center">
+                  <SeasonCell
+                    classId={r.id}
+                    season={r.season}
+                    editable={editable}
+                    dim={dim}
+                    devMode={devMode}
+                  />
                 </Td>
                 <Td
                   className={
@@ -158,6 +198,136 @@ export function ClassesTable({ rows }: Props) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+// ─── 시즌 셀 (인라인 편집) ───────────────────────────────────
+
+/**
+ * "" sentinel → DB NULL.
+ * <select> 의 value 는 문자열만 가능하므로 NULL 을 빈 문자열로 매핑한다.
+ */
+const SEASON_NULL_SENTINEL = "" as const;
+
+interface SeasonCellProps {
+  classId: string;
+  season: string | null;
+  editable: boolean;
+  dim: boolean;
+  devMode: boolean;
+}
+
+/**
+ * 시즌 셀:
+ *  - editable=true → <select> dropdown (변경 즉시 server action).
+ *  - editable=false → read-only chip (값 또는 "—").
+ *
+ * UX 디테일:
+ *  - dev-seed 모드면 action 이 즉시 dev_seed_mode 반환 → toast 로 안내 + 값 원복.
+ *  - 실패 시 toast 에러 + 값 원복 (낙관적 업데이트 X — 단순화 우선).
+ *  - 성공 시 toast 성공 + router.refresh() 로 서버 캐시 무효화 동기.
+ *  - 변경 중에는 select disable + opacity-60.
+ */
+function SeasonCell({
+  classId,
+  season,
+  editable,
+  dim,
+  devMode,
+}: SeasonCellProps) {
+  const router = useRouter();
+  const { show: showToast } = useToast();
+  const [value, setValue] = useState<string>(season ?? SEASON_NULL_SENTINEL);
+  const [isPending, startTransition] = useTransition();
+
+  if (!editable) {
+    // 읽기 전용 — 값이 있으면 chip, 없으면 "—".
+    if (!season) {
+      return (
+        <span
+          className={
+            dim
+              ? "text-[color:var(--text-dim)]"
+              : "text-[color:var(--text-muted)]"
+          }
+        >
+          —
+        </span>
+      );
+    }
+    return (
+      <span
+        className={`
+          inline-flex items-center px-2 py-0.5 rounded-md text-[12px]
+          border border-[color:var(--border)] bg-bg-card
+          ${
+            dim
+              ? "text-[color:var(--text-dim)]"
+              : "text-[color:var(--text)]"
+          }
+        `}
+      >
+        {season}
+      </span>
+    );
+  }
+
+  const handleChange = (next: string) => {
+    const prev = value;
+    setValue(next);
+    startTransition(async () => {
+      const nextSeason: Season | null =
+        next === SEASON_NULL_SENTINEL ? null : (next as Season);
+      const result = await updateClassSeasonAction({
+        id: classId,
+        season: nextSeason,
+      });
+      if (result.status === "success") {
+        showToast(
+          "success",
+          nextSeason
+            ? `시즌을 '${nextSeason}' 으로 바꿨어요`
+            : "시즌을 미분류로 되돌렸어요",
+        );
+        router.refresh();
+      } else if (result.status === "dev_seed_mode") {
+        // dev-seed 모드 — 변경 무효, UI 만 되돌림.
+        setValue(prev);
+        showToast(
+          "error",
+          "개발용 시드 모드에서는 시즌을 변경할 수 없습니다",
+        );
+      } else {
+        setValue(prev);
+        showToast("error", result.reason ?? "시즌 변경에 실패했습니다");
+      }
+    });
+  };
+
+  return (
+    <select
+      aria-label="시즌 선택"
+      value={value}
+      disabled={isPending}
+      onChange={(e) => handleChange(e.target.value)}
+      title={devMode ? "개발용 시드 모드에서는 변경되지 않습니다" : undefined}
+      className={`
+        h-9 w-full max-w-[10rem] rounded-md px-2
+        bg-bg-card border border-[color:var(--border)]
+        text-[13px] text-[color:var(--text)]
+        focus:outline-none focus:border-[color:var(--border-strong)]
+        cursor-pointer
+        disabled:opacity-60 disabled:cursor-wait
+        ${dim ? "opacity-70" : ""}
+      `}
+    >
+      <option value={SEASON_NULL_SENTINEL}>미분류</option>
+      {SEASON_VALUES.map((s) => (
+        <option key={s} value={s}>
+          {s}
+        </option>
+      ))}
+    </select>
   );
 }
 

@@ -107,6 +107,30 @@ export const AttendanceStatusSchema = z.enum([
 ]);
 
 /**
+ * 강좌 시즌 분류 enum (6종).
+ * 0070 마이그 — aca_classes.season / crm_classes.season CHECK 제약과 동기.
+ *
+ * 사용자 결정 (2026-05-22):
+ *  - raw(aca_*) 에는 시즌 태그 없음 — 자동 분류 X
+ *  - 운영팀이 강좌마다 dropdown 으로 수동 선택
+ *  - 분류 6종은 학원 행정 관점에서 시즌별 매출/학생수 분석에 충분
+ *
+ * NULL 도 허용 — "아직 미분류" 상태 (DB 측 CHECK 가 NULL OR enum).
+ * 이 Zod 스키마는 비-NULL 입력의 화이트리스트만 책임지고,
+ * NULL 허용은 호출부에서 `.nullable()` 으로 명시.
+ */
+export const SEASON_VALUES = [
+  "여름방학특강",
+  "겨울방학특강",
+  "내신",
+  "상반기정규",
+  "하반기정규",
+  "기타",
+] as const;
+export const SeasonSchema = z.enum(SEASON_VALUES);
+export type Season = z.infer<typeof SeasonSchema>;
+
+/**
  * 템플릿 발송 유형 enum.
  * 0059 마이그에서 ALIMTALK 제거 — sendon.kakao API + 사전 등록 템플릿이 필요한
  * 알림톡은 Phase 1 으로 보류. 신규/수정 입력은 SMS / LMS 만 허용.

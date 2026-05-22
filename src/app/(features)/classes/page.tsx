@@ -74,6 +74,10 @@ export default async function ClassesPage({
   ]);
   const devMode = isDevSeedMode();
   const canPickBranch = currentUser?.role === "master";
+  // 시즌 인라인 수정 권한 — master 는 모든 분원, admin 은 본인 분원.
+  // 액션 자체가 다시 가드하므로 UI 는 표시/숨김 용도.
+  const canEditSeason =
+    currentUser?.role === "master" || currentUser?.role === "admin";
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -112,7 +116,13 @@ export default async function ClassesPage({
       </p>
 
       {/* 테이블 */}
-      <ClassesTable rows={result.rows} />
+      <ClassesTable
+        rows={result.rows}
+        canEditSeason={canEditSeason}
+        userBranch={currentUser?.branch ?? null}
+        userRole={currentUser?.role ?? null}
+        devMode={devMode}
+      />
 
       {/* 페이지네이션 — 학생 목록과 라벨 차이를 무시하고 컴포넌트 재사용
           (총 N명 → 총 N건 차이는 작은 차이라 향후 분리 가능). */}

@@ -235,6 +235,14 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     q = q.eq("subject", filters.subject) as Q;
   }
 
+  if (filters.season) {
+    // DB CHECK 가 6종 enum 이라 안전 — 0070 마이그.
+    // (여름방학특강/겨울방학특강/내신/상반기정규/하반기정규/기타).
+    // NULL(미분류) 만 골라 보는 토글은 도입 X — 운영팀이 의도적으로 채워가는
+    // 컬럼이라 별도 부정 필터가 필요해질 때 추가.
+    q = q.eq("season", filters.season) as Q;
+  }
+
   // active=true 가 명시되면 미사용 강좌 숨김. false 면 모두 표시 (필터 미적용).
   if (filters.active === true) {
     q = q.eq("active", true) as Q;

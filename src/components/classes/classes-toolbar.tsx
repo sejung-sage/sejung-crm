@@ -11,6 +11,7 @@ import {
   type ClassDay,
   type ClassSort,
 } from "@/lib/schemas/class";
+import { SEASON_VALUES } from "@/lib/schemas/common";
 import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
 
 /**
@@ -47,6 +48,13 @@ const SUBJECT_OPTIONS = [
   "컨설팅",
   "기타",
 ] as const;
+
+/**
+ * 시즌 dropdown 옵션 — "전체" + SEASON_VALUES 6종 (0070 마이그).
+ * "전체" 선택 시 URL `?season` 제거 → backend 필터 미적용.
+ * SEASON_VALUES 와 1:1 동기 — 단일 출처는 schemas/common.ts.
+ */
+const SEASON_OPTIONS = ["전체", ...SEASON_VALUES] as const;
 
 /**
  * 정렬 enum → 한글 라벨 매핑.
@@ -130,6 +138,13 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
     subjectParam && SUBJECT_WHITELIST.has(subjectParam)
       ? subjectParam
       : "전체";
+
+  // 시즌 — 화이트리스트 외 입력은 "전체" 로 폴백 (필터 미적용).
+  // SEASON_VALUES 와 1:1 동기. 0070 마이그.
+  const seasonParam = searchParams.get("season");
+  const SEASON_WHITELIST: ReadonlySet<string> = new Set(SEASON_VALUES);
+  const season =
+    seasonParam && SEASON_WHITELIST.has(seasonParam) ? seasonParam : "전체";
 
   // 다중 키 — 반복 파라미터 (?teacher=A&teacher=B, ?day=월&day=수).
   const teachers = searchParams.getAll("teacher");
@@ -218,6 +233,17 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
     updateParams((p) => {
       if (value === "전체") p.delete("subject");
       else p.set("subject", value);
+    });
+  };
+
+  /**
+   * 시즌 변경 — "전체" 는 canonical URL 짧게 유지하려고 URL 에서 제거.
+   * 그 외 값은 SEASON_VALUES 화이트리스트 안에 있다고 가정 (select option 자체가 그것).
+   */
+  const onSeasonChange = (value: string) => {
+    updateParams((p) => {
+      if (value === "전체") p.delete("season");
+      else p.set("season", value);
     });
   };
 
@@ -310,6 +336,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
     q !== "" ||
     branch !== "전체" ||
     subject !== "전체" ||
+    season !== "전체" ||
     teachers.length > 0 ||
     days.length > 0 ||
     status !== "all" ||
@@ -322,6 +349,7 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
       p.delete("q");
       p.delete("branch");
       p.delete("subject");
+      p.delete("season");
       p.delete("teacher");
       p.delete("day");
       p.delete("status");
@@ -403,6 +431,27 @@ export function ClassesToolbar({ teacherOptions, canPickBranch }: Props) {
           {SUBJECT_OPTIONS.map((s) => (
             <option key={s} value={s}>
               {s === "전체" ? "전체 과목" : s}
+            </option>
+          ))}
+        </select>
+
+        {/* 시즌 — 0070 마이그. 운영팀 수동 분류 dropdown.
+            "전체" 는 URL ?season 제거. */}
+        <select
+          aria-label="시즌 선택"
+          value={season}
+          onChange={(e) => onSeasonChange(e.target.value)}
+          className="
+            h-10 min-w-36 rounded-lg px-3
+            bg-bg-card border border-[color:var(--border)]
+            text-[15px] text-[color:var(--text)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+            cursor-pointer
+          "
+        >
+          {SEASON_OPTIONS.map((s) => (
+            <option key={s} value={s}>
+              {s === "전체" ? "전체 시즌" : s}
             </option>
           ))}
         </select>
