@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
-import { Loader2, Moon, Send, Users } from "lucide-react";
-import type { GroupListItem } from "@/types/database";
+import { useEffect, useMemo, useState, useTransition } from "react";
+import { AlertTriangle, Loader2, Megaphone, Moon, Send, Users } from "lucide-react";
+import type { GroupListItem, TemplateRow } from "@/types/database";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
 import { useToast } from "@/components/ui/toast";
 import {
@@ -11,32 +11,49 @@ import {
 } from "@/app/(features)/compose/actions";
 import { maskPhone } from "@/lib/phone";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
-import { BYTE_LIMITS } from "@/lib/schemas/template";
+import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import type { ComposeStep2State } from "./compose-wizard";
 
 /**
- * F3 Part B · Step 3 — 미리보기 · 비용 · 테스트 발송 + 캠페인 제목.
+ * F3 Part B · Step 2 통합 — 작성 + 미리보기 + 캠페인 제목.
  *
- * - 마운트 시 또는 입력 변경 시 previewAction 호출.
- * - 야간 광고 차단(`blockedByQuietHours`) 이면 빨간 박스 + 다음 비활성.
- * - 우상단 "테스트 발송" → 다이얼로그(본인 번호 입력 → testSendAction).
- * - 캠페인 제목 입력은 이 단계 마지막 필드.
+ * 좌측: 발송 대상 / 수신자 샘플 / 비용.
+ * 우측: 편집 input (유형/제목/본문/광고) + 실시간 핸드폰 미리보기 카드.
+ *      본문 byte 카운트는 server 가드 적용 후 finalBody 기준이라 광고 머리말·
+ *      080 수신거부 footer 가 자동 포함된 최종 byte 를 보여준다.
+ *      제목 byte 도 LMS 일 때 실시간 표시.
  */
 interface Props {
   groupId: string;
   selectedGroup: GroupListItem;
   step2: ComposeStep2State;
+  onStep2Change: (s: ComposeStep2State) => void;
+  templates: TemplateRow[];
   preview: PreviewResult | null;
   onPreview: (p: PreviewResult | null) => void;
   title: string;
   onTitleChange: (t: string) => void;
 }
 
+// LMS 제목은 64byte (한글 32자) 제한. SMS 는 제목 없음.
+const SUBJECT_BYTE_LIMIT = 64;
+
+const TYPE_OPTIONS: Array<{
+  value: TemplateTypeLiteral;
+  label: string;
+  hint: string;
+}> = [
+  { value: "SMS", label: "SMS · 단문", hint: "90바이트" },
+  { value: "LMS", label: "LMS · 장문", hint: "2000바이트" },
+];
+
 export function ComposeStep3Preview({
   groupId,
   selectedGroup,
   step2,
+  onStep2Change,
+  templates,
   preview,
   onPreview,
   title,
@@ -45,6 +62,45 @@ export function ComposeStep3Preview({
   const [loading, startLoading] = useTransition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [testOpen, setTestOpen] = useState(false);
+
+  // 제목 byte (LMS 만 표시).
+  const subjectBytes = useMemo(
+    () => (step2.subject ? countEucKrBytes(step2.subject) : 0),
+    [step2.subject],
+  );
+  const subjectOverflow = subjectBytes > SUBJECT_BYTE_LIMIT;
+
+  // 본문 byte — server 가드(광고 prefix + 080 footer) 적용된 finalBody 기준.
+  // preview 가 아직 없으면 raw body 로 잠정 표시.
+  const finalBodyBytes = preview
+    ? countEucKrBytes(preview.finalBody)
+    : countEucKrBytes(step2.body);
+  const bodyLimit = BYTE_LIMITS[step2.type];
+  const bodyOverflow = finalBodyBytes > bodyLimit;
+
+  const onTypeChange = (type: TemplateTypeLiteral) => {
+    if (type === "SMS") {
+      onStep2Change({ ...step2, type, subject: null });
+    } else {
+      onStep2Change({ ...step2, type });
+    }
+  };
+
+  const onPickTemplate = (id: string) => {
+    if (!id) {
+      onStep2Change({ ...step2, templateId: undefined });
+      return;
+    }
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    onStep2Change({
+      templateId: t.id,
+      type: t.type,
+      subject: t.subject,
+      body: t.body,
+      isAd: t.is_ad,
+    });
+  };
 
   // 마운트 / step2·groupId 변경 시 미리보기 재호출
   useEffect(() => {
@@ -226,22 +282,208 @@ export function ComposeStep3Preview({
               )}
             </section>
 
-            {/* 우: 최종 본문 — 핸드폰 미리보기 (read-only) */}
-            <div className="space-y-2">
+            {/* 우: 편집 폼 + 실시간 미리보기 */}
+            <div className="space-y-4">
+              {/* 템플릿 빠른 불러오기 (선택) */}
+              {templates.length > 0 && (
+                <div className="space-y-1">
+                  <label
+                    htmlFor="compose-template"
+                    className="text-[12px] text-[color:var(--text-muted)]"
+                  >
+                    저장된 템플릿 불러오기 (선택)
+                  </label>
+                  <select
+                    id="compose-template"
+                    value={step2.templateId ?? ""}
+                    onChange={(e) => onPickTemplate(e.target.value)}
+                    className="
+                      w-full h-9 rounded-md px-2
+                      bg-bg-card border border-[color:var(--border)]
+                      text-[13px] text-[color:var(--text)]
+                      focus:outline-none focus:border-[color:var(--border-strong)]
+                      cursor-pointer
+                    "
+                  >
+                    <option value="">— 새로 작성 —</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        [{t.type}] {t.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* 유형 */}
+              <fieldset className="space-y-1.5">
+                <legend className="text-[12px] text-[color:var(--text-muted)]">
+                  유형
+                </legend>
+                <div className="grid grid-cols-2 gap-1.5">
+                  {TYPE_OPTIONS.map((opt) => {
+                    const checked = step2.type === opt.value;
+                    return (
+                      <label
+                        key={opt.value}
+                        className={`
+                          flex items-center justify-center gap-1.5 h-9 rounded-md border cursor-pointer text-[13px]
+                          ${
+                            checked
+                              ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
+                              : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
+                          }
+                        `}
+                      >
+                        <input
+                          type="radio"
+                          name="compose-type"
+                          value={opt.value}
+                          checked={checked}
+                          onChange={() => onTypeChange(opt.value)}
+                          className="sr-only"
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              {/* 제목 (LMS 만) */}
+              {step2.type !== "SMS" && (
+                <div className="space-y-1">
+                  <div className="flex items-baseline justify-between">
+                    <label
+                      htmlFor="compose-subject"
+                      className="text-[12px] text-[color:var(--text-muted)]"
+                    >
+                      제목
+                    </label>
+                    <span
+                      className={`text-[11px] tabular-nums ${
+                        subjectOverflow
+                          ? "text-[color:var(--danger)] font-medium"
+                          : "text-[color:var(--text-dim)]"
+                      }`}
+                      aria-live="polite"
+                    >
+                      {subjectBytes} / {SUBJECT_BYTE_LIMIT} 바이트
+                    </span>
+                  </div>
+                  <input
+                    id="compose-subject"
+                    type="text"
+                    value={step2.subject ?? ""}
+                    onChange={(e) =>
+                      onStep2Change({ ...step2, subject: e.target.value })
+                    }
+                    placeholder="예: 세정학원 안내"
+                    className={`
+                      w-full h-9 rounded-md px-2.5
+                      bg-bg-card border text-[14px] text-[color:var(--text)]
+                      placeholder:text-[color:var(--text-dim)]
+                      focus:outline-none
+                      ${
+                        subjectOverflow
+                          ? "border-[color:var(--danger)] focus:border-[color:var(--danger)]"
+                          : "border-[color:var(--border)] focus:border-[color:var(--border-strong)]"
+                      }
+                    `}
+                  />
+                </div>
+              )}
+
+              {/* 본문 */}
+              <div className="space-y-1">
+                <label
+                  htmlFor="compose-body"
+                  className="text-[12px] text-[color:var(--text-muted)]"
+                >
+                  본문
+                </label>
+                <textarea
+                  id="compose-body"
+                  value={step2.body}
+                  onChange={(e) =>
+                    onStep2Change({ ...step2, body: e.target.value })
+                  }
+                  placeholder="문자 본문을 입력하세요."
+                  rows={6}
+                  className="
+                    w-full min-h-32 rounded-md p-2.5
+                    bg-bg-card border border-[color:var(--border)]
+                    text-[14px] leading-relaxed text-[color:var(--text)]
+                    placeholder:text-[color:var(--text-dim)]
+                    focus:outline-none focus:border-[color:var(--border-strong)]
+                    resize-y
+                  "
+                  style={{ fontFamily: "var(--font-sans)" }}
+                />
+              </div>
+
+              {/* 광고 체크 */}
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={step2.isAd}
+                  onChange={(e) =>
+                    onStep2Change({ ...step2, isAd: e.target.checked })
+                  }
+                  className="mt-0.5 size-4 accent-[color:var(--action)]"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[13px] font-medium text-[color:var(--text)]">
+                    광고성 문자
+                  </span>
+                  <span className="text-[11px] text-[color:var(--text-muted)]">
+                    체크 시 [광고] 머리말 + 080 수신거부가 자동 삽입되고 바이트
+                    합계에도 포함됩니다.
+                  </span>
+                </span>
+              </label>
+
+              {step2.isAd && (
+                <div
+                  role="note"
+                  className="flex items-start gap-2 rounded-md border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-3 py-2"
+                >
+                  <Megaphone
+                    className="size-3.5 mt-0.5 text-[color:var(--warning)] shrink-0"
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
+                  <p className="text-[12px] leading-relaxed text-[color:var(--text)]">
+                    21시 ~ 08시 광고 발송이 차단됩니다.
+                  </p>
+                </div>
+              )}
+
+              {bodyOverflow && (
+                <p className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]">
+                  <AlertTriangle
+                    className="size-3.5"
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
+                  현재 {step2.type} 한도({bodyLimit.toLocaleString()}바이트)를
+                  초과했습니다.
+                </p>
+              )}
+
+              {/* 실시간 미리보기 카드 — finalBody (가드 적용) 기준 */}
               <PhonePreviewCard
                 type={step2.type}
                 subject={step2.subject}
                 body={preview.finalBody}
                 isAd={step2.isAd}
-                rawBytes={countEucKrBytes(preview.finalBody)}
-                rawOverflow={
-                  countEucKrBytes(preview.finalBody) > BYTE_LIMITS[step2.type]
-                }
-                limit={BYTE_LIMITS[step2.type]}
+                rawBytes={finalBodyBytes}
+                rawOverflow={bodyOverflow}
+                limit={bodyLimit}
               />
-              <p className="text-[12px] text-[color:var(--text-dim)] px-1">
-                광고 머리말·080 수신거부는 광고 체크 시 자동 삽입되며,
-                위 미리보기는 server 가드를 적용한 최종 발송본 그대로입니다.
+              <p className="text-[11px] text-[color:var(--text-dim)] px-1">
+                위 미리보기는 광고 머리말·080 수신거부가 자동 적용된 최종 발송본
+                그대로입니다. 본문 바이트도 그 가공 결과 기준이에요.
               </p>
             </div>
           </div>

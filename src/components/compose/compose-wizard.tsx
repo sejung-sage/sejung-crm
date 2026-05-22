@@ -6,21 +6,21 @@ import type { GroupListItem, TemplateRow } from "@/types/database";
 import type { TemplateTypeLiteral } from "@/lib/schemas/template";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
 import { ComposeStep1Group } from "./compose-step-1-group";
-import { ComposeStep2Template } from "./compose-step-2-template";
 import { ComposeStep3Preview } from "./compose-step-3-preview";
 import { ComposeStep4Send } from "./compose-step-4-send";
 
 /**
- * F3 Part B · 4단계 발송 위저드.
- *
- * 상단 스텝 인디케이터 + 단계별 카드 본문.
- * 모든 단계 상태는 본 컴포넌트에서 관리하고 자식엔 props 로 내려준다.
+ * F3 Part B · 3단계 발송 위저드 (작성+미리보기 통합).
  *
  * 단계:
- *   1. 그룹 선택        — groupId
- *   2. 템플릿/직접 작성  — templateId? + type/subject/body/isAd
- *   3. 미리보기          — previewAction 호출 + 캠페인 제목 입력
- *   4. 발송              — 즉시 / 예약 → sendNow / schedule
+ *   1. 그룹 선택              — groupId
+ *   2. 작성 + 미리보기        — 우측 패널에서 type/subject/body/isAd 편집 +
+ *                              실시간 미리보기 + 캠페인 제목 입력
+ *   3. 발송                   — 즉시 / 예약 → sendNow / schedule
+ *
+ * (옛 4단계 "템플릿" 분리 step 은 사용자 피드백에 따라 2단계에 흡수.
+ *  compose-step-2-template.tsx 는 보존 — 향후 템플릿 불러오기 드롭다운으로
+ *  step 2 안에 재투입할 때 코드 재사용.)
  *
  * 디자인:
  *   - 활성 스텝: 검정 원
@@ -44,11 +44,10 @@ interface Props {
   templates: TemplateRow[];
 }
 
-const STEP_LABELS: Array<{ index: 1 | 2 | 3 | 4; label: string }> = [
+const STEP_LABELS: Array<{ index: 1 | 2 | 3; label: string }> = [
   { index: 1, label: "그룹 선택" },
-  { index: 2, label: "템플릿" },
-  { index: 3, label: "미리보기" },
-  { index: 4, label: "발송" },
+  { index: 2, label: "작성·미리보기" },
+  { index: 3, label: "발송" },
 ];
 
 export function ComposeWizard({
@@ -57,7 +56,7 @@ export function ComposeWizard({
   groups,
   templates,
 }: Props) {
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
   // ─── 1단계 ───
   const [groupId, setGroupId] = useState<string>(initialGroupId ?? "");
@@ -95,10 +94,10 @@ export function ComposeWizard({
   const [scheduleAt, setScheduleAt] = useState<string | null>(null);
 
   const goNext = () => {
-    setStep((s) => (s < 4 ? ((s + 1) as 1 | 2 | 3 | 4) : s));
+    setStep((s) => (s < 3 ? ((s + 1) as 1 | 2 | 3) : s));
   };
   const goPrev = () => {
-    setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3 | 4) : s));
+    setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3) : s));
   };
 
   const selectedGroup = useMemo<GroupListItem | null>(
@@ -171,25 +170,20 @@ export function ComposeWizard({
             onGroupIdChange={setGroupId}
           />
         )}
-        {step === 2 && (
-          <ComposeStep2Template
-            templates={templates}
-            value={step2}
-            onChange={setStep2}
-          />
-        )}
-        {step === 3 && selectedGroup && (
+        {step === 2 && selectedGroup && (
           <ComposeStep3Preview
             groupId={groupId}
             selectedGroup={selectedGroup}
             step2={step2}
+            onStep2Change={setStep2}
+            templates={templates}
             preview={preview}
             onPreview={setPreview}
             title={title}
             onTitleChange={setTitle}
           />
         )}
-        {step === 4 && selectedGroup && preview && (
+        {step === 3 && selectedGroup && preview && (
           <ComposeStep4Send
             groupId={groupId}
             selectedGroup={selectedGroup}
@@ -198,7 +192,7 @@ export function ComposeWizard({
             title={title}
             scheduleAt={scheduleAt}
             onScheduleAtChange={setScheduleAt}
-            onBackToPreview={() => setStep(3)}
+            onBackToPreview={() => setStep(2)}
           />
         )}
 
@@ -220,7 +214,7 @@ export function ComposeWizard({
             이전
           </button>
 
-          {step < 4 ? (
+          {step < 3 ? (
             <button
               type="button"
               onClick={goNext}
@@ -237,7 +231,7 @@ export function ComposeWizard({
               다음
             </button>
           ) : (
-            // step 4 의 발송 버튼은 ComposeStep4Send 안에서 자체 렌더 (결과 표시 함께)
+            // step 3 (발송) 의 발송 버튼은 ComposeStep4Send 안에서 자체 렌더.
             <span aria-hidden />
           )}
         </div>
@@ -249,7 +243,7 @@ export function ComposeWizard({
 // ─── 다음 버튼 활성화 로직 ────────────────────────────────────
 
 function canProceed(
-  step: 1 | 2 | 3 | 4,
+  step: 1 | 2 | 3,
   groupId: string,
   step2: ComposeStep2State,
   preview: PreviewResult | null,
@@ -257,13 +251,14 @@ function canProceed(
 ): boolean {
   if (step === 1) return groupId.length > 0;
   if (step === 2) {
+    // 작성 + 미리보기 통합. 본문/제목/미리보기/캠페인 제목 모두 충족해야 발송 단계로.
     if (!step2.body.trim()) return false;
-    if (step2.type !== "SMS" && (!step2.subject || step2.subject.trim().length === 0)) {
+    if (
+      step2.type !== "SMS" &&
+      (!step2.subject || step2.subject.trim().length === 0)
+    ) {
       return false;
     }
-    return true;
-  }
-  if (step === 3) {
     if (!preview) return false;
     if (preview.blockedByQuietHours) return false;
     if (preview.recipientCount === 0) return false;
