@@ -1,16 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { AlertTriangle, Loader2, Megaphone, Moon, Send, Users } from "lucide-react";
+import { AlertTriangle, Loader2, Megaphone, Moon, Users } from "lucide-react";
 import type { GroupListItem, TemplateRow } from "@/types/database";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
 import { useToast } from "@/components/ui/toast";
-import {
-  previewAction,
-  testSendAction,
-} from "@/app/(features)/compose/actions";
+import { previewAction } from "@/app/(features)/compose/actions";
 import { maskPhone } from "@/lib/phone";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
+import { TestSendCard } from "@/components/messaging/test-send-card";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import type { ComposeStep2State } from "./compose-wizard";
@@ -36,8 +34,8 @@ interface Props {
   onTitleChange: (t: string) => void;
 }
 
-// LMS 제목은 64byte (한글 32자) 제한. SMS 는 제목 없음.
-const SUBJECT_BYTE_LIMIT = 64;
+// LMS 제목 한도 — EUC-KR 40byte (한글 20자, 영문 40자). 사용자 정책 2026-05-22.
+const SUBJECT_BYTE_LIMIT = 40;
 
 const TYPE_OPTIONS: Array<{
   value: TemplateTypeLiteral;
@@ -61,7 +59,7 @@ export function ComposeStep3Preview({
 }: Props) {
   const [loading, startLoading] = useTransition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [testOpen, setTestOpen] = useState(false);
+  // testOpen 상태 제거 — TestSendCard 인라인 노출로 전환 (2026-05-22).
 
   // 제목 byte (LMS 만 표시).
   const subjectBytes = useMemo(
@@ -135,32 +133,24 @@ export function ComposeStep3Preview({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-            발송 미리보기
-          </h2>
-          <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-            가드 적용 후 실제 발송될 본문과 수신자를 확인하세요.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setTestOpen(true)}
-          disabled={!preview || preview.recipientCount === 0 || loading}
-          className="
-            inline-flex items-center gap-1.5 h-10 px-4 rounded-lg
-            border border-[color:var(--border)] bg-bg-card
-            text-[14px] text-[color:var(--text)]
-            hover:bg-[color:var(--bg-hover)]
-            disabled:opacity-40 disabled:cursor-not-allowed
-            transition-colors
-          "
-        >
-          <Send className="size-4" strokeWidth={1.75} aria-hidden />
-          테스트 발송
-        </button>
+      <div>
+        <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+          발송 미리보기
+        </h2>
+        <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
+          가드 적용 후 실제 발송될 본문과 수신자를 확인하세요.
+        </p>
       </div>
+
+      {/* 테스트 발송 카드 — template-form 과 동일 컴포넌트.
+          미리보기 영역 상단에 인라인 노출 (다이얼로그 X). */}
+      <TestSendCard
+        type={step2.type}
+        subject={step2.subject ?? null}
+        body={step2.body}
+        isAd={step2.isAd}
+        disabled={!step2.body.trim() || loading}
+      />
 
       {loading && (
         <div className="flex items-center gap-2 text-[14px] text-[color:var(--text-muted)]">
@@ -550,188 +540,7 @@ export function ComposeStep3Preview({
         </>
       )}
 
-      {testOpen && (
-        <TestSendDialog
-          step2={step2}
-          onClose={() => setTestOpen(false)}
-        />
-      )}
     </div>
   );
 }
 
-// ─── 테스트 발송 다이얼로그 ───────────────────────────────────
-
-function TestSendDialog({
-  step2,
-  onClose,
-}: {
-  step2: ComposeStep2State;
-  onClose: () => void;
-}) {
-  const { show: showToast } = useToast();
-  const [phone, setPhone] = useState("");
-  const [isPending, startTransition] = useTransition();
-  const [resultMsg, setResultMsg] = useState<{
-    tone: "success" | "danger" | "muted";
-    text: string;
-  } | null>(null);
-
-  const onSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setResultMsg(null);
-    const cleaned = phone.replace(/\D/g, "");
-    if (!/^01[016789][0-9]{7,8}$/.test(cleaned)) {
-      setResultMsg({
-        tone: "danger",
-        text: "휴대폰 번호 형식이 올바르지 않습니다. (예: 01012345678)",
-      });
-      return;
-    }
-    startTransition(async () => {
-      const result = await testSendAction({
-        step2: {
-          templateId: step2.templateId,
-          type: step2.type,
-          subject: step2.subject,
-          body: step2.body,
-          isAd: step2.isAd,
-        },
-        toPhone: cleaned,
-      });
-      switch (result.status) {
-        case "success": {
-          const text = `테스트 발송 완료. (성공 ${result.sent}건 / 실패 ${result.failed}건)`;
-          setResultMsg({ tone: "success", text });
-          showToast(
-            "success",
-            `테스트 발송됐어요 — 성공 ${result.sent}건 / 실패 ${result.failed}건`,
-          );
-          break;
-        }
-        case "scheduled":
-          setResultMsg({
-            tone: "success",
-            text: "테스트 발송이 예약되었습니다.",
-          });
-          showToast("success", "테스트 발송이 예약됐어요");
-          break;
-        case "blocked":
-          setResultMsg({ tone: "danger", text: result.reason });
-          showToast("error", `테스트 발송 차단: ${result.reason}`);
-          break;
-        case "failed":
-          setResultMsg({ tone: "danger", text: result.reason });
-          showToast("error", `테스트 발송 실패: ${result.reason}`);
-          break;
-        case "dev_seed_mode":
-          setResultMsg({ tone: "muted", text: result.reason });
-          break;
-      }
-    });
-  };
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="test-send-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isPending) onClose();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape" && !isPending) onClose();
-      }}
-    >
-      <form
-        onSubmit={onSubmit}
-        className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4"
-      >
-        <h3
-          id="test-send-title"
-          className="text-[18px] font-semibold text-[color:var(--text)]"
-        >
-          테스트 발송
-        </h3>
-        <p className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
-          본인 휴대폰 번호로 1건만 발송합니다. 캠페인 통계에는 집계되지 않으며,
-          광고 가드와 야간 차단은 동일하게 적용됩니다.
-        </p>
-
-        <div className="space-y-1.5">
-          <label
-            htmlFor="test-phone"
-            className="text-[14px] font-medium text-[color:var(--text)]"
-          >
-            받을 번호
-          </label>
-          <input
-            id="test-phone"
-            type="tel"
-            inputMode="numeric"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="01012345678"
-            disabled={isPending}
-            className="
-              w-full h-10 rounded-lg px-3
-              bg-bg-card border border-[color:var(--border)]
-              text-[15px] text-[color:var(--text)]
-              placeholder:text-[color:var(--text-dim)]
-              focus:outline-none focus:border-[color:var(--border-strong)]
-              disabled:opacity-50
-            "
-          />
-        </div>
-
-        {resultMsg && (
-          <div
-            role={resultMsg.tone === "danger" ? "alert" : "status"}
-            className={
-              resultMsg.tone === "success"
-                ? "rounded-lg border border-[color:var(--success)] bg-[color:var(--success-bg)] px-3 py-2 text-[13px] text-[color:var(--text)]"
-                : resultMsg.tone === "danger"
-                  ? "rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-3 py-2 text-[13px] text-[color:var(--danger)]"
-                  : "rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-3 py-2 text-[13px] text-[color:var(--text-muted)]"
-            }
-          >
-            {resultMsg.text}
-          </div>
-        )}
-
-        <div className="flex items-center justify-end gap-2 pt-2">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isPending}
-            className="
-              inline-flex items-center h-10 px-4 rounded-lg
-              border border-[color:var(--border)] bg-bg-card
-              text-[14px] text-[color:var(--text)]
-              hover:bg-[color:var(--bg-hover)]
-              disabled:opacity-50
-              transition-colors
-            "
-          >
-            닫기
-          </button>
-          <button
-            type="submit"
-            disabled={isPending || !phone.trim()}
-            className="
-              inline-flex items-center h-10 px-5 rounded-lg
-              bg-[color:var(--action)] text-[color:var(--action-text)]
-              text-[14px] font-medium
-              hover:bg-[color:var(--action-hover)]
-              disabled:opacity-50 disabled:cursor-not-allowed
-              transition-colors
-            "
-          >
-            {isPending ? "발송 중..." : "발송"}
-          </button>
-        </div>
-      </form>
-    </div>
-  );
-}
