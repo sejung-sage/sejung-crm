@@ -16,11 +16,15 @@
 import { createSmsAdapter } from "./adapters";
 import type { SmsSendResult } from "./adapters/types";
 import { applyAllGuards } from "./guards";
+import { applyDateToken, applyNameToken } from "./personalize";
 import { calculateCost } from "./calculate-cost";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { SendCampaignResult } from "./send-campaign";
+
+/** 테스트 발송 본문에서 `{이름}` 토큰을 치환할 때 사용하는 fallback 이름. */
+const TEST_NAME_PLACEHOLDER = "테스트 수신자";
 
 export interface TestSendInput {
   body: string;
@@ -139,6 +143,14 @@ export async function testSend(
     };
   }
 
+  // 개인화 토큰 치환 — 테스트 발송은 단건이라 분기 없이 동시 적용.
+  //   {날짜} → 현재 KST 'M월 D일'
+  //   {이름} → '테스트 수신자' fallback (실제 학생 join 이 없으므로 placeholder)
+  const personalizedBody = applyNameToken(
+    applyDateToken(guarded.finalBody, new Date()),
+    TEST_NAME_PLACEHOLDER,
+  );
+
   let sentOk = 0;
   let failed = 0;
   let totalCost = 0;
@@ -146,7 +158,7 @@ export async function testSend(
   try {
     result = await adapter.send({
       to: phone,
-      body: guarded.finalBody,
+      body: personalizedBody,
       subject: input.subject,
       type: input.type,
       fromNumber,

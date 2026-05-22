@@ -31,11 +31,14 @@ import { randomUUID } from "node:crypto";
 import {
   Sendon,
   SmsMessageType,
+  type Receiver,
   type SendMessageRequestDto,
+  type UserParameters,
 } from "@alipeople/sendon-sdk-typescript";
 import type {
   AdapterMode,
   SmsAdapter,
+  SmsBatchRecipient,
   SmsBatchSendRequest,
   SmsBatchSendResult,
   SmsSendRequest,
@@ -245,10 +248,16 @@ async function sendBatchLive(
   const sdkType =
     req.type === "SMS" ? SmsMessageType.SMS : SmsMessageType.LMS;
 
+  // to 필드 변환:
+  //  - hasNamePlaceholder=true 또는 to 가 객체 배열 → Array<Receiver>
+  //  - 그 외 → string[] 그대로 (벤더 인터페이스 Union)
+  // 이름이 비어 있는 경우 sendon 측 fallback 이 없으므로 '학부모님' 으로 채움.
+  const toField = buildToField(req.to, req.hasNamePlaceholder === true);
+
   const payload: SendMessageRequestDto = {
     type: sdkType,
     from: opts.fromNumber,
-    to: req.to,
+    to: toField,
     message: req.body,
     // sendon `isAd` default = true → 명시하지 않으면 광고로 분류됨.
     isAd: req.isAd,
@@ -258,6 +267,14 @@ async function sendBatchLive(
       req.subject && req.subject.trim().length > 0
         ? req.subject.trim()
         : req.body.slice(0, 20);
+  }
+  if (req.hasNamePlaceholder === true) {
+    // SDK 의 Replace 인터페이스 주석: src 는 `#{변수명}` 형태.
+    // dst=CONTACTS_MEMBER_NAME 만 지원되며 to[].name 으로 치환된다.
+    const userParameters: UserParameters = {
+      replaces: [{ src: "#{이름}", dst: "CONTACTS_MEMBER_NAME" }],
+    };
+    payload.userParameters = userParameters;
   }
 
   try {
@@ -289,6 +306,39 @@ async function sendBatchLive(
         : "sendon batch 발송에 실패했습니다",
     };
   }
+}
+
+/**
+ * batch 발송 요청의 `to` 를 SDK 가 받는 형태로 정규화.
+ *  - hasNamePlaceholder=true  → 반드시 Array<Receiver> 로 (name 비면 '학부모님').
+ *  - 객체 배열이 들어왔지만 placeholder 가 없으면 → phone 만 뽑아 string[].
+ *  - string 배열은 그대로.
+ */
+function buildToField(
+  to: string[] | SmsBatchRecipient[],
+  hasNamePlaceholder: boolean,
+): Array<Receiver> | string[] {
+  if (to.length === 0) return [];
+  const firstIsObject =
+    typeof to[0] === "object" && to[0] !== null && "phone" in to[0];
+
+  if (hasNamePlaceholder) {
+    if (firstIsObject) {
+      return (to as SmsBatchRecipient[]).map<Receiver>((r) => ({
+        phone: r.phone,
+        name: (r.name ?? "").trim() || "학부모님",
+      }));
+    }
+    return (to as string[]).map<Receiver>((phone) => ({
+      phone,
+      name: "학부모님",
+    }));
+  }
+
+  if (firstIsObject) {
+    return (to as SmsBatchRecipient[]).map((r) => r.phone);
+  }
+  return to as string[];
 }
 
 // ─── live 상태 조회 ─────────────────────────────────────────

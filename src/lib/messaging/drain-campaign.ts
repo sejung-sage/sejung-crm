@@ -34,9 +34,15 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { createSmsAdapter } from "./adapters";
+import type { SmsBatchRecipient } from "./adapters/types";
 import { insertAdTag } from "./guards/insert-ad-tag";
 import { insertUnsubscribeFooter } from "./guards/insert-unsubscribe-footer";
 import { calculateCost } from "./calculate-cost";
+import {
+  applyDateToken,
+  hasNameToken,
+  toSendonNameSyntax,
+} from "./personalize";
 import type {
   CampaignRow,
   CampaignStatus,
@@ -89,10 +95,24 @@ export async function drainCampaignChunk(
   }
 
   // 2) 본문 가드 + 어댑터 + 발신번호 (반복 호출 전 1회만 준비)
-  const finalBody = insertUnsubscribeFooter(
-    insertAdTag(campaign.body, campaign.is_ad),
-    campaign.is_ad,
+  //    {날짜} 는 모든 수신자에게 동일 — finalBody 단계에서 1회 치환.
+  //    {이름} 은 수신자별 다름 — sendon batch + userParameters 로 벤더 측 치환.
+  //                            → 본문은 sendon 문법 #{이름} 으로 변환만 한다.
+  //    날짜 기준: scheduled_at > sent_at > now() (예약 발송분도 발송 당일 KST 로 출력).
+  const personalizationDate =
+    parseDateOrNull(campaign.scheduled_at) ??
+    parseDateOrNull(campaign.sent_at) ??
+    new Date();
+  const guardedBody = applyDateToken(
+    insertUnsubscribeFooter(
+      insertAdTag(campaign.body, campaign.is_ad),
+      campaign.is_ad,
+    ),
+    personalizationDate,
   );
+  const hasName = hasNameToken(guardedBody);
+  // 본문은 hasName 일 때만 sendon 치환 문법으로 변환 — 외 경우 그대로 송출.
+  const sendBody = hasName ? toSendonNameSyntax(guardedBody) : guardedBody;
   const adapter = createSmsAdapter();
   const fromNumber = readFromNumber(adapter.name);
   if (!fromNumber) {
@@ -119,12 +139,13 @@ export async function drainCampaignChunk(
       supabase,
       pending,
       adapter,
-      finalBody,
+      sendBody,
       subject: campaign.subject,
       type,
       fromNumber,
       isAd: campaign.is_ad,
       campaignId,
+      hasName,
     });
     totalAttempted += result.attempted;
     totalSent += result.sent;
@@ -154,19 +175,30 @@ export async function drainCampaignChunk(
 }
 
 /**
- * 한 청크(최대 1,000건) 처리 — sendon batch 1회 + DB UPDATE.
+ * 한 청크(최대 1,000건) 처리.
+ *
+ * 흐름:
+ *   - hasName=false → 단순 string[] to 로 sendon batch 1회.
+ *   - hasName=true  → student_id → name 매핑 후 to 를 Array<{phone, name}> 으로
+ *                     구성, body 는 이미 `#{이름}` 으로 변환된 상태로 전달.
+ *                     userParameters 트리거(`hasNamePlaceholder=true`) 도 함께.
+ *
+ * 어느 쪽이든 sendon API 1회 호출 + 단일 RPC UPDATE. vendor_message_id 는
+ * 한 groupId 가 N건 공유 — 기존 batch 경로와 동일.
+ *
  * drainCampaignChunk 의 루프 안에서 반복 호출된다.
  */
 async function processOneBatch(args: {
   supabase: SrvClient;
-  pending: Array<{ id: string; phone: string }>;
+  pending: PendingRow[];
   adapter: ReturnType<typeof createSmsAdapter>;
-  finalBody: string;
+  sendBody: string;
   subject: string | null;
   type: TemplateType;
   fromNumber: string;
   isAd: boolean;
   campaignId: string;
+  hasName: boolean;
 }): Promise<{
   attempted: number;
   sent: number;
@@ -177,12 +209,13 @@ async function processOneBatch(args: {
     supabase,
     pending,
     adapter,
-    finalBody,
+    sendBody,
     subject,
     type,
     fromNumber,
     isAd,
     campaignId,
+    hasName,
   } = args;
 
   const nowIso = new Date().toISOString();
@@ -191,23 +224,48 @@ async function processOneBatch(args: {
   let failed = 0;
   let addedCost = 0;
 
+  // hasName 일 때만 이름 매핑 — 그 외 경로는 한 쿼리 절약.
+  let recipients: SmsBatchRecipient[] | null = null;
+  if (hasName) {
+    const studentIds = Array.from(
+      new Set(
+        pending
+          .map((p) => p.student_id)
+          .filter((v): v is string => typeof v === "string" && v.length > 0),
+      ),
+    );
+    const nameMap = await loadStudentNames(supabase, studentIds);
+    recipients = pending.map((p) => ({
+      phone: p.phone,
+      name:
+        (p.student_id ? nameMap.get(p.student_id) ?? "" : "").trim() ||
+        "학부모님",
+    }));
+  }
+
   const batchResult = await adapter.sendBatch({
-    to: pending.map((p) => p.phone),
-    body: finalBody,
+    to: recipients ?? pending.map((p) => p.phone),
+    body: sendBody,
     subject,
     type,
     fromNumber,
     isAd,
+    hasNamePlaceholder: hasName,
   });
 
   if (batchResult.status === "queued") {
     // 한 batch 의 N건이 같은 vendor_message_id 를 공유 → 단일 RPC 로 일괄 UPDATE.
-    // PostgREST round-trip: 1,000회 → 1회.
     sent = pending.length;
     const totalCost = calculateCost(type, pending.length).totalCost;
     addedCost = totalCost;
     const perRowCost = Math.round(batchResult.unitCost);
-    await markMessagesSent(supabase, ids, batchResult.vendorMessageId, perRowCost, nowIso);
+    await markMessagesSent(
+      supabase,
+      ids,
+      batchResult.vendorMessageId,
+      perRowCost,
+      nowIso,
+    );
   } else {
     // batch 전체 실패 — 동일 사유로 일괄 UPDATE.
     failed = pending.length;
@@ -219,6 +277,40 @@ async function processOneBatch(args: {
   }
 
   return { attempted: pending.length, sent, failed, addedCost };
+}
+
+async function loadStudentNames(
+  supabase: SrvClient,
+  studentIds: string[],
+): Promise<Map<string, string>> {
+  if (studentIds.length === 0) return new Map();
+  const { data, error } = await supabase
+    .from("crm_students")
+    .select("id, name")
+    .in("id", studentIds);
+
+  if (error) {
+    // 이름 조회 실패해도 발송 자체는 진행 (fallback '학부모님') — 발송 정지보다 안전.
+    return new Map();
+  }
+  const rows = (data ?? []) as Array<{ id: string; name: string | null }>;
+  const out = new Map<string, string>();
+  for (const r of rows) {
+    if (r.name) out.set(r.id, r.name);
+  }
+  return out;
+}
+
+function parseDateOrNull(v: string | null): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+interface PendingRow {
+  id: string;
+  phone: string;
+  student_id: string | null;
 }
 
 // ─── 헬퍼 ──────────────────────────────────────────────────
@@ -253,17 +345,17 @@ async function loadCampaign(
 async function fetchPending(
   supabase: SrvClient,
   campaignId: string,
-): Promise<Array<{ id: string; phone: string }>> {
+): Promise<PendingRow[]> {
   const { data, error } = await supabase
     .from("crm_messages")
-    .select("id, phone")
+    .select("id, phone, student_id")
     .eq("campaign_id", campaignId)
     .eq("status", "대기")
     .order("id", { ascending: true })
     .limit(DRAIN_CHUNK_SIZE);
 
   if (error) throw new Error(`대기 메시지 조회 실패: ${error.message}`);
-  return (data ?? []) as Array<{ id: string; phone: string }>;
+  return (data ?? []) as PendingRow[];
 }
 
 async function hasPending(

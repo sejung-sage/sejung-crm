@@ -36,18 +36,34 @@ export type SmsSendResult =
   | { status: "failed"; reason: string };
 
 /**
+ * batch 발송용 수신자 객체. sendon `Receiver` 타입에 1:1 매핑.
+ * 이름 기반 개인화(`{이름}` 치환) 가 필요한 캠페인에서 사용한다.
+ *  - phone : 하이픈 없는 11자리(01012345678).
+ *  - name  : sendon `Receiver.name`. 비어 있으면 어댑터가 fallback 처리.
+ */
+export type SmsBatchRecipient = {
+  phone: string;
+  name?: string;
+};
+
+/**
  * 다중 수신자 일괄 발송 요청.
  * sendon `SendMessageRequestDto.to: Array<...>` 1회 API 호출에 매핑.
- * 본 인터페이스로 보내는 모든 수신자는 동일한 body / subject / type / fromNumber
- * 를 공유한다 (개인화 변수는 Phase 2 — sendon userParameters).
+ *
+ * 수신자 표현은 두 가지:
+ *  - `string[]`               : 이름 치환 불필요. 가장 단순한 경로.
+ *  - `SmsBatchRecipient[]`    : `{이름}` 치환이 필요한 캠페인. 수신자별 name 동봉.
  *
  * 수신자별 개별 vendor_message_id 가 필요하면 send() 를 N번 호출해야 한다.
  * 본 batch 는 1 groupId 를 N건이 공유 — Status polling 시 groupId 단위 조회.
  */
 export type SmsBatchSendRequest = {
-  /** 수신자 번호 배열. 각 항목은 하이픈 없는 11자리(01012345678). */
-  to: string[];
-  /** 안전 가드까지 모두 적용 완료된 최종 본문. */
+  /** 수신자. 문자열 배열(이름 치환 X) 또는 객체 배열(이름 치환 O). */
+  to: string[] | SmsBatchRecipient[];
+  /**
+   * 안전 가드까지 모두 적용 완료된 최종 본문.
+   * `hasNamePlaceholder=true` 인 경우, 이미 sendon 문법 `#{이름}` 으로 변환된 상태여야 한다.
+   */
   body: string;
   /** LMS/알림톡 제목. SMS 는 null. */
   subject: string | null;
@@ -60,6 +76,12 @@ export type SmsBatchSendRequest = {
    * sendon 스펙 default = true → 미설정 시 모든 발송이 광고로 분류된다.
    */
   isAd: boolean;
+  /**
+   * 본문에 `#{이름}` placeholder 가 있어 sendon `userParameters.replaces` 를
+   * 적용해야 하는지. true 이면 어댑터가 to 를 `Array<Receiver>` 로 보내고
+   * userParameters 를 함께 전달한다.
+   */
+  hasNamePlaceholder?: boolean;
 };
 
 /**
