@@ -53,6 +53,7 @@ from supabase import create_client  # type: ignore
 # 0012 마이그레이션 정규화 모델: DB 함수와 동일한 룰을 Python 측 미러로 사용.
 # scripts/etl/ 를 패키지로 설치하지 않으므로 동일 디렉토리 상대 import.
 sys.path.insert(0, str(Path(__file__).parent))
+from _encoding import recover_rows  # noqa: E402
 from grade_policy import normalize_grade, derive_school_level  # noqa: E402
 
 # ─── env ──────────────────────────────────────────────────
@@ -151,7 +152,7 @@ def fetch_students(db_config: dict) -> list[dict]:
             FROM dbo.V_student_list
             """
         )
-        return list(cur.fetchall())
+        return recover_rows(list(cur.fetchall()))
     finally:
         conn.close()
 

@@ -43,6 +43,7 @@ from typing import Any
 
 import pymssql  # type: ignore
 from dotenv import load_dotenv
+from _encoding import recover_rows
 from supabase import create_client  # type: ignore
 
 # ─── env ──────────────────────────────────────────────────
@@ -172,7 +173,7 @@ def fetch_teachers(db_config: dict) -> list[dict]:
             FROM dbo.V_People_List
             """
         )
-        return list(cur.fetchall())
+        return recover_rows(list(cur.fetchall()))
     finally:
         conn.close()
 

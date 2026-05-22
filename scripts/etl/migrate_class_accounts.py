@@ -53,6 +53,7 @@ from typing import Any
 
 import pymssql  # type: ignore
 from dotenv import load_dotenv
+from _encoding import recover_rows
 from supabase import create_client  # type: ignore
 
 # ─── env ──────────────────────────────────────────────────
@@ -205,7 +206,7 @@ def fetch_class_accounts(db_config: dict) -> list[dict]:
             FROM dbo.V_class_account_list
             """
         )
-        rows = list(cur.fetchall())
+        rows = recover_rows(list(cur.fetchall()))
         # 학원_코드는 view 에서 빠질 수 있으니 보강
         for r in rows:
             r.setdefault("학원_코드", None)
