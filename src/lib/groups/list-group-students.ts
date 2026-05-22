@@ -33,6 +33,11 @@ import {
 } from "@/lib/profile/students-dev-seed";
 import { applyGroupFiltersDev } from "./apply-filters";
 import { getGroup } from "./get-group";
+// 학생 명단·count-recipients 와 동일 로직 보장 — 학교 미등록/등록 토글.
+import {
+  UNMAPPED_SCHOOL_OR_EXPR,
+  applyMappedSchoolFilter,
+} from "@/lib/profile/list-students";
 import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
 import { isAllSubjects } from "@/lib/schemas/common";
 
@@ -171,6 +176,13 @@ export async function listGroupStudents(
       }
       if (allowedSchools) {
         q = q.in("school", allowedSchools);
+      }
+      // 학교 미등록/등록 토글 — count-recipients 와 동일 헬퍼.
+      // 두 토글 동시 true 는 unmapped 우선.
+      if (group.filters.unmappedSchool) {
+        q = q.or(UNMAPPED_SCHOOL_OR_EXPR) as typeof q;
+      } else if (group.filters.mappedSchool) {
+        q = applyMappedSchoolFilter(q);
       }
     }
 

@@ -33,6 +33,10 @@ import { getGroup } from "./get-group";
 import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
 import { isAllSubjects } from "@/lib/schemas/common";
 import type { Database, StudentStatus } from "@/types/database";
+import {
+  UNMAPPED_SCHOOL_OR_EXPR,
+  applyMappedSchoolFilter,
+} from "@/lib/profile/list-students";
 
 /** PostgREST `max_rows` cap (supabase/config.toml). 이보다 크게 잡으면 cap 으로
  *  잘려 early break 회귀가 발생한다. */
@@ -149,6 +153,12 @@ export async function loadAllGroupRecipients(
       }
       if (allowedSchools) {
         q = q.in("school", allowedSchools);
+      }
+      // 학교 미등록/등록 토글 — list-group-students 와 동일.
+      if (group.filters.unmappedSchool) {
+        q = q.or(UNMAPPED_SCHOOL_OR_EXPR) as typeof q;
+      } else if (group.filters.mappedSchool) {
+        q = applyMappedSchoolFilter(q);
       }
     }
 
