@@ -173,7 +173,10 @@ export function ComposeStep3Preview({
         </div>
       )}
 
-      {errorMsg && !loading && (
+      {/* 본문이 비었거나 preview 가 아직이면 안내 (errorMsg 는 input 영역과 함께 표시).
+          빈 본문 에러 메시지를 그대로 두면 사용자가 본문 입력 자체를 못 함 → input 은
+          항상 보이도록 분리. */}
+      {errorMsg && !loading && step2.body.trim().length > 0 && (
         <div
           role="alert"
           className="rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-4 py-3 text-[14px] text-[color:var(--danger)]"
@@ -182,45 +185,53 @@ export function ComposeStep3Preview({
         </div>
       )}
 
-      {preview && !loading && (
-        <>
-          {preview.blockedByQuietHours && (
-            <div
-              role="alert"
-              className="flex items-start gap-2 rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-4 py-3"
-            >
-              <Moon
-                className="size-4 mt-0.5 text-[color:var(--danger)]"
-                strokeWidth={1.75}
-                aria-hidden
-              />
-              <div className="text-[13px] leading-relaxed text-[color:var(--text)]">
-                <strong className="font-medium text-[color:var(--danger)]">
-                  야간 광고 차단:
-                </strong>{" "}
-                {preview.blockReason ??
-                  "21시 ~ 08시 사이에는 광고성 문자를 발송할 수 없습니다."}{" "}
-                예약 발송으로 시간을 다음 날 아침 이후로 잡아주세요.
-              </div>
-            </div>
-          )}
+      {preview?.blockedByQuietHours && !loading && (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-4 py-3"
+        >
+          <Moon
+            className="size-4 mt-0.5 text-[color:var(--danger)]"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          <div className="text-[13px] leading-relaxed text-[color:var(--text)]">
+            <strong className="font-medium text-[color:var(--danger)]">
+              야간 광고 차단:
+            </strong>{" "}
+            {preview.blockReason ??
+              "21시 ~ 08시 사이에는 광고성 문자를 발송할 수 없습니다."}{" "}
+            예약 발송으로 시간을 다음 날 아침 이후로 잡아주세요.
+          </div>
+        </div>
+      )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* 좌: 수신자 카드 */}
-            <section
-              aria-label="수신자"
-              className="rounded-lg border border-[color:var(--border)] p-4 space-y-3"
-            >
-              <div className="flex items-center gap-2">
-                <Users
-                  className="size-4 text-[color:var(--text-muted)]"
-                  strokeWidth={1.75}
-                  aria-hidden
-                />
-                <span className="text-[14px] font-medium text-[color:var(--text)]">
-                  발송 대상
-                </span>
-              </div>
+      {/* 메인 grid — preview 유무와 무관하게 항상 보임. input 입력 시 useEffect 가
+          preview 재페치 + 우측 카드가 실시간 갱신. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {/* 좌: 수신자 카드 */}
+        <section
+          aria-label="수신자"
+          className="rounded-lg border border-[color:var(--border)] p-4 space-y-3"
+        >
+          <div className="flex items-center gap-2">
+            <Users
+              className="size-4 text-[color:var(--text-muted)]"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <span className="text-[14px] font-medium text-[color:var(--text)]">
+              발송 대상
+            </span>
+          </div>
+          {!preview ? (
+            <div className="text-[14px] text-[color:var(--text-muted)]">
+              {step2.body.trim().length === 0
+                ? "본문을 입력하면 수신자가 계산됩니다."
+                : "계산 중..."}
+            </div>
+          ) : (
+            <>
               <div className="text-[26px] font-semibold tabular-nums text-[color:var(--text)]">
                 {preview.recipientCount.toLocaleString()}
                 <span className="ml-1 text-[14px] font-normal text-[color:var(--text-muted)]">
@@ -280,10 +291,12 @@ export function ComposeStep3Preview({
                   </ul>
                 </div>
               )}
-            </section>
+            </>
+          )}
+        </section>
 
-            {/* 우: 편집 폼 + 실시간 미리보기 */}
-            <div className="space-y-4">
+        {/* 우: 편집 폼 + 실시간 미리보기 */}
+        <div className="space-y-4">
               {/* 템플릿 빠른 불러오기 (선택) */}
               {templates.length > 0 && (
                 <div className="space-y-1">
@@ -471,11 +484,12 @@ export function ComposeStep3Preview({
                 </p>
               )}
 
-              {/* 실시간 미리보기 카드 — finalBody (가드 적용) 기준 */}
+              {/* 실시간 미리보기 카드 — preview 있으면 finalBody (가드 적용),
+                  없으면 step2.body raw fallback. */}
               <PhonePreviewCard
                 type={step2.type}
                 subject={step2.subject}
-                body={preview.finalBody}
+                body={preview ? preview.finalBody : step2.body}
                 isAd={step2.isAd}
                 rawBytes={finalBodyBytes}
                 rawOverflow={bodyOverflow}
@@ -486,9 +500,11 @@ export function ComposeStep3Preview({
                 그대로입니다. 본문 바이트도 그 가공 결과 기준이에요.
               </p>
             </div>
-          </div>
+      </div>
 
-          {/* 비용 카드 */}
+      {/* 비용 카드 + 캠페인 제목 — preview 있을 때만. */}
+      {preview && !loading && (
+        <>
           <section
             aria-label="예상 비용"
             className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] p-4 flex items-center justify-between gap-4 flex-wrap"
@@ -505,7 +521,6 @@ export function ComposeStep3Preview({
             </div>
           </section>
 
-          {/* 캠페인 제목 */}
           <div className="space-y-1.5 pt-2">
             <label
               htmlFor="compose-title"
