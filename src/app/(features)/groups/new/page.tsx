@@ -157,6 +157,8 @@ export default async function NewGroupPage({
     statuses: [],
     includeStudentIds: prefill ? prefill.recipients.map((r) => r.id) : [],
     excludeStudentIds: [],
+    unmappedSchool: false,
+    mappedSchool: false,
   };
 
   const [initialPreview, schoolOptions, filterOptions, currentUser] =

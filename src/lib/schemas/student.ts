@@ -63,10 +63,17 @@ export const ListStudentsInputSchema = z.object({
   includeHidden: z.coerce.boolean().optional().default(false),
   /**
    * 학교 미등록 학생만 노출. URL ?no_school=1
-   * students.school IS NULL OR 빈 문자열 매칭.
+   * students.school IS NULL OR UNMAPPED_SCHOOL_PATTERNS 매칭.
    * true 일 때 기본 학교 필터(schools) 는 의미 없어 무시.
+   * mappedSchool 과 동시 true 는 모순이라 unmapped 가 우선.
    */
   unmappedSchool: z.coerce.boolean().optional().default(false),
+  /**
+   * 학교 등록만 노출. URL ?has_school=1
+   * students.school IS NOT NULL AND school NOT IN placeholder set.
+   * unmappedSchool 의 정확한 반대 — '제대로 학교 정보가 있는' 학생만.
+   */
+  mappedSchool: z.coerce.boolean().optional().default(false),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(50),
   /** 정렬 옵션. 기본은 최근 등록순. */
@@ -146,6 +153,7 @@ export function parseStudentsSearchParams(
     sort,
     includeHidden: raw.include_hidden ?? false,
     unmappedSchool: raw.no_school ?? false,
+    mappedSchool: raw.has_school ?? false,
     page: raw.page ?? 1,
     pageSize: raw.size ?? 50,
   });

@@ -35,8 +35,14 @@ import {
   isDevSeedMode,
 } from "@/lib/profile/students-dev-seed";
 import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
-import { isAllSubjects } from "@/lib/schemas/common";
+import { isAllSubjects, UNMAPPED_SCHOOL_PATTERNS } from "@/lib/schemas/common";
 import { applyGroupFiltersDev } from "./apply-filters";
+// 학생 명단과 정확히 같은 로직을 보장하기 위해 공통 헬퍼 재사용 (사용자
+// 지시 2026-05-22). 그룹 빌더가 보여주는 수신자 집합 = 학생 명단 결과 1:1.
+import {
+  UNMAPPED_SCHOOL_OR_EXPR,
+  applyMappedSchoolFilter,
+} from "@/lib/profile/list-students";
 
 export interface CountRecipientsResult {
   total: number;
@@ -207,6 +213,13 @@ async function countFromSupabase(
       }
       if (allowedSchools) {
         q = q.in("school", allowedSchools);
+      }
+      // 학교 미등록/등록 토글 — 학생 명단과 동일 헬퍼.
+      // 두 토글 동시 true 는 모순이라 unmapped 우선.
+      if (filters.unmappedSchool) {
+        q = q.or(UNMAPPED_SCHOOL_OR_EXPR) as typeof q;
+      } else if (filters.mappedSchool) {
+        q = applyMappedSchoolFilter(q);
       }
     }
 

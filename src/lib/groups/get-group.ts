@@ -81,7 +81,7 @@ function withNormalizedFilters(row: GroupRow): GroupRow {
       regions: [],
       statuses: [],
       includeStudentIds: [],
-      excludeStudentIds: [],
+      excludeStudentIds: [], unmappedSchool: false, mappedSchool: false,
     },
   };
 }

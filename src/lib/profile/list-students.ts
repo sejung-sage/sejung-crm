@@ -11,11 +11,27 @@ import {
 } from "@/lib/schemas/common";
 
 /**
- * '학교 미등록' 필터를 PostgREST `.or(...)` 표현식으로 변환.
+ * '학교 미등록' 필터 PostgREST `.or(...)` 표현식.
  * school IS NULL OR school IN (placeholder set).
  * 입력 값(고/중/대학교 등)은 한글이지만 메타문자 없음 — 인젝션 안전.
+ *
+ * 학생 명단·발송 그룹 양쪽이 동일 헬퍼 사용 — 매칭 결과 1:1 일치.
  */
-const UNMAPPED_SCHOOL_OR_EXPR = `school.is.null,school.in.(${UNMAPPED_SCHOOL_PATTERNS.join(",")})`;
+export const UNMAPPED_SCHOOL_OR_EXPR = `school.is.null,school.in.(${UNMAPPED_SCHOOL_PATTERNS.join(",")})`;
+/**
+ * '학교 등록만' = 위 반대. school IS NOT NULL AND school NOT IN placeholder set.
+ * PostgREST chain: q.not('school','is','null').not('school','in','(...)').
+ * 학생 명단·발송 그룹 양쪽 공통 헬퍼.
+ */
+export function applyMappedSchoolFilter<
+  Q extends {
+    not: (col: string, op: string, val: string) => Q;
+  },
+>(q: Q): Q {
+  return q
+    .not("school", "is", "null")
+    .not("school", "in", `(${UNMAPPED_SCHOOL_PATTERNS.join(",")})`);
+}
 import {
   DEV_ENROLLMENTS,
   DEV_STUDENT_PROFILES,
@@ -142,10 +158,11 @@ async function listFromSupabase(
   if (input.schools.length > 0) {
     countQuery = countQuery.in("school", input.schools);
   }
-  // 학교 미등록 필터 — NULL 또는 placeholder set.
-  // unmappedSchool=true 일 때만 적용. schools 와 동시 적용 가능 (교집합).
+  // 학교 미등록/등록 필터. 두 토글 동시 true 는 모순 — unmapped 우선.
   if (input.unmappedSchool) {
     countQuery = countQuery.or(UNMAPPED_SCHOOL_OR_EXPR);
+  } else if (input.mappedSchool) {
+    countQuery = applyMappedSchoolFilter(countQuery);
   }
   if (regionPlan) {
     countQuery = applyRegionPlanToCount(countQuery, regionPlan);
@@ -226,6 +243,8 @@ async function listFromSupabase(
   }
   if (input.unmappedSchool) {
     query = query.or(UNMAPPED_SCHOOL_OR_EXPR);
+  } else if (input.mappedSchool) {
+    query = applyMappedSchoolFilter(query);
   }
 
   // 지역 필터 — student_profiles.region (school_regions 매핑) 정확 일치.
@@ -418,6 +437,8 @@ async function fetchTwoStage(args: {
   }
   if (input.unmappedSchool) {
     idsQuery = idsQuery.or(UNMAPPED_SCHOOL_OR_EXPR);
+  } else if (input.mappedSchool) {
+    idsQuery = applyMappedSchoolFilter(idsQuery);
   }
   if (regionPlan) {
     idsQuery = applyRegionPlanToCount(idsQuery, regionPlan);
@@ -760,6 +781,11 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
     const ph = new Set<string>(UNMAPPED_SCHOOL_PATTERNS);
     rows = rows.filter(
       (r) => r.school === null || ph.has(r.school.trim()),
+    );
+  } else if (input.mappedSchool) {
+    const ph = new Set<string>(UNMAPPED_SCHOOL_PATTERNS);
+    rows = rows.filter(
+      (r) => r.school !== null && !ph.has(r.school.trim()),
     );
   }
 

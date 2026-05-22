@@ -67,6 +67,16 @@ export const GroupFiltersSchema = z.object({
    * 백워드 호환: `.default([])` 이라 옛 그룹 JSONB 에 없어도 안전.
    */
   excludeStudentIds: z.array(z.string().uuid()).default([]),
+  /**
+   * 학교 미등록 학생만. 학생 명단의 unmappedSchool 와 정확히 동일 의미.
+   * school IS NULL OR school IN (UNMAPPED_SCHOOL_PATTERNS).
+   * 백워드 호환: `.default(false)`.
+   */
+  unmappedSchool: z.boolean().default(false),
+  /**
+   * 학교 등록만. unmappedSchool 의 반대. 둘 다 true 면 unmapped 우선.
+   */
+  mappedSchool: z.boolean().default(false),
 });
 export type GroupFilters = z.infer<typeof GroupFiltersSchema>;
 

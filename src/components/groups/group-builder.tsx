@@ -221,6 +221,14 @@ export function GroupBuilder({
   const [branch, setBranch] = useState<string>(initial.branch);
   const [grades, setGrades] = useState<Grade[]>(initial.filters.grades);
   const [schools, setSchools] = useState<string[]>(initial.filters.schools);
+  // 학교 미등록/등록 토글 — 학생 명단과 동일 로직.
+  // 옛 그룹 JSONB 에 없으면 false (백워드 호환).
+  const [unmappedSchool, setUnmappedSchool] = useState<boolean>(
+    initial.filters.unmappedSchool ?? false,
+  );
+  const [mappedSchool, setMappedSchool] = useState<boolean>(
+    initial.filters.mappedSchool ?? false,
+  );
   const [subjects, setSubjects] = useState<string[]>(initial.filters.subjects);
   // regions 는 5종 고정 칩 — 자유 입력 X. 옛 그룹 데이터엔 필드가 없을 수 있어 ?? [] 가드.
   const [regions, setRegions] = useState<string[]>(
@@ -319,8 +327,20 @@ export function GroupBuilder({
       statuses,
       includeStudentIds: includeStudents.map((s) => s.id),
       excludeStudentIds: initialExcludeIds,
+      unmappedSchool,
+      mappedSchool,
     }),
-    [grades, schools, subjects, regions, statuses, includeStudents, initialExcludeIds],
+    [
+      grades,
+      schools,
+      subjects,
+      regions,
+      statuses,
+      includeStudents,
+      initialExcludeIds,
+      unmappedSchool,
+      mappedSchool,
+    ],
   );
 
   // branch / statuses 변경 시 학교·학년·지역 옵션 재페치 (디바운스).
@@ -647,16 +667,52 @@ export function GroupBuilder({
               label="학교"
               hint={schools.length === 0 ? "선택 안 함 = 전 학교" : undefined}
             >
-              <GroupSchoolSearchPanel
-                schoolOptions={visibleSchoolOptions}
-                selected={schools}
-                grades={grades}
-                query={schoolQuery}
-                onQueryChange={setSchoolQuery}
-                onToggle={(s) =>
-                  toggleFromList(schools, s, (next) => setSchools(next))
-                }
-              />
+              <div className="space-y-2">
+                {/* 학교 등록/미등록 토글 — 학생 명단과 동일 로직. */}
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    aria-pressed={mappedSchool}
+                    onClick={() => {
+                      setMappedSchool((v) => !v);
+                      if (!mappedSchool) setUnmappedSchool(false);
+                    }}
+                    className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[13px] font-medium border transition-colors ${
+                      mappedSchool
+                        ? "bg-[color:var(--bg-hover)] text-[color:var(--text)] border-[color:var(--border-strong)]"
+                        : "bg-bg-card text-[color:var(--text-muted)] border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                    }`}
+                  >
+                    학교 등록만
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={unmappedSchool}
+                    onClick={() => {
+                      setUnmappedSchool((v) => !v);
+                      if (!unmappedSchool) setMappedSchool(false);
+                    }}
+                    title="학교 정보가 비어 있거나 '고/중/고등학교' 같이 학교명이 정확하지 않은 학생만"
+                    className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[13px] font-medium border transition-colors ${
+                      unmappedSchool
+                        ? "bg-[color:var(--bg-hover)] text-[color:var(--text)] border-[color:var(--border-strong)]"
+                        : "bg-bg-card text-[color:var(--text-muted)] border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                    }`}
+                  >
+                    학교 미등록만
+                  </button>
+                </div>
+                <GroupSchoolSearchPanel
+                  schoolOptions={visibleSchoolOptions}
+                  selected={schools}
+                  grades={grades}
+                  query={schoolQuery}
+                  onQueryChange={setSchoolQuery}
+                  onToggle={(s) =>
+                    toggleFromList(schools, s, (next) => setSchools(next))
+                  }
+                />
+              </div>
             </Field>
 
             <Field

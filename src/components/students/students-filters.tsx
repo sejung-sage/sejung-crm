@@ -185,6 +185,7 @@ export function StudentsFilters({
       : "전체";
   const includeHidden = searchParams.get("include_hidden") === "1";
   const unmappedSchool = searchParams.get("no_school") === "1";
+  const mappedSchool = searchParams.get("has_school") === "1";
 
   const sortRaw = searchParams.get("sort");
   const sort: StudentSort =
@@ -310,8 +311,23 @@ export function StudentsFilters({
 
   const toggleUnmappedSchool = () => {
     updateParams((p) => {
-      if (unmappedSchool) p.delete("no_school");
-      else p.set("no_school", "1");
+      if (unmappedSchool) {
+        p.delete("no_school");
+      } else {
+        p.set("no_school", "1");
+        p.delete("has_school"); // 두 토글 동시 활성 방지
+      }
+    });
+  };
+
+  const toggleMappedSchool = () => {
+    updateParams((p) => {
+      if (mappedSchool) {
+        p.delete("has_school");
+      } else {
+        p.set("has_school", "1");
+        p.delete("no_school");
+      }
     });
   };
 
@@ -324,7 +340,8 @@ export function StudentsFilters({
     regions.length > 0 ||
     schools.length > 0 ||
     includeHidden ||
-    unmappedSchool;
+    unmappedSchool ||
+    mappedSchool;
 
   const clearAll = () => {
     updateParams((p) => {
@@ -337,6 +354,7 @@ export function StudentsFilters({
       p.delete("school");
       p.delete("include_hidden");
       p.delete("no_school");
+      p.delete("has_school");
       // 정렬은 의도적으로 유지 — 사용자가 명시적으로 바꾼 보기 옵션.
     });
   };
@@ -495,6 +513,26 @@ export function StudentsFilters({
         >
           <Eye className="size-3.5" strokeWidth={1.75} aria-hidden />
           졸업·미정 포함 보기
+        </button>
+
+        {/* 학교 등록만 토글 — '제대로 학교가 잡힌' 학생만 */}
+        <button
+          type="button"
+          onClick={toggleMappedSchool}
+          aria-pressed={mappedSchool}
+          title="학교 정보가 placeholder가 아닌 정상 학교명으로 등록된 학생만"
+          className={`
+            inline-flex items-center gap-1.5 h-8 px-3 rounded-full
+            text-[13px] font-medium
+            border transition-colors
+            ${
+              mappedSchool
+                ? "bg-[color:var(--bg-hover)] text-[color:var(--text)] border-[color:var(--border-strong)]"
+                : "bg-bg-card text-[color:var(--text-muted)] border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+            }
+          `}
+        >
+          학교 등록만
         </button>
 
         {/* 학교 미등록 토글 — NULL 또는 '고/중/대학교/재수' 같은 placeholder */}

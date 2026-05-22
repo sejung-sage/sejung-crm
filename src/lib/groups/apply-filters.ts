@@ -16,6 +16,7 @@
 import type { GroupFilters } from "@/lib/schemas/group";
 import type { StudentProfileRow, Subject } from "@/types/database";
 import { DEV_ENROLLMENTS } from "@/lib/profile/students-dev-seed";
+import { UNMAPPED_SCHOOL_PATTERNS } from "@/lib/schemas/common";
 
 /** dev-seed 는 unsubscribes 데이터를 제공하지 않음. 일관성을 위해 옵션 인자로 받는다. */
 export interface ApplyGroupFiltersOptions {
@@ -85,6 +86,15 @@ export function applyGroupFiltersDev(
     if (filters.schools.length > 0) {
       if (!p.school) return false;
       if (!filters.schools.includes(p.school)) return false;
+    }
+
+    // 학교 미등록/등록 토글 — 학생 명단 dev-seed 와 동일 로직.
+    if (filters.unmappedSchool) {
+      const ph = new Set<string>(UNMAPPED_SCHOOL_PATTERNS);
+      if (!(p.school === null || ph.has(p.school.trim()))) return false;
+    } else if (filters.mappedSchool) {
+      const ph = new Set<string>(UNMAPPED_SCHOOL_PATTERNS);
+      if (!(p.school !== null && !ph.has(p.school.trim()))) return false;
     }
 
     if (filters.subjects.length > 0) {

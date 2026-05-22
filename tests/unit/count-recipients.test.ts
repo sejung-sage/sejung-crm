@@ -11,7 +11,7 @@ import type { GroupFilters } from "@/lib/schemas/group";
 
 // emptyFilters = "조건 없음 → 탈퇴만 자동 제외, 나머지 status 모두 통과".
 // statuses 기본은 ['재원생'] 1종으로 좁혀지므로 옛 시맨틱은 풀 명시로 보존.
-const emptyFilters: GroupFilters = { grades: [], schools: [], subjects: [], regions: [], statuses: ["재원생", "수강이력자", "수강 x"], includeStudentIds: [], excludeStudentIds: [] };
+const emptyFilters: GroupFilters = { grades: [], schools: [], subjects: [], regions: [], statuses: ["재원생", "수강이력자", "수강 x"], includeStudentIds: [], excludeStudentIds: [], unmappedSchool: false, mappedSchool: false };
 
 describe("countRecipients · dev seed", () => {
   beforeEach(() => {
