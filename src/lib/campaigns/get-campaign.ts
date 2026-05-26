@@ -43,23 +43,46 @@ export async function getCampaign(
 
   const row = data as Record<string, unknown>;
   const createdBy = (row.created_by ?? null) as string | null;
+  const templateId = (row.template_id ?? null) as string | null;
+  const groupId = (row.group_id ?? null) as string | null;
 
-  // 작성자 이름 lookup — list-campaigns 와 동일 패턴 (auth.users 외부 schema).
-  let creatorName: string | null = null;
-  if (createdBy) {
-    const { data: profile } = await supabase
-      .from("crm_users_profile")
-      .select("name")
-      .eq("user_id", createdBy)
-      .maybeSingle();
-    creatorName = (profile as { name?: string } | null)?.name ?? null;
-  }
+  // 작성자·템플릿·그룹 이름 병렬 lookup. RLS 차단 시 null 로 graceful fallback.
+  const [creatorRes, templateRes, groupRes] = await Promise.all([
+    createdBy
+      ? supabase
+          .from("crm_users_profile")
+          .select("name")
+          .eq("user_id", createdBy)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    templateId
+      ? supabase
+          .from("crm_templates")
+          .select("name")
+          .eq("id", templateId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    groupId
+      ? supabase
+          .from("crm_groups")
+          .select("name")
+          .eq("id", groupId)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+  ]);
+
+  const creatorName =
+    (creatorRes.data as { name?: string } | null)?.name ?? null;
+  const templateName =
+    (templateRes.data as { name?: string } | null)?.name ?? null;
+  const groupName =
+    (groupRes.data as { name?: string } | null)?.name ?? null;
 
   return {
     id: row.id as string,
     title: row.title as string,
-    template_id: (row.template_id ?? null) as string | null,
-    group_id: (row.group_id ?? null) as string | null,
+    template_id: templateId,
+    group_id: groupId,
     scheduled_at: (row.scheduled_at ?? null) as string | null,
     sent_at: (row.sent_at ?? null) as string | null,
     status: row.status as CampaignListItem["status"],
@@ -74,8 +97,8 @@ export async function getCampaign(
     is_ad: (row.is_ad ?? false) as boolean,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
-    template_name: null,
-    group_name: null,
+    template_name: templateName,
+    group_name: groupName,
     delivered_count: 0,
     failed_count: 0,
     creator_name: creatorName,

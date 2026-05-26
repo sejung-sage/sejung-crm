@@ -167,6 +167,65 @@ export function CampaignDetailView({
         </div>
       </section>
 
+      {/* 발송 내용 (본문 + 제목 + 유형) — 2026-05-22 운영자 요청 추가.
+          학생 발송 이력의 펼침 영역과 동일 패턴. */}
+      <section
+        className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4"
+        aria-label="발송 내용"
+      >
+        <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+          발송 내용
+        </h2>
+        <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-[14px]">
+          <dt className="text-[13px] text-[color:var(--text-muted)] pt-0.5 whitespace-nowrap">
+            유형
+          </dt>
+          <dd className="min-w-0 flex items-center gap-2">
+            <span
+              className="inline-flex items-center px-2 py-0.5 rounded-md text-[12px] font-medium border bg-[color:var(--bg-muted)] text-[color:var(--text)] border-[color:var(--border-strong)]"
+            >
+              {campaign.type ?? "—"}
+            </span>
+            {campaign.is_ad && (
+              <span
+                className="inline-flex items-center whitespace-nowrap px-1.5 py-0.5 rounded-md text-[11px] font-medium border"
+                style={{
+                  borderColor: "var(--danger)",
+                  color: "var(--danger)",
+                  backgroundColor: "var(--bg)",
+                }}
+              >
+                광고
+              </span>
+            )}
+          </dd>
+
+          {campaign.subject && (
+            <>
+              <dt className="text-[13px] text-[color:var(--text-muted)] pt-0.5 whitespace-nowrap">
+                제목
+              </dt>
+              <dd className="min-w-0 text-[color:var(--text)]">
+                {campaign.subject}
+              </dd>
+            </>
+          )}
+
+          <dt className="text-[13px] text-[color:var(--text-muted)] pt-0.5 whitespace-nowrap">
+            본문
+          </dt>
+          <dd className="min-w-0">
+            {campaign.body ? (
+              <p className="whitespace-pre-wrap leading-relaxed text-[color:var(--text)]">
+                {campaign.body}
+              </p>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">본문 정보 없음</p>
+            )}
+          </dd>
+        </dl>
+      </section>
+
       {/* 건별 메시지 */}
       <section className="space-y-3">
         <div className="flex items-end justify-between">
