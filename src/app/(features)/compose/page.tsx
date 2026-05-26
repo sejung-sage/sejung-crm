@@ -129,6 +129,7 @@ export default async function ComposePage({
         initialTemplateId={initialTemplateId}
         groups={groups}
         templates={templates}
+        optOutNumber={process.env.SMS_OPT_OUT_NUMBER?.trim() || "080-123-4567"}
       />
     </div>
   );

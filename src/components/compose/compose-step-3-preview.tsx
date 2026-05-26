@@ -9,19 +9,28 @@ import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
+import {
+  insertAdTag,
+  insertUnsubscribeFooter,
+} from "@/lib/messaging/guards";
 import type { ComposeStep2State } from "./compose-wizard";
 
 /**
- * F3 Part B · Step 2 통합 — 작성 + 미리보기 + 캠페인 제목.
+ * F3 Part B · Step 2 — 작성 + 미리보기 통합.
  *
- * 단일 column 레이아웃 (2026-05-22 개편):
- *   - 좌측 "발송 대상" 카드 제거. 수신자 인원은 PhonePreviewCard 헤더에 한 줄로 통합.
- *   - 우측 폼(유형/제목/본문/광고) + 핸드폰 미리보기 카드가 세로로 쌓임.
- *   - 변수 삽입 버튼 [{이름}] [{날짜}] 추가 — 본문 textarea 의 cursor 위치에 삽입.
- *   - PhonePreviewCard 가 samples prop 으로 sample 학생 이름 / 발송일을 받아
- *     별도 말풍선에 치환 결과를 표시.
+ * 2026-05-26 개편: "미리보기에 직접 타자" UX.
+ *   - 본문/제목 textarea·input 을 좌측 폼에서 제거. PhonePreviewCard editable
+ *     모드의 input 으로 일원화 → 운영자가 미리보기 말풍선에서 바로 타이핑.
+ *   - 본문 변경은 서버 호출 트리거 X. 광고 prefix·080 footer·바이트 카운트는
+ *     모두 클라이언트에서 instant 계산 (guards 가 순수 함수).
+ *   - 서버 previewAction 은 groupId / type / isAd 가 바뀔 때만 호출 — 수신자
+ *     카운트·비용·sample·blockedByQuietHours 갱신용.
+ *   - 변수 삽입 [{이름}] [{날짜}] 는 미리보기 textarea 의 ref 로 cursor 위치에 삽입.
  *
- * 가드는 server 가 최종 검증 — finalBody 는 광고 prefix·080 footer 포함 결과.
+ * 좌측: 템플릿 picker / 유형 / 광고 토글 / 변수 삽입 / 안내·경고
+ * 우측: 핸드폰 미리보기 카드(editable) — sticky
+ *
+ * 가드 최종 검증은 server 가 sendCampaign 단계에서 한 번 더 적용.
  */
 interface Props {
   groupId: string;
@@ -38,6 +47,8 @@ interface Props {
    * sample 미리보기의 `{날짜}` 치환 기준값으로 사용 — 예약이면 예약일, 즉시면 오늘.
    */
   scheduleAt: string | null;
+  /** 서버 env SMS_OPT_OUT_NUMBER. footer 정적 렌더에 사용. */
+  optOutNumber: string;
 }
 
 // LMS 제목 한도 — EUC-KR 40byte (한글 20자, 영문 40자). 사용자 정책 2026-05-22.
@@ -69,6 +80,7 @@ export function ComposeStep3Preview({
   title,
   onTitleChange,
   scheduleAt,
+  optOutNumber,
 }: Props) {
   const [loading, startLoading] = useTransition();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -81,11 +93,16 @@ export function ComposeStep3Preview({
   );
   const subjectOverflow = subjectBytes > SUBJECT_BYTE_LIMIT;
 
-  // 본문 byte — server 가드(광고 prefix + 080 footer) 적용된 finalBody 기준.
-  // preview 가 아직 없으면 raw body 로 잠정 표시.
-  const finalBodyBytes = preview
-    ? countEucKrBytes(preview.finalBody)
-    : countEucKrBytes(step2.body);
+  // 본문 byte — 클라이언트에서 광고 prefix + 080 footer 합산해 즉시 계산.
+  // 서버 결과 도착 전에도 정확. (서버 fallback 불필요 — guards 가 순수 함수)
+  const clientFinalBody = useMemo(() => {
+    const withAd = insertAdTag(step2.body, step2.isAd);
+    return insertUnsubscribeFooter(withAd, step2.isAd, optOutNumber);
+  }, [step2.body, step2.isAd, optOutNumber]);
+  const finalBodyBytes = useMemo(
+    () => countEucKrBytes(clientFinalBody),
+    [clientFinalBody],
+  );
   const bodyLimit = BYTE_LIMITS[step2.type];
   const bodyOverflow = finalBodyBytes > bodyLimit;
 
@@ -123,7 +140,7 @@ export function ComposeStep3Preview({
   };
 
   /**
-   * 변수 토큰을 본문 textarea cursor 위치에 삽입.
+   * 변수 토큰을 미리보기 본문 textarea 의 cursor 위치에 삽입.
    * focus 가 textarea 가 아니거나 처음 사용 시에는 끝에 append.
    */
   const insertToken = (token: string) => {
@@ -137,7 +154,6 @@ export function ComposeStep3Preview({
     const end = ta.selectionEnd ?? current.length;
     const next = current.slice(0, start) + token + current.slice(end);
     onStep2Change({ ...step2, body: next });
-    // 다음 tick 에 cursor 를 삽입 직후로 위치 + focus 유지.
     requestAnimationFrame(() => {
       const node = bodyRef.current;
       if (!node) return;
@@ -147,10 +163,14 @@ export function ComposeStep3Preview({
     });
   };
 
-  // 마운트 / step2·groupId 변경 시 미리보기 재호출
+  // 서버 미리보기는 본문/제목 변경에는 트리거 X. groupId/type/isAd 가 바뀔 때만.
+  //   - recipientCount: groupId 만 영향
+  //   - cost: groupId × type
+  //   - blockedByQuietHours: isAd × 현재 시각
+  //   - sampleRecipients: groupId 만 영향
+  // body/subject 변경은 클라이언트에서 즉시 반영 → 서버 호출 불필요.
   useEffect(() => {
     setErrorMsg(null);
-    onPreview(null);
     startLoading(async () => {
       const result = await previewAction({
         groupId,
@@ -158,6 +178,8 @@ export function ComposeStep3Preview({
           templateId: step2.templateId,
           type: step2.type,
           subject: step2.subject,
+          // 서버에는 가드 적용 후 body 를 넘겨주되, 어차피 server 가 재가공함.
+          // body 변경에는 트리거 안 하므로 직전 step2.body 가 들어감 — 무방.
           body: step2.body,
           isAd: step2.isAd,
         },
@@ -166,17 +188,11 @@ export function ComposeStep3Preview({
         onPreview(result.data);
       } else {
         setErrorMsg(result.reason);
+        onPreview(null);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    groupId,
-    step2.body,
-    step2.isAd,
-    step2.subject,
-    step2.type,
-    step2.templateId,
-  ]);
+  }, [groupId, step2.isAd, step2.type]);
 
   return (
     <div className="space-y-5">
@@ -185,11 +201,12 @@ export function ComposeStep3Preview({
           발송 미리보기
         </h2>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-          가드 적용 후 실제 발송될 본문과 수신자를 확인하세요.
+          오른쪽 미리보기 말풍선에서 바로 제목·본문을 작성하세요. 광고
+          머리말·080 수신거부는 자동으로 붙습니다.
         </p>
       </div>
 
-      {/* 테스트 발송 카드 — template-form 과 동일 컴포넌트. */}
+      {/* 테스트 발송 카드 */}
       <TestSendCard
         type={step2.type}
         subject={step2.subject ?? null}
@@ -198,18 +215,18 @@ export function ComposeStep3Preview({
         disabled={!step2.body.trim() || loading}
       />
 
-      {loading && (
+      {loading && !preview && (
         <div className="flex items-center gap-2 text-[14px] text-[color:var(--text-muted)]">
           <Loader2
             className="size-4 animate-spin"
             strokeWidth={1.75}
             aria-hidden
           />
-          미리보기를 계산하는 중...
+          수신자 정보를 계산하는 중...
         </div>
       )}
 
-      {errorMsg && !loading && step2.body.trim().length > 0 && (
+      {errorMsg && !loading && (
         <div
           role="alert"
           className="rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-4 py-3 text-[14px] text-[color:var(--danger)]"
@@ -248,133 +265,103 @@ export function ComposeStep3Preview({
         </div>
       )}
 
-      {/* 2 column — 좌: 폼, 우: 미리보기(sticky) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px] gap-6 items-start">
-        {/* 좌측 — 폼 */}
+      {/* 2 column — 좌: 메타 컨트롤 / 우: editable 미리보기(sticky) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6 items-start">
+        {/* 좌측 — 메타 컨트롤 */}
         <div className="space-y-4 min-w-0">
-        {/* 템플릿 빠른 불러오기 (선택) */}
-        {templates.length > 0 && (
-          <div className="space-y-1">
-            <label
-              htmlFor="compose-template"
-              className="text-[12px] text-[color:var(--text-muted)]"
-            >
-              저장된 템플릿 불러오기 (선택)
-            </label>
-            <select
-              id="compose-template"
-              value={step2.templateId ?? ""}
-              onChange={(e) => onPickTemplate(e.target.value)}
-              className="
-                w-full h-9 rounded-md px-2
-                bg-bg-card border border-[color:var(--border)]
-                text-[13px] text-[color:var(--text)]
-                focus:outline-none focus:border-[color:var(--border-strong)]
-                cursor-pointer
-              "
-            >
-              <option value="">— 새로 작성 —</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>
-                  [{t.type}] {t.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
-
-        {/* 유형 */}
-        <fieldset className="space-y-1.5">
-          <legend className="text-[12px] text-[color:var(--text-muted)]">
-            유형
-          </legend>
-          <div className="grid grid-cols-2 gap-1.5">
-            {TYPE_OPTIONS.map((opt) => {
-              const checked = step2.type === opt.value;
-              return (
-                <label
-                  key={opt.value}
-                  className={`
-                    flex items-center justify-center gap-1.5 h-9 rounded-md border cursor-pointer text-[13px]
-                    ${
-                      checked
-                        ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
-                        : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
-                    }
-                  `}
-                >
-                  <input
-                    type="radio"
-                    name="compose-type"
-                    value={opt.value}
-                    checked={checked}
-                    onChange={() => onTypeChange(opt.value)}
-                    className="sr-only"
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
-
-        {/* 제목 (LMS 만) */}
-        {step2.type !== "SMS" && (
-          <div className="space-y-1">
-            <div className="flex items-baseline justify-between">
+          {/* 템플릿 빠른 불러오기 (선택) */}
+          {templates.length > 0 && (
+            <div className="space-y-1">
               <label
-                htmlFor="compose-subject"
+                htmlFor="compose-template"
                 className="text-[12px] text-[color:var(--text-muted)]"
               >
-                제목
+                저장된 템플릿 불러오기 (선택)
               </label>
-              <span
-                className={`text-[11px] tabular-nums ${
-                  subjectOverflow
-                    ? "text-[color:var(--danger)] font-medium"
-                    : "text-[color:var(--text-dim)]"
-                }`}
-                aria-live="polite"
+              <select
+                id="compose-template"
+                value={step2.templateId ?? ""}
+                onChange={(e) => onPickTemplate(e.target.value)}
+                className="
+                  w-full h-9 rounded-md px-2
+                  bg-bg-card border border-[color:var(--border)]
+                  text-[13px] text-[color:var(--text)]
+                  focus:outline-none focus:border-[color:var(--border-strong)]
+                  cursor-pointer
+                "
               >
-                {subjectBytes} / {SUBJECT_BYTE_LIMIT} 바이트
-              </span>
+                <option value="">— 새로 작성 —</option>
+                {templates.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    [{t.type}] {t.name}
+                  </option>
+                ))}
+              </select>
             </div>
-            <input
-              id="compose-subject"
-              type="text"
-              value={step2.subject ?? ""}
-              onChange={(e) =>
-                onStep2Change({ ...step2, subject: e.target.value })
-              }
-              placeholder="예: 세정학원 안내"
-              className={`
-                w-full h-9 rounded-md px-2.5
-                bg-bg-card border text-[14px] text-[color:var(--text)]
-                placeholder:text-[color:var(--text-dim)]
-                focus:outline-none
-                ${
-                  subjectOverflow
-                    ? "border-[color:var(--danger)] focus:border-[color:var(--danger)]"
-                    : "border-[color:var(--border)] focus:border-[color:var(--border-strong)]"
-                }
-              `}
-            />
-          </div>
-        )}
+          )}
 
-        {/* 본문 — 라벨 + 변수 삽입 버튼 행 */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <label
-              htmlFor="compose-body"
-              className="text-[12px] text-[color:var(--text-muted)]"
-            >
-              본문
-            </label>
+          {/* 유형 */}
+          <fieldset className="space-y-1.5">
+            <legend className="text-[12px] text-[color:var(--text-muted)]">
+              유형
+            </legend>
+            <div className="grid grid-cols-2 gap-1.5">
+              {TYPE_OPTIONS.map((opt) => {
+                const checked = step2.type === opt.value;
+                return (
+                  <label
+                    key={opt.value}
+                    className={`
+                      flex items-center justify-center gap-1.5 h-9 rounded-md border cursor-pointer text-[13px]
+                      ${
+                        checked
+                          ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
+                          : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
+                      }
+                    `}
+                  >
+                    <input
+                      type="radio"
+                      name="compose-type"
+                      value={opt.value}
+                      checked={checked}
+                      onChange={() => onTypeChange(opt.value)}
+                      className="sr-only"
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          {/* 제목 byte 카운트 (LMS) — 입력은 미리보기에서 함. 좌측엔 카운터만. */}
+          {step2.type !== "SMS" && (
+            <div className="space-y-1">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[12px] text-[color:var(--text-muted)]">
+                  제목 바이트
+                </span>
+                <span
+                  className={`text-[11px] tabular-nums ${
+                    subjectOverflow
+                      ? "text-[color:var(--danger)] font-medium"
+                      : "text-[color:var(--text-dim)]"
+                  }`}
+                  aria-live="polite"
+                >
+                  {subjectBytes} / {SUBJECT_BYTE_LIMIT} 바이트
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* 변수 삽입 */}
+          <div className="space-y-1.5">
+            <span className="text-[12px] text-[color:var(--text-muted)]">
+              변수 삽입
+            </span>
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] text-[color:var(--text-muted)]">
-                변수 삽입
-              </span>
               {VARIABLE_TOKENS.map((v) => (
                 <button
                   key={v.token}
@@ -389,106 +376,102 @@ export function ComposeStep3Preview({
                     focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)]
                     transition-colors
                   "
-                  style={{ fontFamily: "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)" }}
+                  style={{
+                    fontFamily:
+                      "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
+                  }}
                   aria-label={`${v.label} 삽입`}
                 >
                   {v.label}
                 </button>
               ))}
             </div>
-          </div>
-          <textarea
-            id="compose-body"
-            ref={bodyRef}
-            value={step2.body}
-            onChange={(e) =>
-              onStep2Change({ ...step2, body: e.target.value })
-            }
-            placeholder="문자 본문을 입력하세요. 변수 삽입 버튼으로 {이름}·{날짜}를 넣을 수 있습니다."
-            rows={6}
-            className="
-              w-full min-h-32 rounded-md p-2.5
-              bg-bg-card border border-[color:var(--border)]
-              text-[14px] leading-relaxed text-[color:var(--text)]
-              placeholder:text-[color:var(--text-dim)]
-              focus:outline-none focus:border-[color:var(--border-strong)]
-              resize-y
-            "
-            style={{ fontFamily: "var(--font-sans)" }}
-          />
-          <p className="text-[11px] text-[color:var(--text-dim)] px-0.5">
-            발송 시 각 수신자 정보로 자동 치환됩니다. 미리보기에는 예시 1명
-            기준으로 치환된 결과가 함께 표시됩니다.
-          </p>
-        </div>
-
-        {/* 광고 체크 */}
-        <label className="flex items-start gap-2 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={step2.isAd}
-            onChange={(e) =>
-              onStep2Change({ ...step2, isAd: e.target.checked })
-            }
-            className="mt-0.5 size-4 accent-[color:var(--action)]"
-          />
-          <span className="flex flex-col gap-0.5">
-            <span className="text-[13px] font-medium text-[color:var(--text)]">
-              광고성 문자
-            </span>
-            <span className="text-[11px] text-[color:var(--text-muted)]">
-              체크 시 [광고] 머리말 + 080 수신거부가 자동 삽입되고 바이트
-              합계에도 포함됩니다.
-            </span>
-          </span>
-        </label>
-
-        {step2.isAd && (
-          <div
-            role="note"
-            className="flex items-start gap-2 rounded-md border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-3 py-2"
-          >
-            <Megaphone
-              className="size-3.5 mt-0.5 text-[color:var(--warning)] shrink-0"
-              strokeWidth={1.75}
-              aria-hidden
-            />
-            <p className="text-[12px] leading-relaxed text-[color:var(--text)]">
-              21시 ~ 08시 광고 발송이 차단됩니다.
+            <p className="text-[11px] text-[color:var(--text-dim)]">
+              발송 시 각 수신자 정보로 자동 치환됩니다. 예시 1명 기준 치환
+              결과는 미리보기 아래에 따로 표시됩니다.
             </p>
           </div>
-        )}
 
-        {bodyOverflow && (
-          <p className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]">
-            <AlertTriangle
-              className="size-3.5"
-              strokeWidth={1.75}
-              aria-hidden
+          {/* 광고 체크 */}
+          <label className="flex items-start gap-2 cursor-pointer pt-1">
+            <input
+              type="checkbox"
+              checked={step2.isAd}
+              onChange={(e) =>
+                onStep2Change({ ...step2, isAd: e.target.checked })
+              }
+              className="mt-0.5 size-4 accent-[color:var(--action)]"
             />
-            현재 {step2.type} 한도({bodyLimit.toLocaleString()}바이트)를
-            초과했습니다.
-          </p>
-        )}
+            <span className="flex flex-col gap-0.5">
+              <span className="text-[13px] font-medium text-[color:var(--text)]">
+                광고성 문자
+              </span>
+              <span className="text-[11px] text-[color:var(--text-muted)]">
+                체크 시 [광고] 머리말 + 080 수신거부가 자동 삽입되고 바이트
+                합계에도 포함됩니다.
+              </span>
+            </span>
+          </label>
+
+          {step2.isAd && (
+            <div
+              role="note"
+              className="flex items-start gap-2 rounded-md border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-3 py-2"
+            >
+              <Megaphone
+                className="size-3.5 mt-0.5 text-[color:var(--warning)] shrink-0"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <p className="text-[12px] leading-relaxed text-[color:var(--text)]">
+                21시 ~ 08시 광고 발송이 차단됩니다.
+              </p>
+            </div>
+          )}
+
+          {bodyOverflow && (
+            <p className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]">
+              <AlertTriangle
+                className="size-3.5"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              현재 {step2.type} 한도({bodyLimit.toLocaleString()}바이트)를
+              초과했습니다.
+            </p>
+          )}
         </div>
 
-        {/* 우측 — 실시간 미리보기 (sticky). lg 이상에서 우측 column.
-            모바일에서는 form 아래로 흘러내림. */}
+        {/* 우측 — editable 미리보기 (sticky) */}
         <aside className="space-y-2 lg:sticky lg:top-4 self-start">
           <PhonePreviewCard
             type={step2.type}
             subject={step2.subject}
-            body={preview ? preview.finalBody : step2.body}
+            body={step2.body}
             isAd={step2.isAd}
             rawBytes={finalBodyBytes}
             rawOverflow={bodyOverflow}
             limit={bodyLimit}
+            editable
+            onSubjectChange={(next) =>
+              onStep2Change({ ...step2, subject: next })
+            }
+            onBodyChange={(next) => onStep2Change({ ...step2, body: next })}
+            bodyTextareaRef={bodyRef}
+            footer={
+              step2.isAd
+                ? {
+                    academyName: "세정학원",
+                    unsubscribePhone: optOutNumber,
+                  }
+                : undefined
+            }
             samples={sampleValues}
             recipientCount={preview?.recipientCount}
           />
           <p className="text-[11px] text-[color:var(--text-dim)] px-1">
-            위 미리보기는 광고 머리말·080 수신거부가 자동 적용된 최종 발송본
-            그대로입니다. 본문 바이트도 그 가공 결과 기준이에요.
+            광고 머리말·080 수신거부는 자동 적용된 결과로 표시됩니다. 본문
+            바이트도 그 가공 결과 기준이에요.
           </p>
         </aside>
       </div>
@@ -557,12 +540,10 @@ function formatKstDateLabel(scheduleAt: string | null): string {
   } else {
     target = new Date();
   }
-  // toLocaleDateString 의 Asia/Seoul 옵션 사용 — SSR/CSR 모두 동일.
   const kst = new Intl.DateTimeFormat("ko-KR", {
     timeZone: "Asia/Seoul",
     month: "long",
     day: "numeric",
   }).format(target);
-  // "5월 22일" 형식 그대로.
   return kst;
 }

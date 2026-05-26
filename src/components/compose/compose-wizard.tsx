@@ -42,6 +42,8 @@ interface Props {
   initialTemplateId: string | null;
   groups: GroupListItem[];
   templates: TemplateRow[];
+  /** 서버 env SMS_OPT_OUT_NUMBER 값. 미리보기 footer 정적 렌더에 사용. */
+  optOutNumber: string;
 }
 
 const STEP_LABELS: Array<{ index: 1 | 2 | 3; label: string }> = [
@@ -55,6 +57,7 @@ export function ComposeWizard({
   initialTemplateId,
   groups,
   templates,
+  optOutNumber,
 }: Props) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
@@ -182,6 +185,7 @@ export function ComposeWizard({
             title={title}
             onTitleChange={setTitle}
             scheduleAt={scheduleAt}
+            optOutNumber={optOutNumber}
           />
         )}
         {step === 3 && selectedGroup && preview && (

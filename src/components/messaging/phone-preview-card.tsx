@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, type Ref } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { TemplateTypeLiteral } from "@/lib/schemas/template";
 
@@ -64,6 +64,12 @@ export interface PhonePreviewCardProps {
   onBodyChange?: (next: string) => void;
 
   /**
+   * editable=true 일 때 본문 textarea 의 ref 외부 노출.
+   * 변수 삽입 버튼 등에서 cursor 위치를 알아내거나 focus 를 옮기는 데 사용.
+   */
+  bodyTextareaRef?: Ref<HTMLTextAreaElement>;
+
+  /**
    * 광고 footer 표시 정보. isAd 일 때만 사용.
    * editable=true 면 footer 자리도 input 으로 바뀐다.
    */
@@ -108,6 +114,7 @@ export function PhonePreviewCard({
   editable = false,
   onSubjectChange,
   onBodyChange,
+  bodyTextareaRef,
   footer,
   timeLabel,
   samples,
@@ -218,10 +225,18 @@ export function PhonePreviewCard({
                 onChange={onSubjectChange}
               />
             )}
+            {/* editable && isAd → (광고) inline 라벨로 prefix 명시.
+                read-only 모드에선 body 문자열에 prefix 가 이미 박혀 있어 생략. */}
+            {editable && isAd && (
+              <p className="text-[15px] leading-relaxed text-[color:var(--text-muted)] select-none">
+                (광고)
+              </p>
+            )}
             <BodyField
               value={body}
               editable={editable}
               onChange={onBodyChange}
+              textareaRef={bodyTextareaRef}
             />
           </div>
         </div>
@@ -369,14 +384,17 @@ function BodyField({
   value,
   editable,
   onChange,
+  textareaRef,
 }: {
   value: string;
   editable: boolean;
   onChange?: (next: string) => void;
+  textareaRef?: Ref<HTMLTextAreaElement>;
 }) {
   if (editable && onChange) {
     return (
       <textarea
+        ref={textareaRef}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder="문자 본문을 입력하세요."
