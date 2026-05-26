@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SubjectSchema, SeasonSchema, SEASON_VALUES } from "./common";
+import { SubjectSchema } from "./common";
 
 /**
  * 강좌 리스트(F0 · /classes) Zod 스키마
@@ -80,12 +80,6 @@ export const ClassFiltersSchema = z.object({
   branch: z.string().optional(),
   /** 과목: 빈 문자열/미지정이면 전체 과목. */
   subject: SubjectSchema.optional(),
-  /**
-   * 시즌: 빈 문자열/미지정이면 전체 (필터 미적용).
-   * 0070 — crm_classes.season 6종 enum + NULL 허용.
-   * "미분류(NULL)" 만 보고 싶은 별도 토글은 도입하지 않음 (MVP 범위 밖).
-   */
-  season: SeasonSchema.optional(),
   /** 강사명 필터 (다중 선택). classes.teacher_name 정확 일치 (backend-dev 처리). */
   teachers: z.array(z.string().trim().max(50)).optional().default([]),
   /**
@@ -169,7 +163,6 @@ export type ClassFilters = z.infer<typeof ClassFiltersSchema>;
  *   ?q=...                          → search
  *   ?branch=대치                     → branch
  *   ?subject=수학                    → subject
- *   ?season=내신                     → season (6종 enum 화이트리스트 외엔 undefined)
  *   ?teacher=김선생&teacher=박선생   → teachers (다중)
  *   ?day=화&day=목                   → days (다중)
  *   ?active=0                        → active=false (그 외에는 항상 true)
@@ -206,12 +199,6 @@ export function parseClassSearchParams(
     "기타",
   ]);
   const subject = SUBJECT_WHITELIST.has(subjectRaw) ? subjectRaw : undefined;
-
-  // season 화이트리스트 검사 — SEASON_VALUES 6종 외 입력은 undefined → 필터 미적용.
-  // 0070 — crm_classes.season CHECK 와 1:1 동기.
-  const SEASON_WHITELIST: ReadonlySet<string> = new Set(SEASON_VALUES);
-  const seasonRaw = typeof raw.season === "string" ? raw.season : "";
-  const season = SEASON_WHITELIST.has(seasonRaw) ? seasonRaw : undefined;
 
   const branchRaw = typeof raw.branch === "string" ? raw.branch : "";
 
@@ -265,7 +252,6 @@ export function parseClassSearchParams(
     search: typeof raw.q === "string" ? raw.q : "",
     branch: branchRaw === "" ? undefined : branchRaw,
     subject,
-    season,
     teachers: cleanFreeText(toArray(raw.teacher)),
     days: toArray(raw.day).filter((d) => dayWhitelist.has(d)),
     active,

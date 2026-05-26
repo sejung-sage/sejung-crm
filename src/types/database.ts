@@ -203,18 +203,6 @@ export interface ClassRow {
   end_date: string | null;
   /** V_class_list.미사용반구분 = "Y" 면 false. */
   active: boolean;
-  /**
-   * 강좌 시즌 분류 (0070 추가).
-   * 6종 enum + NULL ('여름방학특강' | '겨울방학특강' | '내신' | '상반기정규' |
-   * '하반기정규' | '기타' | null). 운영팀이 강좌마다 수동 선택.
-   *
-   * raw(aca_classes.season) 은 현재 항상 NULL — 외부 자동 분류 룰이 생길 때를
-   * 위한 컬럼. apply_aca_to_crm() 가 COALESCE(raw, crm) 로 보존하므로 운영
-   * 수동 입력이 ETL 재실행 시 덮어쓰이지 않음.
-   *
-   * 단일 출처: `@/lib/schemas/common.SeasonSchema`.
-   */
-  season: string | null;
   created_at: string;
   updated_at: string;
 }
