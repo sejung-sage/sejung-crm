@@ -48,9 +48,10 @@
   <Actions Context="Author">
     <Exec>
       <Command>cmd.exe</Command>
-      <!-- import 후 "C:\path\to\sejung-crm" 부분을 실제 경로로 바꿔주세요. -->
-      <Arguments>/c "C:\path\to\sejung-crm\scripts\etl\run_all.bat"</Arguments>
-      <WorkingDirectory>C:\path\to\sejung-crm</WorkingDirectory>
+      <!-- README-windows.md 안내대로 C:\sejung-crm 에 clone 했다면 import 만 하면 됨.
+           다른 경로면 아래 두 줄의 C:\sejung-crm 를 실제 경로로 바꿀 것. -->
+      <Arguments>/c "C:\sejung-crm\scripts\etl\run_all.bat"</Arguments>
+      <WorkingDirectory>C:\sejung-crm</WorkingDirectory>
     </Exec>
   </Actions>
 </Task>

@@ -49,6 +49,8 @@ SUPABASE_SECRET_KEY=<Vercel env 의 SUPABASE_SECRET_KEY 동일 값>
 
 > **`.env` 는 GitHub 에 안 올라갑니다 (`.gitignore` 등록).** 비밀번호는 이 파일에만.
 
+> 메모장의 `DRY_RUN=1` 줄은 **그대로 둬도 됩니다.** 자동·수동 동기화(`run_all.bat`/`sync_now.bat`)는 내부에서 실 적용(`DRY_RUN=0`)을 강제하므로, 이 값과 무관하게 Supabase 에 정상 반영됩니다.
+
 ## 4. 동작 시험 (한 번)
 
 **`scripts\etl\sync_now.bat` 더블클릭** — 콘솔 창에 진행 상황이 보이고 끝나면 결과가 표시됩니다 (창 자동으로 안 닫힘).
@@ -65,12 +67,10 @@ SUPABASE_SECRET_KEY=<Vercel env 의 SUPABASE_SECRET_KEY 동일 값>
 1. **시작 → 작업 스케줄러** 검색해서 실행
 2. 우측 "작업 가져오기" 클릭
 3. `C:\sejung-crm\scripts\etl\sejung-etl.xml` 선택
-4. 열린 창에서 **Actions 탭** 더블클릭 → 수정:
-   - Arguments: `/c "C:\sejung-crm\scripts\etl\run_all.bat"`
-   - Start in: `C:\sejung-crm`
-5. **Triggers 탭**: 매일 00:00 시작 + 매 1시간 반복 (XML 에 이미 설정됨)
-6. **General 탭** → "사용자가 로그온 여부와 관계없이 실행" 체크 (선택)
-7. 확인 → Windows 계정 비밀번호 입력 → 등록 완료
+4. 열린 창에서 그냥 **확인** — 경로(`C:\sejung-crm`)·트리거(매일 00:00 시작 + 매 1시간 반복)가 XML 에 이미 박혀 있어 수정 불필요
+   - ⚠️ `C:\sejung-crm` 가 **아닌** 다른 경로에 clone 했다면, **Actions 탭** 더블클릭 후 Arguments·Start in 의 `C:\sejung-crm` 를 실제 경로로 바꿀 것
+5. (선택) **General 탭** → "사용자가 로그온 여부와 관계없이 실행" 체크
+6. 확인 → Windows 계정 비밀번호 입력 → 등록 완료
 
 ### 방법 B. PowerShell 한 줄 (전문가용)
 

@@ -18,6 +18,12 @@ chcp 65001 >nul
 set PYTHONUTF8=1
 set PYTHONIOENCODING=utf-8
 
+REM Force real writes. migrate_*.py default to DRY_RUN=1 (dev-safe: transform
+REM only, no Supabase INSERT). This is the PRODUCTION runner, so force 0 here.
+REM load_dotenv uses override=False, so this OS env var beats whatever .env
+REM says - the operator can never accidentally leave the hourly sync in dry-run.
+set DRY_RUN=0
+
 REM 1) cd to repo root
 cd /d "%~dp0\..\.."
 
