@@ -5,6 +5,7 @@
  *
  * 노출 액션:
  *   - resendFailedAction(campaignId): 캠페인 내 실패 메시지만 재발송.
+ *   - resendSingleMessageAction(messageId): 특정 학생 1명(메시지 1건)만 재발송.
  *   - resumeStuckCampaignAction(campaignId): '발송중' 상태에서 자가호출 chain 이
  *     끊겨 멈춘 캠페인을 수동 재개.
  *
@@ -14,6 +15,7 @@
  */
 
 import { resendFailedMessages } from "@/lib/messaging/resend-failed";
+import { resendSingleMessage } from "@/lib/messaging/resend-single";
 import {
   resumeStuckCampaign,
   type ResumeStuckResult,
@@ -27,6 +29,15 @@ export async function resendFailedAction(
     return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
   }
   return await resendFailedMessages(campaignId);
+}
+
+export async function resendSingleMessageAction(
+  messageId: string,
+): Promise<SendCampaignResult> {
+  if (typeof messageId !== "string" || messageId.length === 0) {
+    return { status: "failed", reason: "메시지 ID 가 유효하지 않습니다" };
+  }
+  return await resendSingleMessage(messageId);
 }
 
 export async function resumeStuckCampaignAction(

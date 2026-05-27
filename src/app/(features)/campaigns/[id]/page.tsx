@@ -3,6 +3,7 @@ import { getCampaign } from "@/lib/campaigns/get-campaign";
 import { listCampaignMessages } from "@/lib/campaigns/list-campaign-messages";
 import { getCampaignMessageCounts } from "@/lib/campaigns/get-campaign-message-counts";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { can } from "@/lib/auth/can";
 import { CampaignDetailView } from "@/components/campaigns/campaign-detail-view";
 
 /**
@@ -31,6 +32,9 @@ export default async function CampaignDetailPage({
   }
 
   const canRevealPhone = currentUser?.role === "master";
+  // 행별 재발송 권한 = 해당 분원 캠페인 발송(send) 권한.
+  // 일괄 재발송 버튼과 동일한 권한 레벨. (서버 액션이 최종 방어)
+  const canResend = can(currentUser, "send", "campaign", campaign.branch);
 
   return (
     <CampaignDetailView
@@ -38,6 +42,7 @@ export default async function CampaignDetailPage({
       messages={messages}
       counts={counts}
       canRevealPhone={canRevealPhone}
+      canResend={canResend}
     />
   );
 }

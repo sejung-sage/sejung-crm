@@ -1,0 +1,277 @@
+/**
+ * F3 Part B · 개별 학생 1명 재발송.
+ *
+ * 박은주 부원장 요청: 기존 "실패 건 일괄 재발송"(`resend-failed`) 외에, 특정 학생
+ * 1명만 콕 집어 재발송하는 단건 경로. 일괄 버전 로직을 1건으로 좁힌 형태이며,
+ * 가드/어댑터/비용 계산은 동일 패턴을 공유한다(공용 헬퍼는 message-update-helpers).
+ *
+ * 동작:
+ *   1) dev-seed 모드 차단.
+ *   2) messageId 검증 → crm_messages 단건 조회(id 기준). 없으면 실패.
+ *   3) 상태 가드:
+ *      - is_test=true  → 차단(테스트 메시지는 재발송 불가).
+ *      - status '대기'  → 차단(발송 중/큐 적재 상태 — 중복 발송 방지).
+ *      - status '도달'  → 차단(도달 추적 미구현이라 사실상 안 오지만 안전 차단).
+ *      - status '실패'/'발송됨' → 허용.
+ *   4) campaign_id → getCampaign → 권한 can(user,'send','campaign',branch).
+ *   5) inline 본문(template_id null) 차단 + 템플릿 조회.
+ *   6) 가드 재적용(applyAllGuards): 그 1건 recipient 에 수신거부 + 야간광고 차단.
+ *   7) 어댑터 발송 → 그 메시지 행 update + incrementCampaignCost.
+ *      캠페인 status 는 단건 재발송으로 흔들지 않는다(아래 NOTE 참조).
+ *   8) revalidatePath('/campaigns'), revalidatePath(`/campaigns/${campaignId}`).
+ *
+ * NOTE — 캠페인 status 미변경:
+ *   일괄 재발송은 다수 건을 다시 큐에 넣는 의미라 캠페인을 '발송중'으로 전이했다가
+ *   '완료/실패'로 닫는다. 반면 단건 재발송은 이미 닫힌(완료/실패) 캠페인에서 한 행만
+ *   손보는 행위이므로 캠페인 전체 상태를 '발송중'으로 흔드는 건 부자연스럽다(상세
+ *   진행률 폴링·리스트 배지가 잠깐 '발송중'으로 보이는 혼란). 따라서 캠페인 status 는
+ *   그대로 두고 total_cost 만 누적한다.
+ */
+
+import { revalidatePath } from "next/cache";
+import { createSmsAdapter } from "./adapters";
+import { applyAllGuards, type Recipient } from "./guards";
+import { calculateCost } from "./calculate-cost";
+import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
+import { getCurrentUser } from "@/lib/auth/current-user";
+import { can } from "@/lib/auth/can";
+import { getCampaign } from "@/lib/campaigns/get-campaign";
+import { getUnsubscribedPhones } from "./unsubscribed-phones";
+import { getTemplate } from "@/lib/templates/get-template";
+import type { SendCampaignResult } from "./send-campaign";
+import {
+  readFromNumber,
+  extractFailedReason,
+  updateMessage,
+  incrementCampaignCost,
+} from "./message-update-helpers";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+
+/** 단건 조회 시 읽어오는 crm_messages 행 형태. */
+interface MessageRow {
+  id: string;
+  campaign_id: string | null;
+  phone: string;
+  student_id: string | null;
+  status: string;
+  is_test: boolean;
+}
+
+export async function resendSingleMessage(
+  messageId: string,
+): Promise<SendCampaignResult> {
+  // 1) dev-seed 모드 차단 (DB 쓰기 불가)
+  if (isDevSeedMode()) {
+    return {
+      status: "dev_seed_mode",
+      reason: "개발 시드 모드에서는 실제 재발송이 차단됩니다",
+    };
+  }
+
+  if (!messageId || typeof messageId !== "string") {
+    return { status: "failed", reason: "메시지 ID 가 유효하지 않습니다" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // 2) 메시지 단건 조회
+  const { data: row, error: fetchError } = await supabase
+    .from("crm_messages")
+    .select("id, campaign_id, phone, student_id, status, is_test")
+    .eq("id", messageId)
+    .maybeSingle();
+
+  if (fetchError) {
+    return {
+      status: "failed",
+      reason: `메시지 조회에 실패했습니다: ${fetchError.message}`,
+    };
+  }
+  if (!row) {
+    return { status: "failed", reason: "존재하지 않는 메시지입니다" };
+  }
+
+  const message = row as MessageRow;
+
+  // 3) 상태 가드 — 중복 발송 방지 + 테스트 보호
+  if (message.is_test) {
+    return {
+      status: "failed",
+      reason: "테스트 메시지는 재발송할 수 없습니다",
+    };
+  }
+  if (message.status === "대기") {
+    return {
+      status: "failed",
+      reason: "발송 중인 메시지는 재발송할 수 없습니다",
+    };
+  }
+  if (message.status === "도달") {
+    // 우리 시스템은 도달 추적 미구현이라 사실상 도달 상태는 오지 않지만,
+    // 정상 도달분을 다시 쏘는 사고를 막기 위해 안전하게 차단한다.
+    return {
+      status: "failed",
+      reason: "이미 도달한 메시지는 재발송할 수 없습니다",
+    };
+  }
+  if (message.status !== "실패" && message.status !== "발송됨") {
+    // 위 가드를 빠져나온 알 수 없는 상태는 보수적으로 차단.
+    return {
+      status: "failed",
+      reason: "현재 상태의 메시지는 재발송할 수 없습니다",
+    };
+  }
+
+  if (!message.campaign_id) {
+    return {
+      status: "failed",
+      reason: "캠페인 정보가 없어 재발송할 수 없습니다",
+    };
+  }
+  const campaignId = message.campaign_id;
+
+  // 4) 캠페인 조회 + 권한
+  const campaign = await getCampaign(campaignId);
+  if (!campaign) {
+    return { status: "failed", reason: "존재하지 않는 캠페인입니다" };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "failed", reason: "로그인 후 이용 가능합니다" };
+  }
+  if (!can(user, "send", "campaign", campaign.branch)) {
+    return {
+      status: "failed",
+      reason: "본 분원 캠페인 발송 권한이 없습니다",
+    };
+  }
+
+  // 5) 본문 확보. inline 본문(template_id null) 은 재발송 불가(일괄과 동일).
+  if (!campaign.template_id) {
+    return {
+      status: "failed",
+      reason: "직접 작성 본문 캠페인은 재발송이 지원되지 않습니다",
+    };
+  }
+  const template = await getTemplate(campaign.template_id);
+  if (!template) {
+    return {
+      status: "failed",
+      reason: "원본 템플릿을 찾지 못해 재발송할 수 없습니다",
+    };
+  }
+
+  // 6) 가드 재적용 — 그 1건에도 수신거부 + 야간 광고 차단을 동일하게 강제.
+  let unsubscribedPhones: string[];
+  try {
+    unsubscribedPhones = await getUnsubscribedPhones();
+  } catch (e) {
+    return {
+      status: "failed",
+      reason:
+        e instanceof Error ? e.message : "수신거부 목록 조회에 실패했습니다",
+    };
+  }
+
+  const normalizedPhone = message.phone.replace(/\D/g, "");
+  const recipients: Recipient[] = [
+    {
+      studentId: message.student_id,
+      phone: normalizedPhone,
+      name: "",
+      status: "재원생",
+    },
+  ];
+
+  const guarded = applyAllGuards({
+    body: template.body,
+    isAd: template.is_ad,
+    scheduledAt: new Date(),
+    recipients,
+    unsubscribedPhones,
+  });
+
+  if (!guarded.allowedToSend) {
+    return {
+      status: "blocked",
+      reason: guarded.blockReason ?? "야간 광고 차단 시간대입니다",
+    };
+  }
+  if (guarded.eligible.length === 0) {
+    return {
+      status: "failed",
+      reason: "재발송 가능한 수신자가 없습니다(수신거부)",
+    };
+  }
+
+  const recipient = guarded.eligible[0];
+  if (!recipient) {
+    return {
+      status: "failed",
+      reason: "재발송 가능한 수신자가 없습니다(수신거부)",
+    };
+  }
+
+  // 7) 어댑터 발송
+  const adapter = createSmsAdapter();
+  const fromNumber = readFromNumber(adapter.name);
+  if (!fromNumber) {
+    return {
+      status: "failed",
+      reason: "발신번호 환경변수가 설정되어 있지 않습니다",
+    };
+  }
+
+  const sr = await Promise.allSettled([
+    adapter.send({
+      to: recipient.phone,
+      body: guarded.finalBody,
+      subject: template.subject,
+      type: template.type,
+      fromNumber,
+      isAd: template.is_ad,
+    }),
+  ]).then((arr) => arr[0]);
+
+  const nowIso = new Date().toISOString();
+  let sentOk = 0;
+  let failed = 0;
+  let addedCost = 0;
+
+  if (sr && sr.status === "fulfilled" && sr.value.status === "queued") {
+    sentOk = 1;
+    const unitCost = calculateCost(template.type, 1).totalCost;
+    addedCost = unitCost;
+    // messages.cost INT — 소수 단가는 round 후 저장(합산은 float 으로 보존).
+    await updateMessage(supabase, message.id, {
+      status: "발송됨",
+      vendor_message_id: sr.value.vendorMessageId,
+      cost: Math.round(unitCost),
+      sent_at: nowIso,
+      failed_reason: null,
+    });
+  } else {
+    failed = 1;
+    const reason = extractFailedReason(sr);
+    await updateMessage(supabase, message.id, {
+      status: "실패",
+      failed_reason: reason,
+      sent_at: nowIso,
+    });
+  }
+
+  // 캠페인 누적 비용만 갱신. 캠페인 status 는 의도적으로 건드리지 않는다(상단 NOTE).
+  await incrementCampaignCost(supabase, campaignId, addedCost);
+
+  revalidatePath("/campaigns");
+  revalidatePath(`/campaigns/${campaignId}`);
+
+  return {
+    status: "success",
+    campaignId,
+    sent: sentOk,
+    failed,
+    cost: addedCost,
+  };
+}

@@ -28,6 +28,8 @@ interface Props {
   counts: CampaignMessageCounts;
   /** 학부모 연락처 풀 노출 권한. master 만 true. */
   canRevealPhone?: boolean;
+  /** 행별 재발송 권한. 해당 분원 캠페인 발송 권한과 동일. */
+  canResend?: boolean;
 }
 
 export function CampaignDetailView({
@@ -35,6 +37,7 @@ export function CampaignDetailView({
   messages,
   counts,
   canRevealPhone = false,
+  canResend = false,
 }: Props) {
   const isInFlight = campaign.status === "발송중";
 
@@ -237,7 +240,11 @@ export function CampaignDetailView({
           </p>
         </div>
 
-        <CampaignMessagesTable rows={messages} canRevealPhone={canRevealPhone} />
+        <CampaignMessagesTable
+          rows={messages}
+          canRevealPhone={canRevealPhone}
+          canResend={canResend}
+        />
       </section>
     </div>
   );

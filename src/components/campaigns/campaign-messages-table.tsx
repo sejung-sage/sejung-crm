@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { CampaignMessageRow, MessageStatus } from "@/types/database";
 import { MessageStatusBadge } from "@/components/campaigns/campaign-status-badge";
+import { ResendSingleButton } from "@/components/campaigns/resend-single-button";
 import { formatPhone, maskPhone } from "@/lib/phone";
 import { formatKstDateTime } from "@/lib/datetime";
 
@@ -10,6 +11,8 @@ interface Props {
   rows: CampaignMessageRow[];
   /** 학부모 연락처 풀 노출 권한. master 만 true. */
   canRevealPhone?: boolean;
+  /** 행별 재발송 권한. false 면 재발송 컬럼 자체를 숨김. */
+  canResend?: boolean;
 }
 
 // "도달" status 는 sendon webhook/polling 미구현으로 영원히 0건 → 칩 노출 제외.
@@ -32,7 +35,11 @@ const PAGE_SIZE = 50;
  *  - 수신번호는 마스킹된 형태로만 노출 (학부모 연락처 보호)
  *  - 실패 사유는 작은 회색 텍스트로 행 아래 병기
  */
-export function CampaignMessagesTable({ rows, canRevealPhone = false }: Props) {
+export function CampaignMessagesTable({
+  rows,
+  canRevealPhone = false,
+  canResend = false,
+}: Props) {
   const [statusFilter, setStatusFilter] = useState<"ALL" | MessageStatus>(
     "ALL",
   );
@@ -116,6 +123,9 @@ export function CampaignMessagesTable({ rows, canRevealPhone = false }: Props) {
                 <Th className="w-24">상태</Th>
                 <Th className="w-40">발송시각</Th>
                 <Th>실패 사유</Th>
+                {canResend && (
+                  <Th className="w-28 text-right">재발송</Th>
+                )}
               </tr>
             </thead>
             <tbody>
@@ -147,6 +157,17 @@ export function CampaignMessagesTable({ rows, canRevealPhone = false }: Props) {
                       <span className="text-[color:var(--text-dim)]">—</span>
                     )}
                   </Td>
+                  {canResend && (
+                    <Td className="text-right">
+                      <div className="flex justify-end">
+                        <ResendSingleButton
+                          messageId={m.id}
+                          status={m.status}
+                          studentName={m.student_name ?? null}
+                        />
+                      </div>
+                    </Td>
+                  )}
                 </tr>
               ))}
             </tbody>

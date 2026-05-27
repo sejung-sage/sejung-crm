@@ -15,21 +15,25 @@
 
 import { revalidatePath } from "next/cache";
 import { createSmsAdapter } from "./adapters";
-import type { SmsSendResult } from "./adapters/types";
 import { applyAllGuards, type Recipient } from "./guards";
 import { calculateCost } from "./calculate-cost";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCampaign } from "@/lib/campaigns/get-campaign";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
 import { getTemplate } from "@/lib/templates/get-template";
 import type { SendCampaignResult } from "./send-campaign";
+import {
+  readFromNumber,
+  extractFailedReason,
+  updateMessage,
+  safeUpdateCampaignStatus,
+  incrementCampaignCost,
+} from "./message-update-helpers";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 const SEND_BATCH_SIZE = 100;
-
-type SupabaseSrv = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
 export async function resendFailedMessages(
   campaignId: string,
@@ -233,101 +237,4 @@ export async function resendFailedMessages(
     failed,
     cost: addedCost,
   };
-}
-
-// ─── 헬퍼 ──────────────────────────────────────────────────
-
-function readFromNumber(adapterName: string): string | null {
-  switch (adapterName) {
-    case "sendon":
-      return process.env.SENDON_FROM_NUMBER ?? "01000000000";
-    default:
-      return null;
-  }
-}
-
-function extractFailedReason(
-  sr: PromiseSettledResult<SmsSendResult> | undefined,
-): string {
-  if (!sr) return "발송 결과를 읽지 못했습니다";
-  if (sr.status === "rejected") {
-    const e = sr.reason;
-    if (e instanceof Error) return e.message;
-    return "벤더 응답 오류";
-  }
-  if (sr.value.status === "failed") {
-    return sr.value.reason;
-  }
-  return "벤더 응답이 비정상입니다";
-}
-
-async function updateMessage(
-  supabase: SupabaseSrv,
-  id: string,
-  patch: Record<string, unknown>,
-): Promise<void> {
-  await (
-    supabase.from("crm_messages") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        eq: (
-          col: string,
-          val: string,
-        ) => Promise<{ error: { message: string } | null }>;
-      };
-    }
-  )
-    .update(patch)
-    .eq("id", id);
-}
-
-async function safeUpdateCampaignStatus(
-  supabase: SupabaseSrv,
-  campaignId: string,
-  status: "발송중" | "완료" | "실패",
-): Promise<void> {
-  await (
-    supabase.from("crm_campaigns") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        eq: (
-          col: string,
-          val: string,
-        ) => Promise<{ error: { message: string } | null }>;
-      };
-    }
-  )
-    .update({ status })
-    .eq("id", campaignId);
-}
-
-async function incrementCampaignCost(
-  supabase: SupabaseSrv,
-  campaignId: string,
-  added: number,
-): Promise<void> {
-  if (added <= 0) return;
-
-  // 현재값 + added 로 단순 갱신 (race 가능성은 매우 낮은 워크플로우).
-  // 강한 원자성 필요시 RPC SQL 함수로 옮길 수 있음 (Phase 1).
-  const { data: cur } = await supabase
-    .from("crm_campaigns")
-    .select("total_cost")
-    .eq("id", campaignId)
-    .maybeSingle();
-
-  const curRow = cur as unknown as { total_cost?: number } | null;
-  const currentCost =
-    typeof curRow?.total_cost === "number" ? curRow.total_cost : 0;
-
-  await (
-    supabase.from("crm_campaigns") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        eq: (
-          col: string,
-          val: string,
-        ) => Promise<{ error: { message: string } | null }>;
-      };
-    }
-  )
-    .update({ total_cost: Math.round(currentCost + added) })
-    .eq("id", campaignId);
 }
