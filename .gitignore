@@ -45,6 +45,7 @@ supabase/.temp/
 .venv/
 scripts/etl/.env
 scripts/etl/explore_output/
+scripts/etl/logs/
 __pycache__/
 *.pyc
 .env*.local

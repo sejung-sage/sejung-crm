@@ -16,6 +16,8 @@ import { SidebarProfileMenu } from "./sidebar-profile-menu";
 import { SidebarNavLink } from "./sidebar-nav-link";
 import { SidebarBranchSwitcher } from "./sidebar-branch-switcher";
 import { SidebarClock } from "./sidebar-clock";
+import { SidebarSyncStatus } from "./sidebar-sync-status";
+import { getLatestSyncRun } from "@/lib/etl/sync-status";
 import type { UserRole } from "@/types/database";
 
 /**
@@ -97,6 +99,7 @@ const NAV_ITEMS: NavItem[] = [
 export async function Sidebar() {
   const currentUser = await getCurrentUser();
   const selectedBranch = await getSelectedBranch();
+  const latestSync = currentUser ? await getLatestSyncRun() : null;
   const isDevSeed =
     currentUser?.role === "master" &&
     currentUser?.user_id === "dev-master-0001";
@@ -211,6 +214,7 @@ export async function Sidebar() {
       {/* 하단 — KST 시계 + 프로필 */}
       {currentUser && (
         <div className="border-t border-[color:var(--border)] px-3 py-3 space-y-2">
+          <SidebarSyncStatus run={latestSync} />
           <SidebarClock />
           <div className="flex items-center gap-2.5">
             <UserCircle2

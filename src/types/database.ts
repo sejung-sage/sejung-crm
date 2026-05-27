@@ -652,6 +652,25 @@ export interface ClassDetail {
   >[];
 }
 
+// ─── ETL 동기화 이력 (0079) ─────────────────────────────────
+
+/** ETL 동기화 실행 결과. */
+export type EtlSyncStatus = "success" | "failed";
+
+/**
+ * etl_sync_runs 1행 — Aca2000 → Supabase ETL 1회 실행 결과.
+ * UI 사이드바 "마지막 동기화 시각 + 성공/실패" 표시 소스.
+ */
+export interface EtlSyncRunRow {
+  id: number;
+  /** ETL 실행 종료 시각 (ISO, UTC). 표시는 KST. */
+  finished_at: string;
+  status: EtlSyncStatus;
+  /** 실패 시 요약 메시지. 성공 시 null. */
+  error_message: string | null;
+  created_at: string;
+}
+
 // ─── Supabase Database 스키마 (client typing용) ─────────────
 
 export interface Database {
@@ -732,6 +751,12 @@ export interface Database {
           updated_at?: string;
         };
         Update: Partial<Omit<SchoolRegionRow, "school">>;
+      };
+      // ── ETL 동기화 이력 (0079) — UI "마지막 동기화" 표시 소스 ──
+      etl_sync_runs: {
+        Row: EtlSyncRunRow;
+        Insert: { status: EtlSyncStatus; finished_at?: string; error_message?: string | null };
+        Update: Partial<Omit<EtlSyncRunRow, "id">>;
       };
     };
     Views: {

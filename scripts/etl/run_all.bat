@@ -27,10 +27,11 @@ set DRY_RUN=0
 REM 1) cd to repo root
 cd /d "%~dp0\..\.."
 
-REM 2) Log dir + filename (KST date via WMIC)
+REM 2) Log dir + filename (local date via PowerShell).
+REM    wmic 는 Windows 11 24H2/26xxx 에서 제거되어 더 이상 못 씀 → PowerShell 로 대체.
 if not exist scripts\etl\logs mkdir scripts\etl\logs
-for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value ^| find "="') do set DT=%%I
-set LOG=scripts\etl\logs\%DT:~0,4%-%DT:~4,2%-%DT:~6,2%.log
+for /f %%I in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd"') do set TODAY=%%I
+set LOG=scripts\etl\logs\%TODAY%.log
 
 REM 3) Activate venv (must exist)
 if not exist .venv\Scripts\activate.bat (
@@ -69,12 +70,16 @@ call :RUN apply_to_crm
 
 echo. >> "%LOG%"
 if %FAIL_COUNT% gtr 0 (
-  echo [END] %DATE% %TIME%  %FAIL_COUNT% step(s) failed - check log >> "%LOG%"
-  echo [END] %FAIL_COUNT% step(s) failed - %LOG%
+  echo [END] %DATE% %TIME%  %FAIL_COUNT% steps failed - check log >> "%LOG%"
+  echo [END] %FAIL_COUNT% steps failed - %LOG%
+  REM 실패 이력 기록 (UI "마지막 동기화" 표시용). 기록 실패는 무시.
+  python scripts\etl\record_sync.py fail "%FAIL_COUNT% steps failed" >> "%LOG%" 2>&1
   exit /b 1
 ) else (
   echo [END] %DATE% %TIME%  all OK >> "%LOG%"
   echo [END] all OK - %LOG%
+  REM 성공 이력 기록 (UI "마지막 동기화" 표시용).
+  python scripts\etl\record_sync.py ok >> "%LOG%" 2>&1
   exit /b 0
 )
 
