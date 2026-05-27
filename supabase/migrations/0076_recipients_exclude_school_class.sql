@@ -42,6 +42,13 @@
 
 BEGIN;
 
+-- 0068 의 10-인자 시그니처가 남아 있으면 신규 12-인자와 오버로드로 공존하여
+-- (1) 아래 COMMENT ON FUNCTION(인자 미지정)이 모호해져 42725 로 실패하고
+-- (2) 10-인자 호출이 양쪽 매칭되어 런타임 ambiguous 가 된다. 옛 시그니처를 먼저 제거.
+DROP FUNCTION IF EXISTS public.search_recipients_by_subjects(
+  text[], text, text[], text[], text[], text[], uuid[], text[], int, int
+);
+
 CREATE OR REPLACE FUNCTION public.search_recipients_by_subjects(
   p_subjects text[],
   p_branch text,
