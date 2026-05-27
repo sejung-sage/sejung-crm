@@ -1,24 +1,44 @@
 "use client";
 
 import Link from "next/link";
+import { Send } from "lucide-react";
 import type { ClassListItem } from "@/types/database";
 import { BranchBadge } from "@/components/groups/branch-badge";
 
 interface Props {
   rows: ClassListItem[];
+  /**
+   * 행별 "발송" 액션을 노출할 분원 집합.
+   *  - null      → 전체 분원 허용 (master)
+   *  - string[]  → 해당 분원 강좌에만 노출 (admin = 본인 분원). 빈 배열이면 전부 미노출.
+   *
+   * 발송 그룹 생성(write/group) 권한과 동일 기준으로 상위(page)에서 산출.
+   * manager/viewer/비로그인은 빈 배열로 들어와 액션 컬럼 자체가 비어 보인다.
+   */
+  sendableBranches?: string[] | null;
 }
 
 /**
  * F0 · 강좌 리스트 테이블.
  *
  * 컬럼 (좌→우):
- *   반명 · 분원 · 과목 · 강사 · 요일/시간 · 회당단가 · 총회차 · 정가 · 수강생
+ *   반명 · 분원 · 과목 · 강사 · 요일/시간 · 회당단가 · 총회차 · 정가 · 수강생 · 발송
  *
  * - 반명 셀에 `/classes/[id]` 로 링크.
+ * - 맨 오른쪽 "발송" 컬럼: 권한자에게만 행별 `/groups/new?class=<id>` 진입 링크.
+ *   반명 링크와 별도 요소라 클릭 충돌 없음.
  * - 미사용 강좌(active=false)는 회색조 dim. (`active=0` 토글 시에만 노출됨)
  * - 빈 상태: "검색 조건에 해당하는 강좌가 없습니다."
  */
-export function ClassesTable({ rows }: Props) {
+export function ClassesTable({ rows, sendableBranches = null }: Props) {
+  // 어떤 행에서든 발송 액션이 가능한지 — 컬럼 헤더 노출 여부 판단.
+  // null(master) 이거나 비어있지 않은 배열이면 컬럼을 띄운다.
+  const showSendColumn = sendableBranches === null || sendableBranches.length > 0;
+
+  // 특정 분원 강좌에 발송 액션을 노출할지.
+  const canSendBranch = (branch: string): boolean =>
+    sendableBranches === null || sendableBranches.includes(branch);
+
   if (rows.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
@@ -46,6 +66,7 @@ export function ClassesTable({ rows }: Props) {
             <Th className="w-20 text-right">총회차</Th>
             <Th className="w-28 text-right">정가</Th>
             <Th className="w-20 text-right">수강생</Th>
+            {showSendColumn && <Th className="w-24 text-center">발송</Th>}
           </tr>
         </thead>
         <tbody>
@@ -150,6 +171,35 @@ export function ClassesTable({ rows }: Props) {
                 >
                   {r.enrolled_student_count.toLocaleString()}명
                 </Td>
+                {showSendColumn && (
+                  <Td className="text-center">
+                    {canSendBranch(r.branch) &&
+                      r.enrolled_student_count > 0 && (
+                        <Link
+                          href={`/groups/new?class=${r.id}`}
+                          aria-label={`${r.name} 수강생에게 문자 보내기`}
+                          title="이 강좌로 발송"
+                          className="
+                            inline-flex items-center gap-1
+                            h-9 px-2.5 rounded-lg
+                            text-[13px] font-medium
+                            text-[color:var(--text-muted)]
+                            border border-[color:var(--border)]
+                            hover:bg-[color:var(--bg-hover)]
+                            hover:text-[color:var(--text)]
+                            transition-colors
+                          "
+                        >
+                          <Send
+                            className="size-3.5"
+                            strokeWidth={1.75}
+                            aria-hidden
+                          />
+                          발송
+                        </Link>
+                      )}
+                  </Td>
+                )}
               </tr>
             );
           })}

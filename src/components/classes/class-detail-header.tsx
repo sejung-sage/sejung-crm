@@ -1,15 +1,21 @@
 import Link from "next/link";
-import { MessageCircle } from "lucide-react";
+import { Send } from "lucide-react";
 import type { ClassRow } from "@/types/database";
 import { BranchBadge } from "@/components/groups/branch-badge";
 
 interface Props {
   cls: ClassRow;
   /**
-   * 이 강좌의 수강생 수. "이 강좌 학생들에게 문자 보내기" 버튼의
+   * 이 강좌의 수강생 수. "이 강좌로 발송" 버튼의
    * 활성/비활성 + 라벨 보조 표기에 사용. 0 이면 버튼 비활성.
    */
   studentCount: number;
+  /**
+   * "이 강좌로 발송" 진입 버튼 노출 권한.
+   * 그 분원에 발송 그룹 생성(write/group) 가능한 사용자(master/admin)만 true.
+   * false 면 버튼 자체를 렌더하지 않는다.
+   */
+  canSend?: boolean;
 }
 
 /**
@@ -23,7 +29,7 @@ interface Props {
  *  - 요일·시간 한 줄 (둘 다 있으면 한 줄에 붙여서)
  *  - 정원 / 총회차×회당단가=정가 (있는 것만 채워서)
  */
-export function ClassDetailHeader({ cls, studentCount }: Props) {
+export function ClassDetailHeader({ cls, studentCount, canSend = false }: Props) {
   // 과목 · 강사 inline 메타.
   const subjectTeacherParts: string[] = [];
   if (cls.subject) {
@@ -111,16 +117,18 @@ export function ClassDetailHeader({ cls, studentCount }: Props) {
           </dl>
         </div>
 
-        <div className="shrink-0">
-          <SendToClassButton classId={cls.id} studentCount={studentCount} />
-        </div>
+        {canSend && (
+          <div className="shrink-0">
+            <SendToClassButton classId={cls.id} studentCount={studentCount} />
+          </div>
+        )}
       </div>
     </section>
   );
 }
 
 /**
- * "이 강좌 학생들에게 문자 보내기" 진입 버튼.
+ * "이 강좌로 발송" 진입 버튼.
  *
  * 학생 상세의 "이 학생에게 문자 보내기" 버튼과 동일 시각 패턴 (action 색).
  * /groups/new?class=<id> 로 이동하면 NewGroupPage 가 강좌 수강생 전체를
@@ -139,7 +147,7 @@ function SendToClassButton({
   if (studentCount === 0) {
     return (
       <span
-        aria-label="수강생이 없어 문자 발송 불가"
+        aria-label="수강생이 없어 발송 불가"
         title="수강생이 없습니다"
         className="
           inline-flex items-center gap-1.5
@@ -149,8 +157,8 @@ function SendToClassButton({
           border border-[color:var(--border)]
         "
       >
-        <MessageCircle className="size-4" strokeWidth={1.75} aria-hidden />
-        이 강좌 학생들에게 문자 보내기
+        <Send className="size-4" strokeWidth={1.75} aria-hidden />
+        이 강좌로 발송
       </span>
     );
   }
@@ -167,8 +175,8 @@ function SendToClassButton({
         transition-colors
       "
     >
-      <MessageCircle className="size-4" strokeWidth={1.75} aria-hidden />
-      이 강좌 학생들에게 문자 보내기
+      <Send className="size-4" strokeWidth={1.75} aria-hidden />
+      이 강좌로 발송
       <span className="ml-1 text-[12px] opacity-80 tabular-nums">
         ({studentCount})
       </span>

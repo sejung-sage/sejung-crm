@@ -10,6 +10,12 @@ interface Props {
   detail: ClassDetail;
   /** 학부모 연락처 풀 노출 권한. master 만 true. */
   canRevealPhone?: boolean;
+  /**
+   * "이 강좌로 발송" 진입 버튼 노출 권한.
+   * 그 분원에 발송 그룹 생성(write/group) 가능한 사용자(master/admin)만 true.
+   * false 면 헤더 발송 버튼을 아예 숨긴다.
+   */
+  canSendToClass?: boolean;
 }
 
 /**
@@ -22,7 +28,11 @@ interface Props {
  * 영역 간 정보 의존(명단의 학생을 격자에서 다시 찾아본다)이 강해
  * 한 페이지에 풀어두는 편이 운영자에게 더 자연스럽다.
  */
-export function ClassDetailView({ detail, canRevealPhone = false }: Props) {
+export function ClassDetailView({
+  detail,
+  canRevealPhone = false,
+  canSendToClass = false,
+}: Props) {
   return (
     <div className="max-w-7xl space-y-6">
       <nav aria-label="이동 경로">
@@ -40,7 +50,11 @@ export function ClassDetailView({ detail, canRevealPhone = false }: Props) {
         </Link>
       </nav>
 
-      <ClassDetailHeader cls={detail.class} studentCount={detail.students.length} />
+      <ClassDetailHeader
+        cls={detail.class}
+        studentCount={detail.students.length}
+        canSend={canSendToClass}
+      />
 
       <ClassKpiCards detail={detail} />
 

@@ -3,6 +3,8 @@ import { listClassFilterOptions } from "@/lib/classes/list-class-filter-options"
 import { parseClassSearchParams } from "@/lib/schemas/class";
 import { applyBranchContextToParams } from "@/lib/auth/branch-context";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { can } from "@/lib/auth/can";
+import { BRANCHES } from "@/config/branches";
 import { ClassesToolbar } from "@/components/classes/classes-toolbar";
 import { ClassesTable } from "@/components/classes/classes-table";
 import { Pagination } from "@/components/students/pagination";
@@ -75,6 +77,17 @@ export default async function ClassesPage({
   const devMode = isDevSeedMode();
   const canPickBranch = currentUser?.role === "master";
 
+  // 행별 "발송" 액션 노출 게이팅 = 그 강좌 분원에 발송 그룹 생성(write/group)
+  // 가능한가. /groups/new → createGroupAction 권한과 동일 기준(master/admin).
+  // 분원 차이가 있어 강좌 행마다 판단해야 하므로, 사용자가 그룹을 만들 수 있는
+  // 분원 집합을 미리 산출해 테이블에 내린다. master 는 전체(null), admin 은
+  // 본인 분원만, manager/viewer/비로그인은 빈 배열(미노출).
+  // (서버 액션이 최종 방어 — UI 게이팅은 표시/숨김 용도)
+  const sendableBranches: string[] | null =
+    currentUser?.role === "master"
+      ? null
+      : BRANCHES.filter((b) => can(currentUser, "write", "group", b));
+
   return (
     <div className="max-w-7xl space-y-6">
       {/* 페이지 헤더 */}
@@ -112,7 +125,7 @@ export default async function ClassesPage({
       </p>
 
       {/* 테이블 */}
-      <ClassesTable rows={result.rows} />
+      <ClassesTable rows={result.rows} sendableBranches={sendableBranches} />
 
       {/* 페이지네이션 — 학생 목록과 라벨 차이를 무시하고 컴포넌트 재사용
           (총 N명 → 총 N건 차이는 작은 차이라 향후 분리 가능). */}
