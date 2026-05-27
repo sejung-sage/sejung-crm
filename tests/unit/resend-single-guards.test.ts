@@ -101,7 +101,9 @@ describe("resendSingleMessageAction · 입력 가드 (Server Action 래퍼)", ()
  *   - status '도달'            → failed("이미 도달한 메시지는 재발송할 수 없습니다")
  *   - status '실패'/'발송됨'   → 가드 통과 시 재발송 허용
  *   - campaign_id null         → failed("캠페인 정보가 없어 재발송할 수 없습니다")
- *   - inline 본문(template_id null) → failed("직접 작성 본문 캠페인은 ...")
+ *   - body/type NULL 옛 캠페인 → failed("본문 정보가 없는 옛 캠페인은 ...")
+ *     (template 기반·직접 작성 본문 모두 재발송 허용 — 캠페인 스냅샷 body 재사용,
+ *      {이름}/{날짜} 는 applyNameToken/applyDateToken 으로 단건 치환)
  *   - 권한 없음                → failed("본 분원 캠페인 발송 권한이 없습니다")
  *   - 야간 광고 차단           → blocked
  *   - 수신거부 번호            → failed("재발송 가능한 수신자가 없습니다(수신거부)")

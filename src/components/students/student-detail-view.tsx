@@ -55,6 +55,7 @@ export function StudentDetailView({ detail, canRevealPhone = false }: Props) {
           <StudentMessagesPanel
             messages={detail.messages}
             canRevealPhone={canRevealPhone}
+            studentName={detail.profile.name}
           />
         }
       />

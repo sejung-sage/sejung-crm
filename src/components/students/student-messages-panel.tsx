@@ -1,11 +1,14 @@
 import type { MessageStatus, StudentMessageRow } from "@/types/database";
 import { formatPhone, maskPhone } from "@/lib/phone";
 import { formatKstDateTime } from "@/lib/datetime";
+import { ResendSingleButton } from "@/components/campaigns/resend-single-button";
 
 interface Props {
   messages: StudentMessageRow[];
   /** 학부모 연락처 풀 노출 권한. master 만 true. */
   canRevealPhone?: boolean;
+  /** 재발송 확인·안내 문구에 쓸 학생 이름. */
+  studentName: string | null;
 }
 
 /**
@@ -21,6 +24,7 @@ interface Props {
 export function StudentMessagesPanel({
   messages,
   canRevealPhone = false,
+  studentName,
 }: Props) {
   if (messages.length === 0) {
     return (
@@ -41,7 +45,11 @@ export function StudentMessagesPanel({
       <ul className="space-y-2">
         {messages.map((m) => (
           <li key={m.id}>
-            <MessageAccordion message={m} canRevealPhone={canRevealPhone} />
+            <MessageAccordion
+              message={m}
+              canRevealPhone={canRevealPhone}
+              studentName={studentName}
+            />
           </li>
         ))}
       </ul>
@@ -54,9 +62,11 @@ export function StudentMessagesPanel({
 function MessageAccordion({
   message,
   canRevealPhone,
+  studentName,
 }: {
   message: StudentMessageRow;
   canRevealPhone: boolean;
+  studentName: string | null;
 }) {
   const phoneText = canRevealPhone
     ? formatPhone(message.phone) || "—"
@@ -123,6 +133,16 @@ function MessageAccordion({
             )}
           </Dd>
         </dl>
+
+        {/* 재발송 — 같은 본문을 이 학부모에게 한 번 더 발송. 서버에서 수신거부·
+            야간 광고 차단·{이름}/{날짜} 치환을 재적용한 뒤 1건만 즉시 발송한다. */}
+        <div className="mt-4 flex justify-end border-t border-[color:var(--border)] pt-4">
+          <ResendSingleButton
+            messageId={message.id}
+            status={message.status}
+            studentName={studentName}
+          />
+        </div>
       </div>
     </details>
   );

@@ -14,8 +14,10 @@
  *      - status '도달'  → 차단(도달 추적 미구현이라 사실상 안 오지만 안전 차단).
  *      - status '실패'/'발송됨' → 허용.
  *   4) campaign_id → getCampaign → 권한 can(user,'send','campaign',branch).
- *   5) inline 본문(template_id null) 차단 + 템플릿 조회.
+ *   5) 본문 확보: 캠페인 스냅샷(body/subject/type/is_ad)을 그대로 재사용.
+ *      템플릿 기반/직접 작성 본문 구분 없음. body/type 가 NULL 인 옛 캠페인만 차단.
  *   6) 가드 재적용(applyAllGuards): 그 1건 recipient 에 수신거부 + 야간광고 차단.
+ *      이후 {날짜}/{이름} 토큰을 단건 경로(applyDateToken/applyNameToken)로 치환.
  *   7) 어댑터 발송 → 그 메시지 행 update + incrementCampaignCost.
  *      캠페인 status 는 단건 재발송으로 흔들지 않는다(아래 NOTE 참조).
  *   8) revalidatePath('/campaigns'), revalidatePath(`/campaigns/${campaignId}`).
@@ -37,7 +39,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { getCampaign } from "@/lib/campaigns/get-campaign";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
-import { getTemplate } from "@/lib/templates/get-template";
+import { applyDateToken, applyNameToken } from "./personalize";
 import type { SendCampaignResult } from "./send-campaign";
 import {
   readFromNumber,
@@ -147,19 +149,29 @@ export async function resendSingleMessage(
     };
   }
 
-  // 5) 본문 확보. inline 본문(template_id null) 은 재발송 불가(일괄과 동일).
-  if (!campaign.template_id) {
+  // 5) 본문 확보 — 캠페인이 body/subject/type/is_ad 를 직접 들고 있으므로
+  //    템플릿 기반/직접 작성 본문 구분 없이 캠페인 스냅샷을 그대로 재사용한다.
+  //    (0027 이전 옛 캠페인은 body/type 가 NULL 일 수 있어 방어 차단.)
+  if (!campaign.body || !campaign.type) {
     return {
       status: "failed",
-      reason: "직접 작성 본문 캠페인은 재발송이 지원되지 않습니다",
+      reason: "본문 정보가 없는 옛 캠페인은 재발송할 수 없습니다",
     };
   }
-  const template = await getTemplate(campaign.template_id);
-  if (!template) {
-    return {
-      status: "failed",
-      reason: "원본 템플릿을 찾지 못해 재발송할 수 없습니다",
-    };
+  const campaignBody = campaign.body;
+  const campaignType = campaign.type;
+
+  // {이름} 치환용 학생 이름 — 단건 발송은 sendon batch(userParameters) 가 아니라
+  // applyNameToken 으로 앱에서 직접 치환한다(test-send 와 동일). 학생 미연결·조회
+  // 실패 시 applyNameToken 의 '학부모님' fallback 이 적용된다.
+  let studentName: string | null = null;
+  if (message.student_id) {
+    const { data: stu } = await supabase
+      .from("crm_students")
+      .select("name")
+      .eq("id", message.student_id)
+      .maybeSingle();
+    studentName = (stu as { name?: string } | null)?.name ?? null;
   }
 
   // 6) 가드 재적용 — 그 1건에도 수신거부 + 야간 광고 차단을 동일하게 강제.
@@ -179,14 +191,14 @@ export async function resendSingleMessage(
     {
       studentId: message.student_id,
       phone: normalizedPhone,
-      name: "",
+      name: studentName ?? "",
       status: "재원생",
     },
   ];
 
   const guarded = applyAllGuards({
-    body: template.body,
-    isAd: template.is_ad,
+    body: campaignBody,
+    isAd: campaign.is_ad,
     scheduledAt: new Date(),
     recipients,
     unsubscribedPhones,
@@ -213,7 +225,19 @@ export async function resendSingleMessage(
     };
   }
 
-  // 7) 어댑터 발송
+  // 7) 개인화 토큰 치환(단건) — test-send 와 동일 순서.
+  //    {날짜} → 캠페인 기준일(scheduled_at > sent_at > now)을 KST 'M월 D일' 로
+  //             치환해 원문 발송일을 그대로 재현. {이름} → 학생 이름(없으면 학부모님).
+  const personalizationDate =
+    parseDateOrNull(campaign.scheduled_at) ??
+    parseDateOrNull(campaign.sent_at) ??
+    new Date();
+  const personalizedBody = applyNameToken(
+    applyDateToken(guarded.finalBody, personalizationDate),
+    studentName,
+  );
+
+  // 8) 어댑터 발송
   const adapter = createSmsAdapter();
   const fromNumber = readFromNumber(adapter.name);
   if (!fromNumber) {
@@ -226,11 +250,11 @@ export async function resendSingleMessage(
   const sr = await Promise.allSettled([
     adapter.send({
       to: recipient.phone,
-      body: guarded.finalBody,
-      subject: template.subject,
-      type: template.type,
+      body: personalizedBody,
+      subject: campaign.subject,
+      type: campaignType,
       fromNumber,
-      isAd: template.is_ad,
+      isAd: campaign.is_ad,
     }),
   ]).then((arr) => arr[0]);
 
@@ -241,7 +265,7 @@ export async function resendSingleMessage(
 
   if (sr && sr.status === "fulfilled" && sr.value.status === "queued") {
     sentOk = 1;
-    const unitCost = calculateCost(template.type, 1).totalCost;
+    const unitCost = calculateCost(campaignType, 1).totalCost;
     addedCost = unitCost;
     // messages.cost INT — 소수 단가는 round 후 저장(합산은 float 으로 보존).
     await updateMessage(supabase, message.id, {
@@ -274,4 +298,11 @@ export async function resendSingleMessage(
     failed,
     cost: addedCost,
   };
+}
+
+/** ISO 문자열을 Date 로. null/파싱 실패 시 null. (drain-campaign 와 동일 헬퍼.) */
+function parseDateOrNull(v: string | null): Date | null {
+  if (!v) return null;
+  const d = new Date(v);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
