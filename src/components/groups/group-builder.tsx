@@ -3,8 +3,16 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ChevronLeft, Loader2, MinusCircle, Search, X } from "lucide-react";
-import type { GroupFilters } from "@/lib/schemas/group";
+import {
+  ChevronLeft,
+  Filter,
+  ListChecks,
+  Loader2,
+  MinusCircle,
+  Search,
+  X,
+} from "lucide-react";
+import type { GroupFilters, GroupKind } from "@/lib/schemas/group";
 import type { Grade, StudentStatus, Subject } from "@/types/database";
 import type {
   CountRecipientsResult,
@@ -253,6 +261,17 @@ export function GroupBuilder({
   const [includeStudents, setIncludeStudents] = useState<DirectStudent[]>(
     initial.filters.includeStudents ?? [],
   );
+  // 그룹 종류 (사용자 확정 2026-05-27): 'filter'(조건 동기화) | 'custom'(고정 명단).
+  // 옛 그룹 JSONB 에 kind 키 없으면 GroupFiltersSchema 기본값 'filter'.
+  // prefill(student/class/lapsed) 진입은 page 에서 'custom' 으로 내려준다.
+  const [kind, setKind] = useState<GroupKind>(initial.filters.kind ?? "filter");
+  // prefill(강좌/학생/이탈) 진입은 custom + 명단이 미리 채워진 상태로 열린다.
+  // 이 경우 종류 전환을 잠가(custom 고정) prefill 명단이 사라지는 혼란을 막는다.
+  // (단순화 — 사용자 확정: prefill 은 custom 고정 + 안내.)
+  const prefillLocked =
+    mode === "create" &&
+    initial.filters.kind === "custom" &&
+    (initial.filters.includeStudents?.length ?? 0) > 0;
   // 재원 상태 — 다중 선택. 빈 배열 = default 재원생 만 (수신자 산정 단에서 처리).
   // 옛 그룹 JSONB 에 statuses 키 없으면 빈 배열 → 기존 동작 보존.
   const [statuses, setStatuses] = useState<StudentStatus[]>(
@@ -357,8 +376,13 @@ export function GroupBuilder({
     () => excludeClasses.map((c) => c.id),
     [excludeClasses],
   );
+  // 종류 분기 — custom 이면 직접 명단만, filter 면 조건만 노출/해석.
+  const isCustom = kind === "custom";
+  // custom 인데 명단이 비면 저장 불가 (서버 refine 과 동일 규칙 — UX 선차단).
+  const customEmpty = isCustom && includeStudents.length === 0;
   const filters: GroupFilters = useMemo(
     () => ({
+      kind,
       grades,
       schools,
       subjects: subjects.filter((s): s is Subject =>
@@ -374,6 +398,7 @@ export function GroupBuilder({
       mappedSchool,
     }),
     [
+      kind,
       grades,
       schools,
       subjects,
@@ -512,6 +537,11 @@ export function GroupBuilder({
       setSubmitError("분원은 필수입니다");
       return;
     }
+    // 커스텀 그룹은 명단 1명 이상 필수 (서버 refine 과 동일 — 선차단).
+    if (customEmpty) {
+      setSubmitError("커스텀 그룹은 학생을 1명 이상 직접 추가해야 합니다");
+      return;
+    }
 
     // 수정 모드는 발송 영향이 크므로 한 번 더 확인. 신규는 즉시 저장.
     if (mode === "edit") {
@@ -587,7 +617,9 @@ export function GroupBuilder({
           {mode === "create" ? "새 발송 그룹" : "발송 그룹 수정"}
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-          학년·학교·지역·과목 조건으로 수신자를 지정합니다. 수신거부·탈퇴 학생은 자동 제외됩니다.
+          {isCustom
+            ? "학생을 직접 골라 담은 고정 명단입니다. 수신거부·탈퇴 학생은 자동 제외됩니다."
+            : "학년·학교·지역·과목 조건으로 수신자를 지정합니다. 수신거부·탈퇴 학생은 자동 제외됩니다."}
         </p>
       </div>
 
@@ -648,7 +680,51 @@ export function GroupBuilder({
             </Field>
           </section>
 
-          {/* 필터 */}
+          {/* 그룹 종류 — 필터(동기화) vs 커스텀(고정 명단). 첫 단계 선택. */}
+          <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4">
+            <div className="space-y-1">
+              <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+                그룹 종류
+              </h2>
+              <p className="text-[13px] text-[color:var(--text-muted)]">
+                수신자를 정하는 방식을 고릅니다. 만든 뒤에도 수정에서 바꿀 수
+                있어요.
+              </p>
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-label="그룹 종류"
+              className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
+            >
+              <KindOption
+                title="필터 그룹"
+                subtitle="조건에 맞는 학생이 자동 포함됩니다. 새 학생도 자동 반영."
+                icon={Filter}
+                active={!isCustom}
+                disabled={prefillLocked}
+                onSelect={() => setKind("filter")}
+              />
+              <KindOption
+                title="커스텀 그룹"
+                subtitle="학생을 직접 골라 담은 고정 명단입니다."
+                icon={ListChecks}
+                active={isCustom}
+                disabled={prefillLocked}
+                onSelect={() => setKind("custom")}
+              />
+            </div>
+
+            {prefillLocked && (
+              <p className="text-[12px] text-[color:var(--text-dim)]">
+                강좌·학생 명단으로 시작해 커스텀 그룹으로 고정됩니다. 조건으로
+                만들려면 빈 그룹에서 새로 시작하세요.
+              </p>
+            )}
+          </section>
+
+          {/* 필터 — 'filter' 종류에서만 노출 (조건 동기화 그룹). */}
+          {!isCustom && (
           <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-5">
             <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
               수신자 조건
@@ -840,13 +916,28 @@ export function GroupBuilder({
                 ))}
               </div>
             </Field>
+          </section>
+          )}
+
+          {/* 학생 직접 선택 — 'custom' 종류에서만 노출 (고정 명단 그룹). */}
+          {isCustom && (
+          <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-5">
+            <div className="space-y-1">
+              <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+                학생 직접 선택
+              </h2>
+              <p className="text-[13px] text-[color:var(--text-muted)]">
+                이름·학부모 연락처로 검색해 발송할 학생을 직접 담습니다. 담은
+                학생만 고정 발송 대상이 됩니다.
+              </p>
+            </div>
 
             <Field
-              label="학생 직접 선택"
+              label="담긴 학생"
               hint={
                 includeStudents.length > 0
-                  ? "선택된 학생만 수신자가 됩니다 (위 조건 무시)"
-                  : "이름·학부모번호로 검색해 학생을 콕 찍어 추가할 수 있습니다"
+                  ? `${includeStudents.length}명 담김`
+                  : "아직 담긴 학생이 없습니다 — 1명 이상 추가해 주세요"
               }
             >
               <DirectStudentPicker
@@ -863,10 +954,22 @@ export function GroupBuilder({
                 }
               />
             </Field>
+
+            {customEmpty && (
+              <p
+                role="status"
+                className="text-[13px] text-[color:var(--danger)]"
+              >
+                커스텀 그룹은 학생을 1명 이상 담아야 저장할 수 있습니다.
+              </p>
+            )}
           </section>
+          )}
 
           {/* 제외 조건 — 위 조건으로 잡힌 수신자에서 빼는 영역.
-              포함 영역과 시각적으로 명확히 구분 (빨강/취소선 톤). */}
+              포함 영역과 시각적으로 명확히 구분 (빨강/취소선 톤).
+              'filter' 종류에서만 노출 (custom 은 고정 명단이라 조건 제외 무의미). */}
+          {!isCustom && (
           <section className="rounded-xl border border-danger/40 bg-[color:var(--danger-bg)] p-6 space-y-5">
             <div className="space-y-1">
               <h2 className="flex items-center gap-1.5 text-[16px] font-semibold text-[color:var(--danger)]">
@@ -927,6 +1030,7 @@ export function GroupBuilder({
               />
             </Field>
           </section>
+          )}
 
           {/* 에러/안내 */}
           {submitError && (
@@ -961,7 +1065,12 @@ export function GroupBuilder({
             </Link>
             <button
               type="submit"
-              disabled={isPending}
+              disabled={isPending || customEmpty}
+              title={
+                customEmpty
+                  ? "커스텀 그룹은 학생을 1명 이상 담아야 저장할 수 있습니다"
+                  : undefined
+              }
               className="
                 inline-flex items-center h-10 px-5 rounded-lg
                 bg-[color:var(--action)] text-[color:var(--action-text)]
@@ -1191,6 +1300,67 @@ function Field({
       </div>
       {children}
     </div>
+  );
+}
+
+/**
+ * 그룹 종류 선택 카드 (라디오 시맨틱).
+ * 아이콘 + 제목 + 설명. 색만으로 구분하지 않고 선택 시 검정 테두리 + 체크 톤.
+ */
+function KindOption({
+  title,
+  subtitle,
+  icon: Icon,
+  active,
+  disabled,
+  onSelect,
+}: {
+  title: string;
+  subtitle: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+  active: boolean;
+  disabled?: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      disabled={disabled}
+      onClick={onSelect}
+      className={`
+        flex items-start gap-3 rounded-lg border p-4 text-left
+        transition-colors
+        disabled:cursor-not-allowed disabled:opacity-60
+        ${
+          active
+            ? "border-[color:var(--action)] bg-[color:var(--bg-hover)]"
+            : "border-[color:var(--border)] bg-bg-card hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
+        }
+      `}
+    >
+      <span
+        className={`
+          mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full
+          ${
+            active
+              ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
+              : "bg-[color:var(--bg-muted)] text-[color:var(--text-muted)]"
+          }
+        `}
+      >
+        <Icon className="size-4" strokeWidth={1.75} aria-hidden />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[14px] font-semibold text-[color:var(--text)]">
+          {title}
+        </span>
+        <span className="mt-0.5 block text-[12px] leading-snug text-[color:var(--text-muted)]">
+          {subtitle}
+        </span>
+      </span>
+    </button>
   );
 }
 

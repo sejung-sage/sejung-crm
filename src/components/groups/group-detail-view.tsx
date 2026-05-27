@@ -2,7 +2,9 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import type { GroupListItem, StudentProfileRow } from "@/types/database";
 import type { GroupFilters } from "@/lib/schemas/group";
+import { isCustomGroup } from "@/lib/schemas/group";
 import { BranchBadge } from "@/components/groups/branch-badge";
+import { GroupKindBadge } from "@/components/groups/group-kind-badge";
 import { GroupDetailActions } from "@/components/groups/group-detail-actions";
 import { GroupStudentsTable } from "@/components/groups/group-students-table";
 import { Pagination } from "@/components/students/pagination";
@@ -64,6 +66,7 @@ export function GroupDetailView({
                 {group.name}
               </h1>
               <BranchBadge branch={group.branch} />
+              <GroupKindBadge filters={group.filters} />
             </div>
 
             <p className="text-[14px] text-[color:var(--text-muted)]">
@@ -163,6 +166,10 @@ export function GroupDetailView({
  * 예: "고2 · 휘문고 · 수학" / "전 학년 · 전 학교 · 수학"
  */
 function summarizeFilters(f: GroupFilters): string {
+  // 커스텀(고정 명단)은 조건이 무의미하므로 명단 그룹임을 명시.
+  if (isCustomGroup(f)) {
+    return "직접 담은 고정 명단 (조건 자동 동기화 안 함)";
+  }
   const parts: string[] = [];
   // grades 는 0012 enum 정규화 이후 이미 "고1"/"중2"/"초등" 등 완전한 라벨이므로
   // 추가 prefix 없이 그대로 표시. (옛 raw 숫자 시절 "고"+g 가 남아있어 "고고1"

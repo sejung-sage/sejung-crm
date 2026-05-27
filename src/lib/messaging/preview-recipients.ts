@@ -39,6 +39,7 @@ import type { GroupRow, StudentStatus } from "@/types/database";
 import type { DedupeCounts } from "@/types/messaging";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
 import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
+import { isCustomGroup } from "@/lib/schemas/group";
 import { isAllSubjects } from "@/lib/schemas/common";
 import {
   applySchoolExclusion,
@@ -408,18 +409,25 @@ async function resolveFilterMapping(
 ): Promise<FilterMapping> {
   const f = group.filters;
 
-  // 제외 차감 사전 페치 — include/조건 분기, zeroResult 분기와 무관하게 항상 계산해
-  // 모든 return 에 동일 차감을 실어 보낸다(exclude 승리). 강좌 제외는 강좌 수가
-  // 적어 1회성 2쿼리.
-  const excludeClassStudentIds = await loadExcludedClassStudentIds(
-    supabase,
-    f.excludeClassIds ?? [],
-  );
+  // 그룹 종류 분기 (2026-05-27) — isCustomGroup 술어 경유.
+  // custom: includeStudentIds 모집단(필터/excludeSchools/excludeClassIds 무시),
+  //         excludeStudentIds 차감만 유지.
+  // filter: 조건 모집단(includeStudentIds 무시), exclude 3종 차감.
+  const custom = isCustomGroup(f);
+
+  // 제외 차감 사전 페치 — 강좌 제외는 filter 전용(custom 은 무시).
+  //   include/조건 분기, zeroResult 분기와 무관하게 모든 return 에 동일 차감을 실어
+  //   보낸다(exclude 승리). 강좌 제외는 강좌 수가 적어 1회성 2쿼리.
+  const excludeClassStudentIds = custom
+    ? []
+    : await loadExcludedClassStudentIds(supabase, f.excludeClassIds ?? []);
+  // 명시 제외는 두 종류 공통(custom 도 개별 제거 유지). 강좌 펼침은 filter 한정.
   const excludeStudentIds = mergeExcludedStudentIds(
     f.excludeStudentIds ?? [],
     excludeClassStudentIds,
   );
-  const excludeSchools = f.excludeSchools ?? [];
+  // 학교별 제외는 filter 전용. custom 은 excludeSchools 무시.
+  const excludeSchools = custom ? [] : (f.excludeSchools ?? []);
 
   // zeroResult 단축 시에도 exclude 필드를 채워 타입/시맨틱 일관 유지.
   const zero = (): FilterMapping => ({
@@ -430,8 +438,12 @@ async function resolveFilterMapping(
     zeroResult: true,
   });
 
-  // includeStudentIds 우선. 이 경로에선 subjects 매핑은 무시 (count-recipients 와 동일).
-  if (f.includeStudentIds.length > 0) {
+  // custom(고정 명단): includeStudentIds 명단만 모집단. 필터/subjects 무시.
+  // 빈 명단이면 모집단 0명 → zeroResult.
+  if (custom) {
+    if (f.includeStudentIds.length === 0) {
+      return zero();
+    }
     return {
       allowedStudentIds: f.includeStudentIds,
       allowedSchools: null,
@@ -441,6 +453,7 @@ async function resolveFilterMapping(
     };
   }
 
+  // filter(조건 동기화): includeStudentIds 무시. subjects/regions 사전 매핑.
   let allowedStudentIds: string[] | null = null;
   if (f.subjects.length > 0 && !isAllSubjects(f.subjects)) {
     // ETL 정책상 crm_enrollments.subject 는 항상 NULL → crm_classes.subject 로

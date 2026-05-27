@@ -14,6 +14,7 @@
  */
 
 import type { GroupFilters } from "@/lib/schemas/group";
+import { isCustomGroup } from "@/lib/schemas/group";
 import type { StudentProfileRow, Subject } from "@/types/database";
 import { DEV_ENROLLMENTS } from "@/lib/profile/students-dev-seed";
 import { UNMAPPED_SCHOOL_PATTERNS } from "@/lib/schemas/common";
@@ -39,18 +40,40 @@ export function applyGroupFiltersDev(
 
   const branchTrim = branch.trim();
 
-  // 직접 선택한 학생 ID set (있으면 조건 무시)
-  const includeSet =
-    filters.includeStudentIds.length > 0
-      ? new Set(filters.includeStudentIds)
-      : null;
+  // ── kind 분기 (2026-05-27) ─────────────────────────────────
+  // 'custom' (고정 명단): includeStudentIds 만 모집단. excludeStudentIds 차감은
+  //   유지하되 필터 조건·excludeSchools·excludeClassIds 는 모두 무시.
+  // 'filter' (조건 동기화): grades/schools/subjects/regions/statuses + unmapped/mapped
+  //   조건으로 모집단 산정. includeStudentIds 는 완전히 무시. excludeStudentIds +
+  //   excludeSchools + excludeClassIds 차감.
+  // 직접 filters.kind 비교 금지 — 단일 술어 isCustomGroup 경유.
+  const custom = isCustomGroup(filters);
 
-  // 그룹 단건 삭제(2026-05-19) — 명시 제외 set.
+  // 그룹 단건 삭제(2026-05-19) — 명시 제외 set. 두 종류 공통(custom 도 개별 제거 유지).
   const excludeSet =
     filters.excludeStudentIds && filters.excludeStudentIds.length > 0
       ? new Set(filters.excludeStudentIds)
       : null;
 
+  if (custom) {
+    // 커스텀(고정 명단) 경로 — includeStudentIds 모집단 − excludeStudentIds.
+    // 빈 includeStudentIds 면 모집단 0명 → 빈 결과 안전 반환.
+    const includeSet = new Set(filters.includeStudentIds);
+    return profiles.filter((p) => {
+      // 1) 분원
+      if (branchTrim && p.branch !== branchTrim) return false;
+      // 2) 비활성(탈퇴) 제외 — 안전 정책상 항상 차단(가드).
+      if (p.status === "탈퇴") return false;
+      // 3) 수신거부 제외 (학부모 연락처 기준, 가드).
+      if (p.parent_phone && unsub.has(p.parent_phone)) return false;
+      // 4) 명시 제외(excludeStudentIds) — 커스텀 명단 개별 제거.
+      if (excludeSet && excludeSet.has(p.id)) return false;
+      // 5) 고정 명단 매칭만 — 필터 조건/excludeSchools/excludeClassIds 는 무시.
+      return includeSet.has(p.id);
+    });
+  }
+
+  // ── filter (조건 동기화) 경로 ───────────────────────────────
   // 학교별 제외 (2026-05-27) — student.school IN (excludeSchools) 면 차감.
   // school === null 은 차감 대상 아님 (Supabase NOT IN 과 동일 시맨틱).
   const excludeSchoolSet =
@@ -78,8 +101,7 @@ export function applyGroupFiltersDev(
     // 3) 수신거부 제외 (학부모 연락처 기준)
     if (p.parent_phone && unsub.has(p.parent_phone)) return false;
 
-    // 3.5) 제외 차감(exclude 승리) — includeStudentIds 분기보다 먼저 적용해
-    //      "이 학생만 보낼 건데 그중 일부는 빼고" 시맨틱을 일관 유지.
+    // 3.5) 제외 차감(exclude 승리) — 조건 매칭보다 먼저 적용.
     //   ① 명시 제외(excludeStudentIds)
     if (excludeSet && excludeSet.has(p.id)) return false;
     //   ② 학교별 제외 — school null 은 차감 안 함.
@@ -89,12 +111,7 @@ export function applyGroupFiltersDev(
     //   ③ 강좌별 제외 — 제외 강좌 수강 학생 차감.
     if (excludeClassStudentSet && excludeClassStudentSet.has(p.id)) return false;
 
-    // 4) 직접 선택 모드 — includeStudentIds 만 매칭, 조건 절 무시.
-    if (includeSet) {
-      return includeSet.has(p.id);
-    }
-
-    // 5) 재원 상태 — 빈 배열이면 default '탈퇴 빼고 전체' (재원생/수강이력자/수강 x).
+    // 4) 재원 상태 — 빈 배열이면 default '탈퇴 빼고 전체' (재원생/수강이력자/수강 x).
     // 옛 그룹 JSONB 호환성을 위해 빈 배열의 시맨틱은 "조건 없음" = 전체로 해석.
     const wantedStatuses =
       filters.statuses.length > 0
@@ -102,7 +119,7 @@ export function applyGroupFiltersDev(
         : ["재원생", "수강이력자", "수강 x"];
     if (!wantedStatuses.includes(p.status)) return false;
 
-    // 6) 조건 절 (직접 선택이 비어있을 때만)
+    // 5) 조건 절. includeStudentIds 는 filter 경로에서 완전히 무시(동기화 보장).
     if (filters.grades.length > 0) {
       if (p.grade === null) return false;
       if (!filters.grades.includes(p.grade)) return false;

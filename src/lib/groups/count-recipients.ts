@@ -8,9 +8,12 @@
  *   - unsubscribes 에 학부모 번호 있는 학생 제외
  *   - "최근 3회 수신자 제외" 는 Phase 1 로 미룸 (여기서 다루지 않음)
  *
- * 수신자 산정 규칙:
- *   - filters.includeStudentIds 가 비어있지 않으면 → 그 학생들만 (조건 무시)
- *   - 비어있으면 → grades/schools/subjects/regions 조건 매치
+ * 수신자 산정 규칙 (그룹 종류 분기 · isCustomGroup 술어 경유 · 2026-05-27):
+ *   - custom(고정 명단): includeStudentIds 모집단 − excludeStudentIds 차감.
+ *     필터 조건·excludeSchools·excludeClassIds 는 무시.
+ *   - filter(조건 동기화): grades/schools/subjects/regions/statuses 조건 매치 −
+ *     excludeStudentIds/excludeSchools/excludeClassIds 차감. includeStudentIds 는
+ *     완전히 무시(동기화 보장).
  *   분원·탈퇴·수신거부 가드는 두 경우 모두 적용.
  *
  * 쿼리 전략 (statement timeout 해소 — 4만+ 학생 규모):
@@ -29,6 +32,7 @@
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { GroupFilters } from "@/lib/schemas/group";
+import { isCustomGroup } from "@/lib/schemas/group";
 import type { Grade } from "@/types/database";
 import {
   DEV_STUDENT_PROFILES,
@@ -95,33 +99,44 @@ async function countFromSupabase(
 ): Promise<CountRecipientsResult> {
   const supabase = await createSupabaseServerClient();
 
+  // 그룹 종류 분기 (2026-05-27). 직접 filters.kind 비교 금지 — isCustomGroup 술어 경유.
+  // custom: includeStudentIds 모집단(필터/excludeSchools/excludeClassIds 무시),
+  //         excludeStudentIds 차감만 유지.
+  // filter: 조건 모집단(includeStudentIds 무시), exclude 3종 차감.
+  const custom = isCustomGroup(filters);
+
   // 1) 수신거부 학부모 번호 목록 선(先)페치.
   //    React cache 로 같은 요청 내 중복 호출 제거 (preview-recipients 등과 공유).
   const safeUnsubPhones = await getUnsubscribedPhones();
 
-  // 1.5) subjects 필터가 있고 includeStudentIds 미설정이면 RPC 위임.
+  // 1.5) (filter 전용) subjects 필터가 있으면 RPC 위임.
   //      국어처럼 수강생 많은 과목은 student id list 가 PostgREST URL 한계
   //      초과 → 0068 마이그의 search_recipients_by_subjects RPC 사용.
   //
   //      단, 사용자가 7종(전체) 다 체크한 케이스는 "조건 없음(전체)" 으로
   //      정규화 — enrollment 0건이거나 classes.subject NULL 인 학생도 포함되도록
   //      RPC 안 거치고 일반 분기로 진행. 운영자 UX 일관성.
+  //      custom 그룹은 subjects 조건 자체를 무시하므로 RPC 위임도 하지 않는다.
   if (
+    !custom &&
     filters.subjects.length > 0 &&
-    !isAllSubjects(filters.subjects) &&
-    filters.includeStudentIds.length === 0
+    !isAllSubjects(filters.subjects)
   ) {
     return await countViaSubjectsRpc(filters, branch, safeUnsubPhones);
   }
 
-  // 2) subjects 필터 사전 매핑.
-  //    ⚠️ ETL 정책상 crm_enrollments.subject 는 항상 NULL — 실제 과목은
-  //    crm_classes.subject 에만 들어 있다. 따라서 두 단계로 매핑:
-  //      (a) crm_classes.subject IN (filters.subjects) → 매칭 aca_class_id 페치
-  //      (b) crm_enrollments.aca_class_id IN (매칭) → 그 강좌 수강 student_id 페치
-  //    옛 코드는 (a) 를 건너뛰고 enrollments.subject 로 매칭해 항상 0명 산출.
+  // 2) 모집단 id 좁힘 (allowedStudentIds).
+  //    custom: includeStudentIds 명단만 모집단. 빈 명단이면 0명 short-circuit.
+  //    filter: subjects 사전 매핑 (includeStudentIds 무시).
+  //      ⚠️ ETL 정책상 crm_enrollments.subject 는 항상 NULL — 실제 과목은
+  //      crm_classes.subject 에만 들어 있다. 따라서 두 단계로 매핑:
+  //        (a) crm_classes.subject IN (filters.subjects) → 매칭 aca_class_id 페치
+  //        (b) crm_enrollments.aca_class_id IN (매칭) → 그 강좌 수강 student_id 페치
   let allowedStudentIds: string[] | null = null;
-  if (filters.includeStudentIds.length > 0) {
+  if (custom) {
+    if (filters.includeStudentIds.length === 0) {
+      return { total: 0, sample: [] };
+    }
     allowedStudentIds = filters.includeStudentIds;
   } else if (
     filters.subjects.length > 0 &&
@@ -157,11 +172,12 @@ async function countFromSupabase(
     allowedStudentIds = Array.from(set);
   }
 
-  // 3) regions 필터 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
+  // 3) (filter 전용) regions 필터 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
   //    "기타" 칩은 매핑된 region='기타' 학교만 매칭 (단순화). 매핑 없는 학교는 제외.
   //    추후 매핑 없는 학교까지 "기타" 로 포함하려면 별도 IS NULL 분기 필요.
+  //    custom 그룹은 regions 조건을 무시한다.
   let allowedSchools: string[] | null = null;
-  if (filters.regions.length > 0 && filters.includeStudentIds.length === 0) {
+  if (!custom && filters.regions.length > 0) {
     const { data: regionRows, error: regErr } = await supabase
       .from("crm_school_regions")
       .select("school")
@@ -175,24 +191,24 @@ async function countFromSupabase(
     if (allowedSchools.length === 0) return { total: 0, sample: [] };
   }
 
-  // 3.5) 강좌별 제외 사전 페치 — excludeClassIds(crm_classes.id) → aca_class_id →
-  //      crm_enrollments 매칭 student_id. 명시 제외와 병합해 not.in 으로 차감.
-  const excludeClassStudentIds = await loadExcludedClassStudentIds(
-    supabase,
-    filters.excludeClassIds ?? [],
-  );
+  // 3.5) (filter 전용) 강좌별 제외 사전 페치 — excludeClassIds(crm_classes.id) →
+  //      aca_class_id → crm_enrollments 매칭 student_id. 명시 제외와 병합해 not.in 차감.
+  //      custom 그룹은 excludeClassIds 를 무시한다.
+  const excludeClassStudentIds = custom
+    ? []
+    : await loadExcludedClassStudentIds(supabase, filters.excludeClassIds ?? []);
 
   // 4) crm_students 쿼리 빌더 — count 와 sample 이 동일 필터를 공유.
   //    student_profiles 뷰 우회 → 0046 인덱스(branch+status+school_level+grade, school) 활용.
   type StudentsQuery = ReturnType<ReturnType<typeof supabase.from>["select"]>;
-  // 그룹 단건 삭제(excludeStudentIds) + 강좌 제외(펼친 student_id)는 SQL 단에서
-  // NOT IN 으로 강제 제외. includeStudentIds 경로(전체 id 명시)에도 동일하게 적용해야
-  // 옛 그룹과 의미가 일관된다 — "이 학생만 보낼 건데, 그중 X 한 명은 빼고" 가 가능.
+  // 명시 제외(excludeStudentIds) + (filter 한정)강좌 제외(펼친 student_id)는 SQL 단에서
+  // NOT IN 으로 강제 제외. custom 도 excludeStudentIds 차감은 유지(개별 제거).
   const safeExcludeIds = mergeExcludedStudentIds(
     filters.excludeStudentIds ?? [],
     excludeClassStudentIds,
   );
-  const excludeSchools = filters.excludeSchools ?? [];
+  // 학교별 제외는 filter 전용. custom 은 excludeSchools 무시.
+  const excludeSchools = custom ? [] : (filters.excludeSchools ?? []);
 
   function buildQuery(
     selectExpr: string,
@@ -527,11 +543,11 @@ async function loadRecipientIdSetWithSample(
   // 1) 수신거부 페치 — React cache 공유.
   const safeUnsubPhones = await getUnsubscribedPhones();
 
-  // 1.5) 강좌별 제외 사전 페치 — 명시 제외와 병합해 not.in 차감.
-  const excludeClassStudentIds = await loadExcludedClassStudentIds(
-    supabase,
-    filters.excludeClassIds ?? [],
-  );
+  // 1.5) (filter 전용) 강좌별 제외 사전 페치 — 명시 제외와 병합해 not.in 차감.
+  //      custom 그룹은 excludeClassIds 무시.
+  const excludeClassStudentIds = isCustomGroup(filters)
+    ? []
+    : await loadExcludedClassStudentIds(supabase, filters.excludeClassIds ?? []);
 
   // 2) 매칭 id + sample 한 번에 (id 외 4컬럼).
   const q = buildRecipientQuery(
@@ -577,11 +593,11 @@ async function loadRecipientIdsCore(
   // 수신거부 페치 — React cache 공유.
   const safeUnsubPhones = await getUnsubscribedPhones();
 
-  // 강좌별 제외 사전 페치 — 명시 제외와 병합해 not.in 차감.
-  const excludeClassStudentIds = await loadExcludedClassStudentIds(
-    supabase,
-    filters.excludeClassIds ?? [],
-  );
+  // (filter 전용) 강좌별 제외 사전 페치 — 명시 제외와 병합해 not.in 차감.
+  // custom 그룹은 excludeClassIds 무시.
+  const excludeClassStudentIds = isCustomGroup(filters)
+    ? []
+    : await loadExcludedClassStudentIds(supabase, filters.excludeClassIds ?? []);
 
   const q = buildRecipientQuery(
     supabase,
@@ -631,9 +647,13 @@ function buildRecipientQuery(
     filters.statuses.length > 0 ? filters.statuses : ["재원생"];
   q = q.in("status", wantedStatuses);
 
-  if (filters.includeStudentIds.length > 0) {
+  // 그룹 종류 분기 (2026-05-27) — isCustomGroup 술어 경유.
+  const custom = isCustomGroup(filters);
+  if (custom) {
+    // custom(고정 명단): includeStudentIds 모집단만. 필터 조건/excludeSchools 무시.
     q = q.in("id", filters.includeStudentIds);
   } else {
+    // filter(조건 동기화): 조건 매치. includeStudentIds 무시.
     if (filters.grades.length > 0) {
       q = q.in("grade", filters.grades);
     }
@@ -647,7 +667,9 @@ function buildRecipientQuery(
     // 좁아질 뿐이므로 "added/removed 가 약간 과대 계산" 정도의 미세 오차만 발생.
   }
 
-  // 명시 제외(excludeStudentIds) + 강좌 제외(펼친 student_id) 병합 차감.
+  // 명시 제외(excludeStudentIds) + (filter 한정)강좌 제외(펼친 student_id) 병합 차감.
+  // custom 도 excludeStudentIds 차감은 유지(개별 제거). excludeClassStudentIds 는
+  // 호출부에서 custom 일 때 빈 배열로 넘어온다.
   const excludeIds = mergeExcludedStudentIds(
     filters.excludeStudentIds ?? [],
     excludeClassStudentIds,
@@ -655,8 +677,11 @@ function buildRecipientQuery(
   if (excludeIds.length > 0) {
     q = q.not("id", "in", `(${excludeIds.join(",")})`);
   }
-  // 학교별 제외 — school NOT IN (...). 빈 배열이면 미적용.
-  q = applySchoolExclusion(q, filters.excludeSchools ?? []) as StudentsQuery;
+  // 학교별 제외 — filter 전용. custom 은 excludeSchools 무시. 빈 배열이면 미적용.
+  q = applySchoolExclusion(
+    q,
+    custom ? [] : (filters.excludeSchools ?? []),
+  ) as StudentsQuery;
 
   if (safeUnsubPhones.length > 0) {
     q = q.or(

@@ -13,10 +13,64 @@ import { GradeSchema, StudentStatusSchema, SubjectSchema } from "./common";
  */
 
 /**
+ * 발송 그룹 종류 (사용자 확정 2026-05-27 · 원장/부원장 결정).
+ *
+ * 한 그룹이 "필터 조건"과 "직접 추가한 학생(includeStudentIds)"을 섞어 가질 수 있어
+ * 모호하던 것을 두 종류로 명확히 분리한다.
+ *
+ *  - 'filter' (필터 그룹): 조건(학년/학교/과목/지역/상태 + 학교·강좌 제외)만으로 정의.
+ *      **항상 동기화** — 발송 시점에 조건을 재평가하므로 신규 학생이 자동 포함된다.
+ *      includeStudentIds 는 해석에서 **완전히 무시**한다(동기화 보장). dynamic.
+ *  - 'custom' (커스텀 그룹): includeStudentIds 로 직접 담은 **고정 명단**.
+ *      필터 조건·excludeSchools·excludeClassIds 는 **무시**. 만든 시점 스냅샷. static.
+ *
+ * 저장 위치: 새 컬럼 마이그레이션을 피하기 위해 crm_groups.filters(JSONB) 안에 둔다
+ * (0078/0079 미해결로 db push 가 막혀 있어 컬럼 추가 불가 — 추후 컬럼 승격 여지 남김).
+ *
+ * 백워드 호환: 키가 없으면 'filter'. 즉 기존에 저장된 모든 그룹은 자동으로 'filter'
+ * 로 분류된다. 기존 그룹이 보유한 includeStudentIds 값은 JSONB 에 그대로 보존되지만
+ * filter 해석에서는 무시된다(아래 "기존 그룹 함의" 참조 — 사용자 인지·결정함, 가역적).
+ */
+export const GroupKindSchema = z.enum(["filter", "custom"]);
+export type GroupKind = z.infer<typeof GroupKindSchema>;
+
+/** kind 미지정(옛 그룹 JSONB) 의 기본 종류. 단일 소스. */
+export const DEFAULT_GROUP_KIND: GroupKind = "filter";
+
+/**
+ * filters.kind 를 안전하게 해석하는 단일 술어.
+ * 키가 없거나(undefined) 옛 그룹이면 'filter' 로 폴백한다 — 수신자 해석 경로
+ * (count-recipients / load-all-group-recipients / preview-recipients / apply-filters)
+ * 는 직접 `filters.kind === 'custom'` 비교 대신 이 함수를 거쳐 일관성을 보장한다.
+ */
+export function resolveGroupKind(filters: { kind?: GroupKind }): GroupKind {
+  return filters.kind ?? DEFAULT_GROUP_KIND;
+}
+
+/** 커스텀(고정 명단) 그룹 여부. resolveGroupKind 기반 단일 술어. */
+export function isCustomGroup(filters: { kind?: GroupKind }): boolean {
+  return resolveGroupKind(filters) === "custom";
+}
+
+/**
  * groups.filters (JSONB) 의 정규 구조.
  * 모든 필드는 선택이며, 빈 배열은 "조건 없음(전체 허용)" 의미.
  */
 export const GroupFiltersSchema = z.object({
+  /**
+   * 그룹 종류. 'filter'(조건 동기화) | 'custom'(고정 명단).
+   *
+   * 출력 타입은 **선택(optional)** 이다 — 옛 그룹 JSONB·dev-seed·기존 in-memory
+   * 리터럴이 kind 키 없이도 GroupFilters 로 유효하도록(백워드 호환). 키가 없으면
+   * 'filter' 로 해석하되, 그 폴백은 스키마 default 가 아니라 `resolveGroupKind` /
+   * `isCustomGroup` 술어로 일관 처리한다(수신자 해석 경로 단일 소스).
+   *
+   * 수신자 해석의 **진실(source of truth)**: filter/custom 모순 데이터
+   * (예: kind 미지정인데 includeStudentIds 만 채워진 옛 그룹) 가 들어와도
+   * resolveGroupKind 결과(='filter')를 기준으로 해석한다. 즉 옛 그룹의
+   * includeStudentIds 는 보존되지만 filter 해석에서 무시된다.
+   */
+  kind: GroupKindSchema.optional(),
   /**
    * 학년: 정규화된 9종 enum (중1~고3/재수/졸업/미정). 빈 배열이면 전 학년.
    * 0012 마이그레이션 이후 students.grade 와 동일한 enum 사용.
@@ -118,11 +172,54 @@ export const GroupFiltersSchema = z.object({
 export type GroupFilters = z.infer<typeof GroupFiltersSchema>;
 
 /**
+ * custom 그룹 검증 술어 — "고정 명단인데 명단이 비어 있으면 무효".
+ * 단일 소스로 export 하여 Server Action·폼 검증이 같은 규칙을 공유.
+ *
+ * 규칙(사용자 확정):
+ *  - kind='custom' → includeStudentIds 는 최소 1명. (빈 커스텀 그룹 금지 —
+ *    아무에게도 안 가는 그룹은 오발송·혼란의 소지라 생성 단계에서 차단.)
+ *  - kind='filter' → 별도 제약 없음. 조건이 전부 비어 있으면 현행대로
+ *    "분원 전체(탈퇴/수신거부 제외)" 로 해석된다. includeStudentIds 유무 무관.
+ */
+export function isValidCustomGroupFilters(filters: GroupFilters): boolean {
+  if (!isCustomGroup(filters)) return true;
+  return filters.includeStudentIds.length >= 1;
+}
+
+/**
  * 그룹 생성 입력.
  * - name/branch 는 필수
- * - filters 는 비어 있어도 유효(=전체)
+ * - filters 는 비어 있어도 유효(=전체) — 단 custom 종류는 명단 1명 이상 필수.
  */
-export const CreateGroupInputSchema = z.object({
+export const CreateGroupInputSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, "그룹명은 필수입니다")
+      .max(40, "그룹명은 40자 이내로 입력하세요"),
+    branch: z
+      .string()
+      .trim()
+      .min(1, "분원은 필수입니다")
+      .max(20, "분원명은 20자 이내로 입력하세요"),
+    filters: GroupFiltersSchema,
+  })
+  .refine((v) => isValidCustomGroupFilters(v.filters), {
+    message: "커스텀 그룹은 학생을 1명 이상 직접 추가해야 합니다",
+    path: ["filters", "includeStudentIds"],
+  });
+export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
+
+/**
+ * 그룹 수정 입력. 부분 변경 허용.
+ * id 는 UUID 문자열.
+ *
+ * 주의: `.refine` 가 걸린 스키마는 `.partial()`/`.extend()` 를 못 쓰므로 base
+ * object 를 따로 두고 거기서 파생한다. custom 검증은 filters 가 함께 들어올 때만
+ * 수행(부분 수정에서 filters 미제출이면 스킵 — Server Action 이 머지 후 재검증).
+ */
+const UpdateGroupBaseSchema = z.object({
   name: z
     .string()
     .trim()
@@ -135,15 +232,14 @@ export const CreateGroupInputSchema = z.object({
     .max(20, "분원명은 20자 이내로 입력하세요"),
   filters: GroupFiltersSchema,
 });
-export type CreateGroupInput = z.infer<typeof CreateGroupInputSchema>;
-
-/**
- * 그룹 수정 입력. 부분 변경 허용.
- * id 는 UUID 문자열.
- */
-export const UpdateGroupInputSchema = CreateGroupInputSchema.partial().extend({
-  id: z.string().uuid("그룹 ID 가 유효하지 않습니다"),
-});
+export const UpdateGroupInputSchema = UpdateGroupBaseSchema.partial()
+  .extend({
+    id: z.string().uuid("그룹 ID 가 유효하지 않습니다"),
+  })
+  .refine((v) => v.filters === undefined || isValidCustomGroupFilters(v.filters), {
+    message: "커스텀 그룹은 학생을 1명 이상 직접 추가해야 합니다",
+    path: ["filters", "includeStudentIds"],
+  });
 export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
 
 /**

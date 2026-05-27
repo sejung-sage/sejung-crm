@@ -36,6 +36,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGroup } from "./get-group";
+import { isCustomGroup } from "@/lib/schemas/group";
 import { isAllSubjects } from "@/lib/schemas/common";
 import type { Database, StudentStatus } from "@/types/database";
 import {
@@ -70,12 +71,23 @@ export async function loadAllGroupRecipients(
   const group = await getGroup(groupId);
   if (!group) return [];
 
-  // 2) subjects 사전 매핑 — count-recipients 와 동일 정책.
+  // 그룹 종류 분기 (2026-05-27) — isCustomGroup 술어 경유.
+  // custom: includeStudentIds 모집단(필터/excludeSchools/excludeClassIds 무시),
+  //         excludeStudentIds 차감만 유지.
+  // filter: 조건 모집단(includeStudentIds 무시), exclude 3종 차감.
+  const custom = isCustomGroup(group.filters);
+
+  // 1.5) custom 인데 명단이 비면 모집단 0명 → 즉시 빈 결과.
+  if (custom && group.filters.includeStudentIds.length === 0) {
+    return [];
+  }
+
+  // 2) (filter 전용) subjects 사전 매핑 — count-recipients 와 동일 정책.
   //    ETL 상 enrollments.subject 는 NULL → classes.subject 로 두 단계 매핑.
-  //    7종 전체 체크 = "조건 없음" 으로 정규화.
+  //    7종 전체 체크 = "조건 없음" 으로 정규화. custom 은 subjects 무시.
   let subjectMatchedStudentIds: string[] | null = null;
   if (
-    group.filters.includeStudentIds.length === 0 &&
+    !custom &&
     group.filters.subjects.length > 0 &&
     !isAllSubjects(group.filters.subjects)
   ) {
@@ -109,12 +121,10 @@ export async function loadAllGroupRecipients(
     subjectMatchedStudentIds = Array.from(set);
   }
 
-  // 3) regions 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
+  // 3) (filter 전용) regions 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
+  //    custom 은 regions 조건 무시.
   let allowedSchools: string[] | null = null;
-  if (
-    group.filters.regions.length > 0 &&
-    group.filters.includeStudentIds.length === 0
-  ) {
+  if (!custom && group.filters.regions.length > 0) {
     const { data: regionRows, error: regErr } = await supabase
       .from("crm_school_regions")
       .select("school")
@@ -128,19 +138,23 @@ export async function loadAllGroupRecipients(
     if (allowedSchools.length === 0) return [];
   }
 
-  // 3.5) 강좌별 제외 사전 페치 — excludeClassIds(crm_classes.id) → aca_class_id →
-  //      crm_enrollments 매칭 student_id. 강좌 수가 적어 1회성 페치.
-  //      include/조건 분기 무관하게 항상 차감(exclude 승리).
-  const excludeClassStudentIds = await loadExcludedClassStudentIds(
-    supabase,
-    group.filters.excludeClassIds ?? [],
-  );
-  // 명시 제외(excludeStudentIds) + 강좌 제외 펼침을 하나의 not.in uuid 목록으로 병합.
+  // 3.5) (filter 전용) 강좌별 제외 사전 페치 — excludeClassIds(crm_classes.id) →
+  //      aca_class_id → crm_enrollments 매칭 student_id. 강좌 수가 적어 1회성 페치.
+  //      custom 그룹은 excludeClassIds 무시.
+  const excludeClassStudentIds = custom
+    ? []
+    : await loadExcludedClassStudentIds(
+        supabase,
+        group.filters.excludeClassIds ?? [],
+      );
+  // 명시 제외(excludeStudentIds) + (filter 한정)강좌 제외 펼침을 not.in uuid 목록 병합.
+  // custom 도 excludeStudentIds 차감은 유지(개별 제거).
   const mergedExcludeIds = mergeExcludedStudentIds(
     group.filters.excludeStudentIds ?? [],
     excludeClassStudentIds,
   );
-  const excludeSchools = group.filters.excludeSchools ?? [];
+  // 학교별 제외는 filter 전용. custom 은 excludeSchools 무시.
+  const excludeSchools = custom ? [] : (group.filters.excludeSchools ?? []);
 
   // 4) crm_students 직접 청크 range 페치 (view 풀집계 우회).
   const collected: GroupRecipient[] = [];
@@ -163,9 +177,11 @@ export async function loadAllGroupRecipients(
         : ["재원생", "수강이력자", "수강 x"];
     q = q.in("status", wantedStatuses);
 
-    if (group.filters.includeStudentIds.length > 0) {
+    if (custom) {
+      // custom(고정 명단): includeStudentIds 모집단만. 필터 조건 무시.
       q = q.in("id", group.filters.includeStudentIds);
     } else {
+      // filter(조건 동기화): 조건 매치. includeStudentIds 무시.
       if (group.filters.grades.length > 0) {
         q = q.in("grade", group.filters.grades);
       }

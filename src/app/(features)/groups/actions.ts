@@ -21,6 +21,7 @@ import {
   CreateGroupInputSchema,
   UpdateGroupInputSchema,
   GroupFiltersSchema,
+  isValidCustomGroupFilters,
   type CreateGroupInput,
   type UpdateGroupInput,
   type GroupFilters,
@@ -251,6 +252,27 @@ export async function updateGroupAction(
   const nextFilters = parsed.filters ?? currentRow.filters;
   const nextBranch = parsed.branch ?? currentRow.branch;
 
+  // 머지 후 재검증 (2026-05-27 · 그룹 종류 분리).
+  //   부분 수정에서 filters 를 빼고 보내면 UpdateGroupInputSchema.refine 가 스킵되므로,
+  //   현재 저장값(옛 그룹 JSONB 포함)과 머지된 최종 filters 를 정규화 후 custom 규칙
+  //   (kind='custom' → includeStudentIds ≥ 1) 을 단일 술어로 재확인한다.
+  //   filters 가 함께 제출된 경우엔 위 parse 에서 이미 한 번 검증되지만, 머지 결과
+  //   기준으로 한 번 더 확인해 일관성을 보장한다.
+  const mergedFiltersParse = GroupFiltersSchema.safeParse(nextFilters);
+  if (!mergedFiltersParse.success) {
+    return {
+      status: "failed",
+      reason: zodErrorToReason(mergedFiltersParse.error),
+    };
+  }
+  const mergedFilters = mergedFiltersParse.data;
+  if (!isValidCustomGroupFilters(mergedFilters)) {
+    return {
+      status: "failed",
+      reason: "커스텀 그룹은 학생을 1명 이상 직접 추가해야 합니다",
+    };
+  }
+
   const filtersChanged =
     parsed.filters !== undefined || parsed.branch !== undefined;
 
@@ -267,7 +289,7 @@ export async function updateGroupAction(
 
   if (filtersChanged) {
     try {
-      const result = await countRecipients(nextFilters, nextBranch);
+      const result = await countRecipients(mergedFilters, nextBranch);
       patch.recipient_count = result.total;
     } catch (e) {
       const msg = e instanceof Error ? e.message : "수신자 수 계산 실패";
@@ -608,6 +630,16 @@ export async function removeStudentFromGroupAction(
     nextFilters = {
       ...filters,
       excludeStudentIds: [...filters.excludeStudentIds, studentId],
+    };
+  }
+
+  // 머지 후 재검증 (2026-05-27 · 그룹 종류 분리). custom 그룹에서 마지막 1명을 빼
+  //   includeStudentIds 가 비면 "아무에게도 안 가는 빈 커스텀 그룹" 이 되므로 차단.
+  //   isValidCustomGroupFilters 단일 술어 — filter 그룹엔 영향 없음.
+  if (!isValidCustomGroupFilters(nextFilters)) {
+    return {
+      status: "failed",
+      reason: "커스텀 그룹은 학생을 1명 이상 직접 추가해야 합니다",
     };
   }
 

@@ -13,6 +13,7 @@ import {
 import type { GroupListItem } from "@/types/database";
 import { formatKstDate } from "@/lib/datetime";
 import { BranchBadge } from "@/components/groups/branch-badge";
+import { GroupKindBadge } from "@/components/groups/group-kind-badge";
 import {
   deleteGroupAction,
   deleteGroupsAction,
@@ -259,13 +260,16 @@ export function GroupsTable({ rows }: Props) {
                     <BranchBadge branch={r.branch} />
                   </Td>
                   <Td>
-                    <Link
-                      href={`/groups/${r.id}`}
-                      className="font-medium text-[color:var(--text)] hover:underline"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      {r.name}
-                    </Link>
+                    <span className="inline-flex items-center gap-2">
+                      <Link
+                        href={`/groups/${r.id}`}
+                        className="font-medium text-[color:var(--text)] hover:underline"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {r.name}
+                      </Link>
+                      <GroupKindBadge filters={r.filters} />
+                    </span>
                   </Td>
                   <Td className="text-right tabular-nums font-medium text-[color:var(--text)]">
                     {r.recipient_count.toLocaleString()}명

@@ -191,8 +191,14 @@ export default async function NewGroupPage({
   const branch = prefill?.branch ?? (await resolveDefaultBranch());
   // 스키마 기본값(.default) 위에 prefill 만 덮어쓴다. parse({}) 를 쓰면
   // 새 필터 필드(excludeSchools/excludeClassIds 등)가 추가돼도 기본값이 자동 반영.
+  //
+  // kind 계약 (사용자 확정 2026-05-27): student/class/lapsed prefill 진입점은
+  // 학생을 직접 골라 담는 흐름이므로 결과 그룹을 **'custom'(고정 명단)** 으로
+  // 강제한다. prefill 없는 일반 진입은 GroupFiltersSchema 기본값인 'filter'
+  // (조건 동기화) 를 유지한다.
   const initialFilters: GroupFilters = {
     ...GroupFiltersSchema.parse({}),
+    kind: prefill ? "custom" : "filter",
     includeStudentIds: prefill ? prefill.recipients.map((r) => r.id) : [],
   };
 

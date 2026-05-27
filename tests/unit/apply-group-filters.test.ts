@@ -302,12 +302,14 @@ describe("applyGroupFiltersDev · exclude 승리(차감 우선)", () => {
     expect(r.length).toBe(0);
   });
 
-  it("includeStudentIds 로 콕 찍은 학생도 excludeStudentIds 와 겹치면 제외", () => {
-    // DC0001 을 직접 포함했지만 동시에 명시 제외 → exclude 승리.
+  it("custom 그룹: includeStudentIds 로 콕 찍은 학생도 excludeStudentIds 와 겹치면 제외", () => {
+    // 그룹 종류 분리(2026-05-27): includeStudentIds 는 custom 그룹에서만 모집단이 된다.
+    // DC0001 을 직접 포함했지만 동시에 명시 제외 → exclude 승리(custom 도 개별 제거 유지).
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
       {
         ...emptyFilters,
+        kind: "custom",
         statuses: [],
         includeStudentIds: ["dev-DC0001", "dev-DC0002"],
         excludeStudentIds: ["dev-DC0001"],
@@ -317,19 +319,21 @@ describe("applyGroupFiltersDev · exclude 승리(차감 우선)", () => {
     expect(r.map((p) => p.id)).toEqual(["dev-DC0002"]);
   });
 
-  it("includeStudentIds 로 콕 찍은 학생이 excludeSchools 와 겹쳐도 제외", () => {
-    // DC0001(휘문고)·DC0002(단대부고) 직접 포함 + 휘문고 학교 제외 → DC0001 빠짐.
+  it("custom 그룹: includeStudentIds 콕 찍은 학생은 excludeSchools 를 무시한다", () => {
+    // 그룹 종류 분리(2026-05-27): custom 그룹은 excludeSchools 를 무시한다(고정 명단).
+    // DC0001(휘문고)·DC0002(단대부고) 직접 포함 + 휘문고 학교 제외 → 둘 다 남음.
     const r = applyGroupFiltersDev(
       DEV_STUDENT_PROFILES,
       {
         ...emptyFilters,
+        kind: "custom",
         statuses: [],
         includeStudentIds: ["dev-DC0001", "dev-DC0002"],
         excludeSchools: ["휘문고"],
       },
       "대치",
     );
-    expect(r.map((p) => p.id)).toEqual(["dev-DC0002"]);
+    expect(r.map((p) => p.id).sort()).toEqual(["dev-DC0001", "dev-DC0002"]);
   });
 });
 
@@ -426,5 +430,218 @@ describe("applyGroupFiltersDev · excludeClassIds (강좌별 제외)", () => {
       );
       expect(r.length).toBe(8);
     });
+  });
+});
+
+/**
+ * F2 · 그룹 종류(kind) 별 해석 분리 (사용자 확정 2026-05-27).
+ *
+ * 핵심 회귀 방어 — 두 불변식이 어긋나면 오발송/누락이 발생:
+ *   ① filter 그룹: 조건만으로 모집단 산정. includeStudentIds 는 **완전히 무시**
+ *      (동기화 보장). excludeStudentIds/excludeSchools/excludeClassIds 차감은 유지.
+ *   ② custom 그룹: includeStudentIds 명단만 모집단. 필터 조건(grades 등)/
+ *      excludeSchools/excludeClassIds 는 **무시**. excludeStudentIds 차감만 유지.
+ *
+ * 시드 기준(대치 8명): DC0001(휘문고·고2·재원·수학)·DC0002(단대부고·고2·재원·국어)·
+ *   DC0003(휘문고·고3·재원·수학)·DC0004(중동고·고1·수강이력자)·DC0005(단대부고·고3·
+ *   수강이력자)·DC0006(대왕중·중2·재원)·DC0007(휘문고·졸업·수강이력자)·
+ *   DC0008(school NULL·미정·수강이력자).
+ */
+describe("applyGroupFiltersDev · kind='filter' (조건 동기화)", () => {
+  it("includeStudentIds 를 채워도 무시 — include 한 학생이 조건 밖이면 결과에 없음", () => {
+    // 회귀 핵심: filter 그룹은 동기화 보장을 위해 includeStudentIds 를 절대 보지 않는다.
+    // 조건 grades=['고2'] → DC0001·DC0002 만 매칭. DC0004(고1)·DC0006(중2)·DC0007(졸업)
+    // 을 includeStudentIds 로 박아도 조건 밖이라 결과에 들어오면 안 된다.
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "filter",
+        grades: ["고2"],
+        includeStudentIds: ["dev-DC0004", "dev-DC0006", "dev-DC0007"],
+      },
+      "대치",
+    );
+    expect(r.map((p) => p.id).sort()).toEqual(["dev-DC0001", "dev-DC0002"]);
+    // include 로 박은 조건 밖 학생들은 한 명도 없음.
+    expect(r.find((p) => p.id === "dev-DC0004")).toBeUndefined();
+    expect(r.find((p) => p.id === "dev-DC0006")).toBeUndefined();
+    expect(r.find((p) => p.id === "dev-DC0007")).toBeUndefined();
+  });
+
+  it("includeStudentIds 만 채우고 조건은 비워도 → 전체(탈퇴 제외) 동기화 (include 무시)", () => {
+    // filter + 조건 없음 + includeStudentIds 1명 → include 무시하므로 결과는
+    // 조건 없는 filter 그룹 = 대치 8명 전부 (include 가 모집단을 좁히지 않음).
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "filter",
+        includeStudentIds: ["dev-DC0001"],
+      },
+      "대치",
+    );
+    expect(r.length).toBe(8);
+  });
+
+  it("동기화 성격 — 조건 매칭 학생 전부 포함 (휘문고 3명 모두)", () => {
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      { ...emptyFilters, kind: "filter", schools: ["휘문고"] },
+      "대치",
+    );
+    // DC0001·DC0003·DC0007 모두 휘문고 → 조건 매칭 전원 포함.
+    expect(r.map((p) => p.id).sort()).toEqual([
+      "dev-DC0001",
+      "dev-DC0003",
+      "dev-DC0007",
+    ]);
+  });
+
+  it("kind 미지정(옛 그룹) 은 filter 로 동작 — includeStudentIds 무시 회귀", () => {
+    // 옛 그룹 JSONB: kind 키 없음. resolveGroupKind → 'filter'.
+    // includeStudentIds 가 보존돼 있어도 filter 해석에서 무시되어야 한다.
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        grades: ["고2"],
+        includeStudentIds: ["dev-DC0004"], // 조건 밖(고1)
+      },
+      "대치",
+    );
+    expect(r.map((p) => p.id).sort()).toEqual(["dev-DC0001", "dev-DC0002"]);
+  });
+});
+
+describe("applyGroupFiltersDev · kind='custom' (고정 명단)", () => {
+  it("includeStudentIds 명단만 — 조건(grades) 채워도 무시", () => {
+    // custom: 조건 grades=['고3'] 을 줘도 무시. includeStudentIds 명단이 진실.
+    // DC0001(고2)·DC0006(중2) 은 grades=['고3'] 조건 밖이지만 include 라 포함.
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "custom",
+        grades: ["고3"],
+        includeStudentIds: ["dev-DC0001", "dev-DC0006"],
+      },
+      "대치",
+    );
+    expect(r.map((p) => p.id).sort()).toEqual(["dev-DC0001", "dev-DC0006"]);
+  });
+
+  it("조건에 맞아도 include 아니면 제외 — 명단이 유일한 진실", () => {
+    // grades=['고2'] 조건엔 DC0001·DC0002 가 맞지만, include 는 DC0001 뿐.
+    // custom 은 조건 무시 + include 만 → DC0002 는 조건 매칭이어도 빠진다.
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "custom",
+        grades: ["고2"],
+        includeStudentIds: ["dev-DC0001"],
+      },
+      "대치",
+    );
+    expect(r.map((p) => p.id)).toEqual(["dev-DC0001"]);
+  });
+
+  it("빈 includeStudentIds 면 모집단 0명 → 빈 결과 (안전)", () => {
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      { ...emptyFilters, kind: "custom", includeStudentIds: [] },
+      "대치",
+    );
+    expect(r.length).toBe(0);
+  });
+
+  it("custom + excludeStudentIds — 명단에서 개별 제거", () => {
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "custom",
+        includeStudentIds: ["dev-DC0001", "dev-DC0002", "dev-DC0003"],
+        excludeStudentIds: ["dev-DC0002"],
+      },
+      "대치",
+    );
+    expect(r.map((p) => p.id).sort()).toEqual(["dev-DC0001", "dev-DC0003"]);
+  });
+
+  it("custom + excludeSchools 무시 — 학교 제외 줘도 명단 안 줄어듦", () => {
+    // custom 은 excludeSchools 를 무시한다(고정 명단). DC0001·DC0003 둘 다 휘문고지만
+    // excludeSchools=['휘문고'] 가 custom 에선 적용되지 않아 둘 다 남는다.
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "custom",
+        includeStudentIds: ["dev-DC0001", "dev-DC0003"],
+        excludeSchools: ["휘문고"],
+      },
+      "대치",
+    );
+    expect(r.map((p) => p.id).sort()).toEqual(["dev-DC0001", "dev-DC0003"]);
+  });
+
+  it("custom + excludeClassIds 무시 — 강좌 제외 줘도 명단 보존", () => {
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "custom",
+        includeStudentIds: ["dev-DC0001", "dev-DC0002"],
+        excludeClassIds: ["44444444-4444-4444-8444-444444444444"],
+      },
+      "대치",
+    );
+    expect(r.map((p) => p.id).sort()).toEqual(["dev-DC0001", "dev-DC0002"]);
+  });
+
+  it("custom 도 안전 가드는 유지 — 탈퇴 학생은 include 해도 제외", () => {
+    // SD0004(탈퇴) 를 명단에 콕 박아도 status='탈퇴' 안전 가드가 차단.
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "custom",
+        includeStudentIds: ["dev-SD0003", "dev-SD0004"],
+      },
+      "송도",
+    );
+    expect(r.map((p) => p.id)).toEqual(["dev-SD0003"]);
+    expect(r.find((p) => p.status === "탈퇴")).toBeUndefined();
+  });
+
+  it("custom 도 안전 가드는 유지 — 수신거부 학부모는 include 해도 제외", () => {
+    // DC0001 학부모 번호 수신거부 → 명단에 있어도 강제 제외.
+    const unsub = new Set<string>(["01090010001"]);
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "custom",
+        includeStudentIds: ["dev-DC0001", "dev-DC0002"],
+      },
+      "대치",
+      { unsubscribedPhones: unsub },
+    );
+    expect(r.map((p) => p.id)).toEqual(["dev-DC0002"]);
+  });
+
+  it("custom 도 분원 불일치 학생은 include 해도 제외", () => {
+    // branch='대치' 인데 송도 학생(SD0001) 을 명단에 넣으면 분원 가드가 차단.
+    const r = applyGroupFiltersDev(
+      DEV_STUDENT_PROFILES,
+      {
+        ...emptyFilters,
+        kind: "custom",
+        includeStudentIds: ["dev-DC0001", "dev-SD0001"],
+      },
+      "대치",
+    );
+    expect(r.map((p) => p.id)).toEqual(["dev-DC0001"]);
   });
 });
