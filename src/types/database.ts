@@ -311,6 +311,14 @@ export interface CampaignRow {
   type: "SMS" | "LMS" | "ALIMTALK" | null;
   /** 광고성 여부. 예약 cron 시 야간 가드 재적용. 0027 추가. */
   is_ad: boolean;
+  /**
+   * 동일번호 1회 발송 여부. 0074 추가.
+   * TRUE 면 같은 학부모 번호(parent_phone 정규화 기준) N건을 1건으로 합쳐
+   * 발송해 문자비를 절감한다(형제 중복 방지). 발송 큐 적재 직전 collapse.
+   * 본문에 {이름} 등 개인화 변수가 있으면 dedupe 와 상호배타 — 애플리케이션
+   * 레이어에서 비활성화한다. 기본 FALSE(학생 1명당 1건, 종전 동작).
+   */
+  dedupe_by_phone: boolean;
   created_at: string;
   updated_at: string;
 }

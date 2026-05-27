@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Send, CalendarClock } from "lucide-react";
+import type { DedupeCounts } from "@/types/messaging";
 
 /**
  * 문자 발송 직전 확인 다이얼로그.
@@ -9,7 +10,7 @@ import { AlertTriangle, Send, CalendarClock } from "lucide-react";
  * 사용자가 우발적으로 발송 버튼을 눌렀을 때를 위해 명시적 한 번 더 확인.
  *
  * 표시 정보:
- *   - 수신자 수
+ *   - 수신자 수 (동일번호 1회 발송 적용 시 실제 발송 건수 병기)
  *   - 발송 시점 (즉시 / 예약 시각)
  *   - 메시지 본문 (앞 일부)
  *   - 예상 비용
@@ -21,6 +22,11 @@ interface Props {
   mode: "now" | "schedule";
   scheduleAt: string | null;
   recipientCount: number;
+  /**
+   * 동일번호 1회 발송 카운트. backend 가 내려주고 적용·합침이 있을 때만 병기.
+   * null/미적용/collapsed=0 이면 기존처럼 수신자 인원만 표시.
+   */
+  dedupe?: DedupeCounts | null;
   cost: number;
   messageBody: string;
   title: string;
@@ -34,6 +40,7 @@ export function ConfirmSendDialog({
   mode,
   scheduleAt,
   recipientCount,
+  dedupe,
   cost,
   messageBody,
   title,
@@ -44,6 +51,9 @@ export function ConfirmSendDialog({
     messageBody.length > BODY_PREVIEW_LENGTH
       ? `${messageBody.slice(0, BODY_PREVIEW_LENGTH)}…`
       : messageBody;
+
+  const dedupeApplied =
+    !!dedupe && dedupe.dedupeApplied && dedupe.collapsed > 0;
 
   const scheduleLabel =
     mode === "schedule" && scheduleAt
@@ -88,13 +98,25 @@ export function ConfirmSendDialog({
 
         <div className="px-6 py-4 bg-[color:var(--bg-muted)] border-y border-[color:var(--border)] space-y-3">
           <Row
-            label="수신자"
+            label={dedupeApplied ? "실제 발송" : "수신자"}
             value={
-              <span className="tabular-nums">
-                <strong className="text-[color:var(--text)]">
-                  {recipientCount.toLocaleString("ko-KR")}명
-                </strong>
-              </span>
+              dedupeApplied && dedupe ? (
+                <span className="tabular-nums text-right">
+                  <strong className="text-[color:var(--text)]">
+                    {dedupe.actualMessages.toLocaleString("ko-KR")}건
+                  </strong>
+                  <span className="block text-[12px] text-[color:var(--text-muted)]">
+                    대상 학생 {dedupe.targetStudents.toLocaleString("ko-KR")}명 ·
+                    동일번호 {dedupe.collapsed.toLocaleString("ko-KR")}건 합침
+                  </span>
+                </span>
+              ) : (
+                <span className="tabular-nums">
+                  <strong className="text-[color:var(--text)]">
+                    {recipientCount.toLocaleString("ko-KR")}명
+                  </strong>
+                </span>
+              )
             }
           />
           <Row

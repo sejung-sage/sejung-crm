@@ -11,6 +11,7 @@ import {
 } from "@/app/(features)/compose/actions";
 import type { ComposeStep2State } from "./compose-wizard";
 import { ConfirmSendDialog } from "./confirm-send-dialog";
+import { DedupeCountNote, extractDedupeCounts } from "./dedupe-count-note";
 
 /**
  * F3 Part B · Step 4 — 즉시 발송 / 예약 발송 + 최종 요약 + 결과 처리.
@@ -65,6 +66,9 @@ export function ComposeStep4Send({
   // 예약 모드일 때 datetime-local 의 min 값 (현재 시각 + 1분)
   const minScheduleAt = useMemo(() => toLocalDatetimeInput(new Date(Date.now() + 60_000)), []);
 
+  // backend 가 내려준 동일번호 1회 발송 카운트(있을 때만). 실제 발송 건수 표기에 사용.
+  const dedupeCounts = useMemo(() => extractDedupeCounts(preview), [preview]);
+
   const isReady = mode === "now" || (mode === "schedule" && !!scheduleAt);
 
   const onModeChange = (next: "now" | "schedule") => {
@@ -93,6 +97,7 @@ export function ComposeStep4Send({
             subject: step2.subject,
             body: step2.body,
             isAd: step2.isAd,
+            dedupeByPhone: step2.dedupeByPhone,
           },
           step3: { title: title.trim() },
         });
@@ -109,6 +114,7 @@ export function ComposeStep4Send({
             subject: step2.subject,
             body: step2.body,
             isAd: step2.isAd,
+            dedupeByPhone: step2.dedupeByPhone,
           },
           step3: { title: title.trim() },
           scheduleAt: iso,
@@ -237,8 +243,16 @@ export function ComposeStep4Send({
         <Summary label="그룹" value={selectedGroup.name} />
         <Summary label="유형" value={step2.type} />
         <Summary
-          label="수신자"
-          value={`${preview.recipientCount.toLocaleString("ko-KR")}명`}
+          label={
+            dedupeCounts?.dedupeApplied && dedupeCounts.collapsed > 0
+              ? "실제 발송"
+              : "수신자"
+          }
+          value={
+            dedupeCounts?.dedupeApplied && dedupeCounts.collapsed > 0
+              ? `${dedupeCounts.actualMessages.toLocaleString("ko-KR")}건`
+              : `${preview.recipientCount.toLocaleString("ko-KR")}명`
+          }
         />
         <Summary
           label="비용"
@@ -256,6 +270,9 @@ export function ComposeStep4Send({
         />
         <Summary label="캠페인 제목" value={title} className="col-span-2 sm:col-span-3" />
       </section>
+
+      {/* 동일번호 1회 발송 인원 안내 — 합쳐진 건이 있을 때만. */}
+      <DedupeCountNote counts={dedupeCounts} variant="card" />
 
       {/* 결과 박스 */}
       {result && <ResultBox result={result} onBack={onBackToPreview} />}
@@ -291,6 +308,7 @@ export function ComposeStep4Send({
           mode={mode}
           scheduleAt={scheduleAt}
           recipientCount={preview.recipientCount}
+          dedupe={dedupeCounts}
           cost={preview.cost.totalCost}
           messageBody={step2.body}
           title={title.trim()}

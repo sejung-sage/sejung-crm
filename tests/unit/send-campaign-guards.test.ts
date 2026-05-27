@@ -29,6 +29,7 @@ describe("sendCampaign · dev-seed 차단", () => {
       subject: null,
       type: "SMS",
       isAd: false,
+      dedupeByPhone: false,
       scheduledAt: null,
       isTest: false,
     });
@@ -47,6 +48,7 @@ describe("sendCampaign · dev-seed 차단", () => {
       subject: null,
       type: "SMS",
       isAd: false,
+      dedupeByPhone: false,
       scheduledAt: new Date("2027-01-01T00:00:00Z"),
       isTest: false,
     });
@@ -62,6 +64,7 @@ describe("sendCampaign · dev-seed 차단", () => {
       subject: null,
       type: "SMS",
       isAd: true,
+      dedupeByPhone: false,
       scheduledAt: new Date("2026-04-22T22:00:00+09:00"),
       isTest: false,
     });

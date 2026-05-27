@@ -33,9 +33,12 @@ import {
   type Recipient,
 } from "./guards";
 import { calculateCost } from "./calculate-cost";
+import { collapseByPhone } from "./dedupe-recipients";
 import type { SmsCostBreakdown } from "./cost-rates";
 import type { GroupRow, StudentStatus } from "@/types/database";
+import type { DedupeCounts } from "@/types/messaging";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
+import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import { isAllSubjects } from "@/lib/schemas/common";
 
 export type PreviewExclusionReason = "탈퇴학생" | "수신거부";
@@ -60,10 +63,21 @@ export interface PreviewResult {
   blockedByQuietHours: boolean;
   /** blockedByQuietHours=true 일 때만 채워짐. */
   blockReason?: string;
-  /** 예상 비용 (recipientCount 기준). */
+  /**
+   * 예상 비용.
+   *  - dedupe OFF: recipientCount(=가드 통과 후보) 기준.
+   *  - dedupe ON : dedupe.actualMessages(고유 번호 수) 기준 — 절감액이 여기서 발생.
+   */
   cost: SmsCostBreakdown;
   /** 상위 5명 샘플. UI 측에서 마스킹 책임. */
   sampleRecipients: PreviewSampleRecipient[];
+  /**
+   * 동일번호 1회 발송(중복 번호 dedupe) 카운트.
+   *  - dedupeByPhone=false: dedupeApplied=false, actualMessages=targetStudents, collapsed=0.
+   *  - dedupeByPhone=true : actualMessages=고유 parent_phone 수.
+   * targetStudents 는 recipientCount 와 동일(가드 통과 후 발송 후보 학생 수).
+   */
+  dedupe: DedupeCounts;
 }
 
 export interface PreviewRecipientsInput {
@@ -71,11 +85,18 @@ export interface PreviewRecipientsInput {
   body: string;
   isAd: boolean;
   type: "SMS" | "LMS" | "ALIMTALK";
+  /**
+   * 동일번호 1회 발송(중복 번호 dedupe). TRUE 면 고유 parent_phone 수를 산출해
+   * actualMessages/cost 에 반영한다. 미설정 시 false 동작.
+   */
+  dedupeByPhone?: boolean;
   /** 미설정 → 현재 시각 (즉시 발송). */
   scheduledAt?: Date;
 }
 
 const SAMPLE_LIMIT = 5;
+/** dedupe 미리보기에서 후보 phone 을 로드할 최대 인원. 발송 상한과 동일. */
+const MAX_PREVIEW_DEDUPE_RECIPIENTS = 100_000;
 
 export async function previewRecipients(
   input: PreviewRecipientsInput,
@@ -128,6 +149,16 @@ function previewFromDevSeed(
     if (count > 0) excludedReasons.push({ reason, count });
   }
 
+  // dedupe — 가드 통과 후 eligible 에만 collapse. 비용은 actualMessages 기준.
+  const { counts: dedupe } = collapseByPhone(
+    guarded.eligible.map((r) => ({
+      studentId: r.studentId,
+      phone: r.phone,
+      name: r.name,
+    })),
+    input.dedupeByPhone ?? false,
+  );
+
   return {
     recipientCount: guarded.eligible.length,
     excludedCount: guarded.excluded.length,
@@ -135,10 +166,11 @@ function previewFromDevSeed(
     finalBody: guarded.finalBody,
     blockedByQuietHours: !guarded.allowedToSend,
     blockReason: guarded.blockReason,
-    cost: calculateCost(input.type, guarded.eligible.length),
+    cost: calculateCost(input.type, dedupe.actualMessages),
     sampleRecipients: guarded.eligible
       .slice(0, SAMPLE_LIMIT)
       .map((r) => ({ name: r.name, phone: r.phone })),
+    dedupe,
   };
 }
 
@@ -184,6 +216,16 @@ async function previewFromSupabase(
     excludedReasons.push({ reason: "수신거부", count: unsubExcludedCount });
   }
 
+  // dedupe — targetStudents = eligibleCount(가드 통과 후 발송 후보 학생 수).
+  //   OFF: actualMessages = targetStudents (추가 쿼리 없음).
+  //   ON : 후보 phone 을 로드해 고유 번호 수 산출 (Set dedupe).
+  const dedupe = await resolveDedupeCounts({
+    supabase,
+    group,
+    eligibleCount,
+    dedupeByPhone: input.dedupeByPhone ?? false,
+  });
+
   return {
     recipientCount: eligibleCount,
     excludedCount: withdrawnCount + unsubExcludedCount,
@@ -191,8 +233,68 @@ async function previewFromSupabase(
     finalBody,
     blockedByQuietHours: !quiet.allowed,
     blockReason: quiet.reason,
-    cost: calculateCost(input.type, eligibleCount),
+    // 비용은 actualMessages 기준 — dedupe ON 시 절감액 반영.
+    cost: calculateCost(input.type, dedupe.actualMessages),
     sampleRecipients: eligibleSample,
+    dedupe,
+  };
+}
+
+/**
+ * dedupe 카운트 산출 (Supabase 경로).
+ *
+ *  - dedupeByPhone=false: 추가 쿼리 없이 actualMessages = eligibleCount.
+ *  - dedupeByPhone=true : loadAllGroupRecipients 로 가드 통과 후보 전체를 로드
+ *    (분원·탈퇴·수신거부·필터 가드 SQL 단 적용 + registered_at DESC 순)한 뒤
+ *    정규화 phone 을 Set 으로 dedupe 해 고유 번호 수를 센다.
+ *
+ * 후보 로드는 dedupe ON 일 때만 수행 — opt-in 이므로 기본 미리보기 비용은 불변.
+ * PostgREST max_rows(1,000) 청크 페이징은 loadAllGroupRecipients 내부에서 처리.
+ *
+ * 주의: targetStudents 는 fast count(eligibleCount) 를 진실 소스로 사용한다.
+ * 후보 로더가 parent_phone NULL row 를 포함할 수 있어 actualMessages 산출 시
+ * NULL/빈 phone 은 제외한다. 따라서 actualMessages <= targetStudents 가 보장돼
+ * 불변식(collapsed >= 0) 이 깨지지 않는다.
+ */
+async function resolveDedupeCounts(args: {
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
+  group: GroupRow;
+  eligibleCount: number;
+  dedupeByPhone: boolean;
+}): Promise<DedupeCounts> {
+  const { supabase, group, eligibleCount, dedupeByPhone } = args;
+
+  if (!dedupeByPhone) {
+    return {
+      dedupeApplied: false,
+      targetStudents: eligibleCount,
+      actualMessages: eligibleCount,
+      collapsed: 0,
+    };
+  }
+
+  // 가드 통과 후보 전체 로드 후 고유 번호 수 산출.
+  const rows = await loadAllGroupRecipients(
+    supabase,
+    group.id,
+    MAX_PREVIEW_DEDUPE_RECIPIENTS,
+  );
+  const phones = new Set<string>();
+  for (const r of rows) {
+    if (!r.parent_phone) continue;
+    const norm = r.parent_phone.replace(/\D/g, "");
+    if (norm.length > 0) phones.add(norm);
+  }
+
+  const actualMessages = phones.size;
+  // targetStudents 는 fast count 를 신뢰. actualMessages 가 그보다 크면(이론상
+  // 발생 불가하나 데이터 정합 방어) targetStudents 로 clamp.
+  const safeActual = Math.min(actualMessages, eligibleCount);
+  return {
+    dedupeApplied: true,
+    targetStudents: eligibleCount,
+    actualMessages: safeActual,
+    collapsed: eligibleCount - safeActual,
   };
 }
 
@@ -210,6 +312,12 @@ function emptyPreview(
     blockReason: quiet.reason,
     cost: calculateCost(input.type, 0),
     sampleRecipients: [],
+    dedupe: {
+      dedupeApplied: input.dedupeByPhone ?? false,
+      targetStudents: 0,
+      actualMessages: 0,
+      collapsed: 0,
+    },
   };
 }
 

@@ -2,9 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Megaphone } from "lucide-react";
+import { AlertTriangle, Megaphone, Users } from "lucide-react";
 import type { TemplateRow } from "@/types/database";
 import { byteProgress } from "@/lib/messaging/sms-bytes";
+import { hasNameToken } from "@/lib/messaging/personalize";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { TemplateTypeBadge } from "@/components/templates/template-type-badge";
 import type { ComposeStep2State } from "./compose-wizard";
@@ -168,6 +169,9 @@ function TemplatePicker({
       subject: t.subject,
       body: t.body,
       isAd: t.is_ad,
+      // 템플릿 선택 시 동일번호 1회 발송은 초기화(false). 템플릿 본문에
+      // {이름} 이 있으면 frontend-dev 가 토글을 비활성/경고 처리한다.
+      dedupeByPhone: false,
     });
   };
 
@@ -270,6 +274,16 @@ function InlineComposer({
   const progress = byteProgress(value.body, value.type);
   const overflow = progress.bytes > progress.limit;
   const subjectRequired = value.type !== "SMS";
+  // 본문에 {이름} 이 있으면 동일번호 1회 발송 비활성(개인화 상호배타).
+  const bodyHasNameToken = hasNameToken(value.body);
+
+  // {이름} 이 들어오면 켜져 있던 dedupe 자동 해제.
+  useEffect(() => {
+    if (bodyHasNameToken && value.dedupeByPhone) {
+      onChange({ ...value, dedupeByPhone: false });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodyHasNameToken]);
 
   const onTypeChange = (type: TemplateTypeLiteral) => {
     if (type === "SMS") {
@@ -443,6 +457,56 @@ function InlineComposer({
               prefix 와 끝에{" "}
               <code className="px-1 rounded bg-bg-card">080 수신거부</code>{" "}
               안내가 자동 삽입되며, 21시 ~ 08시에는 발송이 차단됩니다.
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 동일번호 1회 발송 — isAd 와 동일 형태/톤의 발송 옵션. {이름} 있으면 비활성. */}
+      <div className="space-y-2">
+        <label
+          className={`flex items-start gap-3 ${
+            bodyHasNameToken ? "cursor-not-allowed" : "cursor-pointer"
+          }`}
+        >
+          <input
+            type="checkbox"
+            checked={value.dedupeByPhone}
+            disabled={bodyHasNameToken}
+            onChange={(e) =>
+              onChange({ ...value, dedupeByPhone: e.target.checked })
+            }
+            className="mt-1 size-4 accent-[color:var(--action)] disabled:cursor-not-allowed"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span
+              className={`text-[14px] font-medium ${
+                bodyHasNameToken
+                  ? "text-[color:var(--text-dim)]"
+                  : "text-[color:var(--text)]"
+              }`}
+            >
+              동일번호 1회 발송
+            </span>
+            <span className="text-[12px] text-[color:var(--text-muted)]">
+              형제 등 같은 번호는 한 번만 보내 문자비를 아낍니다.
+            </span>
+          </span>
+        </label>
+
+        {bodyHasNameToken && (
+          <div
+            role="note"
+            className="flex items-start gap-2 rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-4 py-3"
+          >
+            <Users
+              className="size-4 mt-0.5 text-[color:var(--text-muted)] shrink-0"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <div className="text-[13px] leading-relaxed text-[color:var(--text-muted)]">
+              {"{이름}"} 변수를 쓰면 같은 번호도 각각 보내야 해서 동일번호 1회
+              발송을 사용할 수 없어요.
             </div>
           </div>
         )}

@@ -35,6 +35,12 @@ export interface ComposeStep2State {
   subject: string | null;
   body: string;
   isAd: boolean;
+  /**
+   * 동일번호 1회 발송 토글. 0074 도입.
+   * frontend-dev 가 step2 작성 패널에 isAd 와 동일한 형태의 토글로 노출하고,
+   * 본문에 {이름} 변수가 있으면 비활성/경고 처리한다(개인화 상호배타).
+   */
+  dedupeByPhone: boolean;
 }
 
 interface Props {
@@ -78,6 +84,7 @@ export function ComposeWizard({
         subject: initialTemplate.subject,
         body: initialTemplate.body,
         isAd: initialTemplate.is_ad,
+        dedupeByPhone: false,
       };
     }
     return {
@@ -86,6 +93,7 @@ export function ComposeWizard({
       subject: null,
       body: "",
       isAd: false,
+      dedupeByPhone: false,
     };
   });
 

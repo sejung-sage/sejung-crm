@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { AlertTriangle, Loader2, Megaphone, Moon } from "lucide-react";
+import { AlertTriangle, Loader2, Megaphone, Moon, Users } from "lucide-react";
 import type { GroupListItem, TemplateRow } from "@/types/database";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
 import { previewAction } from "@/app/(features)/compose/actions";
@@ -13,7 +13,9 @@ import {
   insertAdTag,
   insertUnsubscribeFooter,
 } from "@/lib/messaging/guards";
+import { hasNameToken } from "@/lib/messaging/personalize";
 import type { ComposeStep2State } from "./compose-wizard";
+import { DedupeCountNote, extractDedupeCounts } from "./dedupe-count-note";
 
 /**
  * F3 Part B · Step 2 — 작성 + 미리보기 통합.
@@ -106,6 +108,20 @@ export function ComposeStep3Preview({
   const bodyLimit = BYTE_LIMITS[step2.type];
   const bodyOverflow = finalBodyBytes > bodyLimit;
 
+  // 본문에 {이름} 토큰이 있으면 동일번호 1회 발송과 상호배타(서버 Zod refine 이 최종 강제).
+  // UI 는 토글을 비활성/경고하고, 토큰 삽입 시 켜져 있던 dedupe 를 자동으로 끈다.
+  const bodyHasNameToken = useMemo(
+    () => hasNameToken(step2.body),
+    [step2.body],
+  );
+
+  // backend 가 PreviewResult.dedupe(DedupeCounts) 를 내려주면 인원 표기에 사용.
+  // 아직 없으면 null → 종전 단일 인원 표기 유지.
+  const dedupeCounts = useMemo(
+    () => extractDedupeCounts(preview),
+    [preview],
+  );
+
   // sample 변수 치환에 쓸 값.
   // 이름: preview 의 sampleRecipients[0]. 없으면 fallback.
   // 날짜: scheduleAt 있으면 그 날짜, 없으면 오늘 KST. M월 D일 형식.
@@ -114,6 +130,16 @@ export function ComposeStep3Preview({
     const date = formatKstDateLabel(scheduleAt);
     return { name, date };
   }, [preview, scheduleAt]);
+
+  // 개인화({이름}) 가 본문에 들어오면 dedupe 자동 해제(상호배타).
+  // 변수 삽입 버튼·미리보기 직접 타이핑 어느 경로로 들어와도 일관 처리.
+  useEffect(() => {
+    if (bodyHasNameToken && step2.dedupeByPhone) {
+      onStep2Change({ ...step2, dedupeByPhone: false });
+    }
+    // step2/onStep2Change 는 매 렌더 새 참조 — bodyHasNameToken 변화에만 반응.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bodyHasNameToken]);
 
   const onTypeChange = (type: TemplateTypeLiteral) => {
     if (type === "SMS") {
@@ -136,6 +162,8 @@ export function ComposeStep3Preview({
       subject: t.subject,
       body: t.body,
       isAd: t.is_ad,
+      // 템플릿 선택 시 동일번호 1회 발송은 초기화(false).
+      dedupeByPhone: false,
     });
   };
 
@@ -163,11 +191,12 @@ export function ComposeStep3Preview({
     });
   };
 
-  // 서버 미리보기는 본문/제목 변경에는 트리거 X. groupId/type/isAd 가 바뀔 때만.
+  // 서버 미리보기는 본문/제목 변경에는 트리거 X. groupId/type/isAd/dedupe 가 바뀔 때만.
   //   - recipientCount: groupId 만 영향
-  //   - cost: groupId × type
+  //   - cost: groupId × type × dedupe(actualMessages 기준 비용)
   //   - blockedByQuietHours: isAd × 현재 시각
   //   - sampleRecipients: groupId 만 영향
+  //   - dedupe(DedupeCounts): groupId × dedupeByPhone
   // body/subject 변경은 클라이언트에서 즉시 반영 → 서버 호출 불필요.
   useEffect(() => {
     setErrorMsg(null);
@@ -182,6 +211,7 @@ export function ComposeStep3Preview({
           // body 변경에는 트리거 안 하므로 직전 step2.body 가 들어감 — 무방.
           body: step2.body,
           isAd: step2.isAd,
+          dedupeByPhone: step2.dedupeByPhone,
         },
       });
       if (result.status === "success") {
@@ -192,7 +222,7 @@ export function ComposeStep3Preview({
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, step2.isAd, step2.type]);
+  }, [groupId, step2.isAd, step2.type, step2.dedupeByPhone]);
 
   return (
     <div className="space-y-5">
@@ -429,6 +459,55 @@ export function ComposeStep3Preview({
             </div>
           )}
 
+          {/* 동일번호 1회 발송 — isAd 와 동일 형태/톤의 발송 옵션 토글.
+              본문에 {이름} 변수가 있으면 비활성(개인화 상호배타). */}
+          <label
+            className={`flex items-start gap-2 pt-1 ${
+              bodyHasNameToken ? "cursor-not-allowed" : "cursor-pointer"
+            }`}
+          >
+            <input
+              type="checkbox"
+              checked={step2.dedupeByPhone}
+              disabled={bodyHasNameToken}
+              onChange={(e) =>
+                onStep2Change({ ...step2, dedupeByPhone: e.target.checked })
+              }
+              className="mt-0.5 size-4 accent-[color:var(--action)] disabled:cursor-not-allowed"
+            />
+            <span className="flex flex-col gap-0.5">
+              <span
+                className={`text-[13px] font-medium ${
+                  bodyHasNameToken
+                    ? "text-[color:var(--text-dim)]"
+                    : "text-[color:var(--text)]"
+                }`}
+              >
+                동일번호 1회 발송
+              </span>
+              <span className="text-[11px] text-[color:var(--text-muted)]">
+                형제 등 같은 번호는 한 번만 보내 문자비를 아낍니다.
+              </span>
+            </span>
+          </label>
+
+          {bodyHasNameToken && (
+            <div
+              role="note"
+              className="flex items-start gap-2 rounded-md border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-3 py-2"
+            >
+              <Users
+                className="size-3.5 mt-0.5 text-[color:var(--text-muted)] shrink-0"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <p className="text-[12px] leading-relaxed text-[color:var(--text-muted)]">
+                {"{이름}"} 변수를 쓰면 같은 번호도 각각 보내야 해서 동일번호 1회
+                발송을 사용할 수 없어요.
+              </p>
+            </div>
+          )}
+
           {bodyOverflow && (
             <p className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]">
               <AlertTriangle
@@ -479,6 +558,9 @@ export function ComposeStep3Preview({
       {/* 비용 카드 + 캠페인 제목 — preview 있을 때만. */}
       {preview && !loading && (
         <div className="space-y-4">
+          {/* 동일번호 1회 발송이 적용돼 실제 합쳐진 건이 있으면 인원 안내. */}
+          <DedupeCountNote counts={dedupeCounts} variant="card" />
+
           <section
             aria-label="예상 비용"
             className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] p-4 flex items-center justify-between gap-4 flex-wrap"

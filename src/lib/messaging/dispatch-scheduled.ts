@@ -29,6 +29,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { waitUntil } from "@vercel/functions";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { applyAllGuards, type Recipient } from "./guards";
+import { collapseByPhone } from "./dedupe-recipients";
 import { getMessagingBaseUrl } from "./base-url";
 import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import type { CampaignRow, MessageStatus, TemplateType } from "@/types/database";
@@ -156,11 +157,13 @@ async function dispatchOne(
     };
   }
 
-  // 3) eligible 수신자 재조회 + 가드
+  // 3) eligible 수신자 재조회 + 가드 + (dedupe ON 이면) collapse.
+  //    예약 시 영속화한 campaign.dedupe_by_phone 를 dispatch 시점에 그대로 적용.
   const eligible = await loadEligibleForCampaign({
     groupId: campaign.group_id,
     body: campaign.body,
     isAd: campaign.is_ad,
+    dedupeByPhone: campaign.dedupe_by_phone,
     scheduledAt: new Date(campaign.scheduled_at ?? Date.now()),
     supabase,
   });
@@ -256,6 +259,7 @@ async function loadEligibleForCampaign(args: {
   groupId: string;
   body: string;
   isAd: boolean;
+  dedupeByPhone: boolean;
   scheduledAt: Date;
   supabase: SrvClient;
 }): Promise<
@@ -303,13 +307,21 @@ async function loadEligibleForCampaign(args: {
     };
   }
 
-  return {
-    kind: "ok",
-    recipients: guarded.eligible.map((r) => ({
+  // 3) collapse — 가드 통과 직후, eligible 배열에만 dedupe 적용.
+  //    loadAllGroupRecipients 가 registered_at DESC 순이므로 같은 번호 그룹의
+  //    최상위(가장 최근 등록 학생)가 대표로 남는다. dedupe OFF 면 입력 그대로.
+  const { recipients } = collapseByPhone(
+    guarded.eligible.map((r) => ({
       studentId: r.studentId,
       phone: r.phone,
       name: r.name,
     })),
+    args.dedupeByPhone,
+  );
+
+  return {
+    kind: "ok",
+    recipients,
     finalBody: guarded.finalBody,
   };
 }

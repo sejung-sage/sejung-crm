@@ -25,6 +25,7 @@ import { revalidatePath } from "next/cache";
 import { waitUntil } from "@vercel/functions";
 import { previewRecipients, type PreviewResult } from "./preview-recipients";
 import { applyAllGuards, type Recipient } from "./guards";
+import { collapseByPhone } from "./dedupe-recipients";
 import { getMessagingBaseUrl } from "./base-url";
 import { getGroup } from "@/lib/groups/get-group";
 import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
@@ -43,6 +44,12 @@ export interface SendCampaignInput {
   subject: string | null;
   type: "SMS" | "LMS" | "ALIMTALK";
   isAd: boolean;
+  /**
+   * 동일번호 1회 발송(중복 번호 dedupe). TRUE 면 같은 학부모 번호로 묶인 형제
+   * N명을 1건으로 합쳐 발송. 가드 통과 후 collapse 단계에서 적용된다.
+   * {이름} 개인화와 상호배타(Zod refine 이 강제).
+   */
+  dedupeByPhone: boolean;
   /** null 이면 즉시 발송. */
   scheduledAt: Date | null;
   isTest: boolean;
@@ -105,6 +112,7 @@ export async function sendCampaign(
       body: input.body,
       isAd: input.isAd,
       type: input.type,
+      dedupeByPhone: input.dedupeByPhone,
       scheduledAt: input.scheduledAt ?? new Date(),
     });
   } catch (e) {
@@ -182,10 +190,12 @@ async function runImmediateSend(args: {
   void preview;
 
   // a) eligible 수신자 재조회 (preview 는 5명 샘플만 보존하므로)
+  //    가드 통과 후 dedupeByPhone 이면 동일번호 collapse 까지 적용된 목록을 반환.
   const eligible = await reloadEligibleRecipients({
     groupId: input.groupId,
     body: input.body,
     isAd: input.isAd,
+    dedupeByPhone: input.dedupeByPhone,
     scheduledAt: new Date(),
   });
 
@@ -210,6 +220,7 @@ async function runImmediateSend(args: {
     subject: input.subject,
     type: input.type,
     is_ad: input.isAd,
+    dedupe_by_phone: input.dedupeByPhone,
   };
 
   const insertedCampaign = await insertCampaign(supabase, campaignInsert);
@@ -319,6 +330,7 @@ async function insertScheduledCampaign(args: {
     subject: input.subject,
     type: input.type,
     is_ad: input.isAd,
+    dedupe_by_phone: input.dedupeByPhone,
   };
 
   const inserted = await insertCampaign(supabase, insertPayload);
@@ -346,6 +358,7 @@ async function reloadEligibleRecipients(args: {
   groupId: string;
   body: string;
   isAd: boolean;
+  dedupeByPhone: boolean;
   scheduledAt: Date;
 }): Promise<EligibleRecipient[]> {
   if (isDevSeedMode()) {
@@ -384,11 +397,20 @@ async function reloadEligibleRecipients(args: {
     unsubscribedPhones: [],
   });
 
-  return guarded.eligible.map((r) => ({
-    studentId: r.studentId,
-    phone: r.phone,
-    name: r.name,
-  }));
+  // 3) collapse — 가드 통과 직후, eligible 배열에만 dedupe 적용.
+  //    dedupeByPhone=false 면 입력 그대로(기존 동작 동일).
+  //    loadAllGroupRecipients 가 registered_at DESC 순이므로 같은 번호 그룹의
+  //    최상위(가장 최근 등록 학생)가 대표로 남는다.
+  const { recipients } = collapseByPhone(
+    guarded.eligible.map((r) => ({
+      studentId: r.studentId,
+      phone: r.phone,
+      name: r.name,
+    })),
+    args.dedupeByPhone,
+  );
+
+  return recipients;
 }
 
 // ─── DB IO 헬퍼 (좁은 cast) ────────────────────────────────

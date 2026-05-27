@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TemplateTypeSchema } from "./common";
+import { hasNameToken } from "@/lib/messaging/personalize";
 
 /**
  * F3 Part B · Compose 4단계 위저드 Zod 스키마
@@ -45,6 +46,13 @@ export const ComposeStep2Schema = z
       .min(1, "본문은 필수입니다")
       .max(4000, "본문이 너무 깁니다"),
     isAd: z.boolean().default(false),
+    /**
+     * 동일번호 1회 발송(중복 번호 dedupe) 토글.
+     * TRUE 면 같은 학부모 번호로 묶인 형제 N명을 1건으로 합쳐 발송한다.
+     * isAd 와 같은 "발송 옵션" 토글로 step2 에 둔다.
+     * {이름} 개인화 변수와는 상호배타 (아래 refine 에서 강제).
+     */
+    dedupeByPhone: z.boolean().default(false),
   })
   .refine(
     (v) =>
@@ -54,6 +62,18 @@ export const ComposeStep2Schema = z
           v.subject !== undefined &&
           v.subject.length > 0,
     { message: "LMS/알림톡은 제목이 필수입니다", path: ["subject"] },
+  )
+  .refine(
+    // 개인화({이름}) ↔ dedupe 상호배타.
+    // 같은 번호로 형제 N명을 1건으로 합칠 때 누구 이름을 쓸지 결정 불가 →
+    // 잘못된 이름 발송을 막기 위해 dedupe ON + 본문에 {이름} 동시 사용 금지.
+    // {날짜} 는 전원 동일 값이라 충돌 없음 → 허용.
+    (v) => !(v.dedupeByPhone && hasNameToken(v.body)),
+    {
+      message:
+        "{이름} 변수가 포함된 본문은 동일번호 1회 발송과 함께 사용할 수 없습니다. 변수를 빼거나 동일번호 1회 발송을 끄세요.",
+      path: ["dedupeByPhone"],
+    },
   );
 export type ComposeStep2 = z.infer<typeof ComposeStep2Schema>;
 

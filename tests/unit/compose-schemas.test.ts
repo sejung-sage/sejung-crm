@@ -166,6 +166,110 @@ describe("ComposeStep2Schema · 본문/템플릿", () => {
     });
     expect(r.success).toBe(false);
   });
+
+  it("dedupeByPhone 기본값 false (생략 가능)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "본문",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.dedupeByPhone).toBe(false);
+    }
+  });
+});
+
+describe("ComposeStep2Schema · {이름} ↔ 동일번호 1회 발송 상호배타", () => {
+  // 같은 번호로 형제 N명을 1건으로 합칠 때 누구 이름을 쓸지 결정 불가 →
+  // dedupe ON + 본문 {이름} 동시 사용 금지. {날짜} 는 전원 동일 값이라 허용.
+  it("본문 {이름} + dedupeByPhone=true → 실패 (path dedupeByPhone, 한글 메시지)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "{이름} 학부모님 안녕하세요",
+      isAd: false,
+      dedupeByPhone: true,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find(
+        (i) => i.path[0] === "dedupeByPhone",
+      );
+      expect(issue).toBeDefined();
+      expect(issue?.path).toEqual(["dedupeByPhone"]);
+      expect(issue?.message).toMatch(/이름/);
+      expect(issue?.message).toMatch(/동일번호 1회 발송/);
+    }
+  });
+
+  it("본문 {이름} + dedupeByPhone=false → 통과 (dedupe OFF 면 개인화 허용)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "{이름} 학부모님 안녕하세요",
+      isAd: false,
+      dedupeByPhone: false,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("본문 {이름} + dedupeByPhone 생략(기본 false) → 통과", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "{이름} 학부모님 안녕하세요",
+      isAd: false,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("본문 {날짜}만 + dedupeByPhone=true → 통과 (전원 동일 값이라 충돌 없음)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "{날짜} 주간테스트 안내드립니다",
+      isAd: false,
+      dedupeByPhone: true,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("본문에 변수 없음 + dedupeByPhone=true → 통과", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "이번 주 정기 시험 안내입니다",
+      isAd: false,
+      dedupeByPhone: true,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("본문 {이름}+{날짜} 동시 + dedupeByPhone=true → 실패 ({이름} 때문)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "{이름} 학부모님, {날짜} 시험 안내",
+      isAd: false,
+      dedupeByPhone: true,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(
+        r.error.issues.some((i) => i.path[0] === "dedupeByPhone"),
+      ).toBe(true);
+    }
+  });
+
+  it("LMS · 본문 {이름} + dedupeByPhone=true → 실패 (유형 무관 상호배타)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "LMS",
+      subject: "주간 안내",
+      body: "{이름} 학부모님께 안내드립니다",
+      isAd: false,
+      dedupeByPhone: true,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(
+        r.error.issues.some((i) => i.path[0] === "dedupeByPhone"),
+      ).toBe(true);
+    }
+  });
 });
 
 describe("ComposeStep3Schema · 캠페인 제목", () => {

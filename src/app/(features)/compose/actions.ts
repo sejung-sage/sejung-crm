@@ -93,6 +93,7 @@ export async function previewAction(
       body: parsed.step2.body,
       isAd: parsed.step2.isAd,
       type: parsed.step2.type,
+      dedupeByPhone: parsed.step2.dedupeByPhone,
       scheduledAt: new Date(),
     });
     return { status: "success", data };
@@ -184,6 +185,7 @@ export async function sendNowAction(
     subject: parsed.step2.subject ?? null,
     type: parsed.step2.type,
     isAd: parsed.step2.isAd,
+    dedupeByPhone: parsed.step2.dedupeByPhone,
     scheduledAt: null,
     isTest: false,
   });
@@ -238,6 +240,7 @@ export async function scheduleAction(
     subject: parsed.step2.subject ?? null,
     type: parsed.step2.type,
     isAd: parsed.step2.isAd,
+    dedupeByPhone: parsed.step2.dedupeByPhone,
     scheduledAt,
     isTest: false,
   });

@@ -180,6 +180,7 @@ async function listFromSupabase(
       subject: (row.subject ?? null) as string | null,
       type: (row.type ?? null) as CampaignListItem["type"],
       is_ad: (row.is_ad ?? false) as boolean,
+      dedupe_by_phone: (row.dedupe_by_phone ?? false) as boolean,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
       template_name: null,

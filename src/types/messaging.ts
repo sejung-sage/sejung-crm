@@ -12,6 +12,30 @@
 
 export type SmsType = "SMS" | "LMS" | "ALIMTALK";
 
+/**
+ * 동일번호 1회 발송(중복 번호 dedupe) 카운트 계약.
+ *
+ * 미리보기/발송 인원 표시에서 "원래 N명 → 실제 M건(중복 K건 합침)" 을
+ * 일관되게 보여주기 위한 공용 타입. backend(preview-recipients/send-campaign)
+ * 가 산출해 반환하고, frontend(미리보기·발송 확인 UI) 가 그대로 표시한다.
+ *
+ * 불변식: collapsed = targetStudents - actualMessages (>= 0).
+ *  - dedupeByPhone=false 이거나 합쳐질 중복이 없으면 collapsed=0,
+ *    actualMessages = targetStudents.
+ *  - 가드(탈퇴/수신거부/야간) 제외는 이 계약 "이전"에 이미 적용됐다고 본다.
+ *    즉 targetStudents 는 가드 통과 후 발송 후보 학생 수다.
+ */
+export interface DedupeCounts {
+  /** 동일번호 1회 발송이 적용됐는지(=campaign.dedupe_by_phone). */
+  dedupeApplied: boolean;
+  /** 가드 통과 후 발송 후보 학생 수 (합치기 전). */
+  targetStudents: number;
+  /** 실제 발송(큐 적재) 건수. dedupe ON 이면 고유 번호 수, OFF 면 = targetStudents. */
+  actualMessages: number;
+  /** 동일번호로 합쳐져 발송되지 않은 중복 건수 = targetStudents - actualMessages. */
+  collapsed: number;
+}
+
 export type SmsSendRequest = {
   /** 수신자 번호. 하이픈 없는 11자리(01012345678). */
   to: string;

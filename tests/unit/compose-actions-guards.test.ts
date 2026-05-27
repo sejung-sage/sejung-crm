@@ -26,6 +26,7 @@ const validStep2Sms = {
   type: "SMS" as const,
   body: "안녕하세요",
   isAd: false,
+  dedupeByPhone: false,
 };
 
 describe("previewAction · dev-seed 에서도 정상 동작", () => {
