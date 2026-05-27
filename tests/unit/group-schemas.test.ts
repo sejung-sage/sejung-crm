@@ -16,7 +16,7 @@ describe("GroupFiltersSchema", () => {
   describe("정상 입력", () => {
     it("빈 객체 · 모든 필드 기본값(빈 배열) 적용", () => {
       const r = GroupFiltersSchema.parse({});
-      expect(r).toEqual({ grades: [], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [], unmappedSchool: false, mappedSchool: false });
+      expect(r).toEqual({ grades: [], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [], excludeSchools: [], excludeClassIds: [], unmappedSchool: false, mappedSchool: false });
     });
 
     it("grades 고2·고3 복수 선택 성공", () => {
@@ -51,6 +51,83 @@ describe("GroupFiltersSchema", () => {
       expect(() => GroupFiltersSchema.parse({ schools: [""] })).toThrow();
     });
   });
+
+  describe("excludeSchools / excludeClassIds (학교·강좌 제외 2026-05-27)", () => {
+    // Zod v4 의 uuid 포맷은 version 비트(1~8)를 엄격 검사. v4 형식 사용.
+    const validClassId = "44444444-4444-4444-8444-444444444444";
+
+    describe("정상 입력", () => {
+      it("excludeSchools 학교명 배열 성공", () => {
+        const r = GroupFiltersSchema.parse({
+          excludeSchools: ["휘문고", "단대부고"],
+        });
+        expect(r.excludeSchools).toEqual(["휘문고", "단대부고"]);
+      });
+
+      it("excludeClassIds UUID 배열 성공", () => {
+        const r = GroupFiltersSchema.parse({
+          excludeClassIds: [validClassId],
+        });
+        expect(r.excludeClassIds).toEqual([validClassId]);
+      });
+
+      it("excludeSchools 양옆 공백은 trim", () => {
+        const r = GroupFiltersSchema.parse({
+          excludeSchools: ["  휘문고  "],
+        });
+        expect(r.excludeSchools).toEqual(["휘문고"]);
+      });
+    });
+
+    describe("백워드 호환 · 두 키 없는 옛 그룹 JSONB", () => {
+      it("excludeSchools / excludeClassIds 키가 없으면 빈 배열로 채워진다", () => {
+        // 0027(2026-05-27) 이전 저장된 옛 그룹 JSONB 시뮬레이션.
+        const oldGroupJsonb = {
+          grades: ["고2"],
+          schools: ["휘문고"],
+          subjects: ["수학"],
+        };
+        const r = GroupFiltersSchema.parse(oldGroupJsonb);
+        expect(r.excludeSchools).toEqual([]);
+        expect(r.excludeClassIds).toEqual([]);
+        // 기존 필드는 그대로 보존
+        expect(r.grades).toEqual(["고2"]);
+        expect(r.schools).toEqual(["휘문고"]);
+      });
+
+      it("완전히 빈 객체도 두 키가 빈 배열로 채워진다", () => {
+        const r = GroupFiltersSchema.parse({});
+        expect(r.excludeSchools).toEqual([]);
+        expect(r.excludeClassIds).toEqual([]);
+      });
+    });
+
+    describe("경계값 · 유효성 거부", () => {
+      it("excludeClassIds 에 비-UUID 값이 섞이면 실패", () => {
+        expect(() =>
+          GroupFiltersSchema.parse({ excludeClassIds: ["not-a-uuid"] }),
+        ).toThrow();
+      });
+
+      it("excludeClassIds 에 빈 문자열이 섞이면 실패", () => {
+        expect(() =>
+          GroupFiltersSchema.parse({ excludeClassIds: [""] }),
+        ).toThrow();
+      });
+
+      it("excludeSchools 에 빈 문자열이 섞이면 실패", () => {
+        expect(() =>
+          GroupFiltersSchema.parse({ excludeSchools: [""] }),
+        ).toThrow();
+      });
+
+      it("excludeSchools 41자 학교명은 실패(max 40)", () => {
+        expect(() =>
+          GroupFiltersSchema.parse({ excludeSchools: ["가".repeat(41)] }),
+        ).toThrow();
+      });
+    });
+  });
 });
 
 describe("CreateGroupInputSchema", () => {
@@ -72,7 +149,7 @@ describe("CreateGroupInputSchema", () => {
         branch: "대치",
         filters: {},
       });
-      expect(r.filters).toEqual({ grades: [], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [], unmappedSchool: false, mappedSchool: false });
+      expect(r.filters).toEqual({ grades: [], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [], excludeSchools: [], excludeClassIds: [], unmappedSchool: false, mappedSchool: false });
     });
   });
 

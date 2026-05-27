@@ -40,6 +40,11 @@ import type { DedupeCounts } from "@/types/messaging";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
 import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import { isAllSubjects } from "@/lib/schemas/common";
+import {
+  applySchoolExclusion,
+  loadExcludedClassStudentIds,
+  mergeExcludedStudentIds,
+} from "@/lib/groups/resolve-exclusions";
 
 export type PreviewExclusionReason = "탈퇴학생" | "수신거부";
 
@@ -328,6 +333,14 @@ interface FilterMapping {
   allowedStudentIds: string[] | null;
   /** filters.regions → 매칭 school 목록 (null 이면 미적용). */
   allowedSchools: string[] | null;
+  /**
+   * 차감 대상 student_id 병합 목록 (excludeStudentIds ∪ excludeClassIds 펼침).
+   * 빈 배열이면 차감 미적용. buildQuery 가 4개 쿼리 모두에 not.in 으로 적용 →
+   * eligible/sample/withdrawn/unsub 카운트가 전부 exclude 차감된 모집단 위에서 계산된다.
+   */
+  excludeStudentIds: string[];
+  /** filters.excludeSchools — school NOT IN 차감. 빈 배열이면 미적용. */
+  excludeSchools: string[];
   /** 사전 매핑 결과가 빈 집합으로 확정될 때 true. 즉시 빈 결과 short-circuit. */
   zeroResult: boolean;
 }
@@ -338,11 +351,35 @@ async function resolveFilterMapping(
 ): Promise<FilterMapping> {
   const f = group.filters;
 
+  // 제외 차감 사전 페치 — include/조건 분기, zeroResult 분기와 무관하게 항상 계산해
+  // 모든 return 에 동일 차감을 실어 보낸다(exclude 승리). 강좌 제외는 강좌 수가
+  // 적어 1회성 2쿼리.
+  const excludeClassStudentIds = await loadExcludedClassStudentIds(
+    supabase,
+    f.excludeClassIds ?? [],
+  );
+  const excludeStudentIds = mergeExcludedStudentIds(
+    f.excludeStudentIds ?? [],
+    excludeClassStudentIds,
+  );
+  const excludeSchools = f.excludeSchools ?? [];
+
+  // zeroResult 단축 시에도 exclude 필드를 채워 타입/시맨틱 일관 유지.
+  const zero = (): FilterMapping => ({
+    allowedStudentIds: null,
+    allowedSchools: null,
+    excludeStudentIds,
+    excludeSchools,
+    zeroResult: true,
+  });
+
   // includeStudentIds 우선. 이 경로에선 subjects 매핑은 무시 (count-recipients 와 동일).
   if (f.includeStudentIds.length > 0) {
     return {
       allowedStudentIds: f.includeStudentIds,
       allowedSchools: null,
+      excludeStudentIds,
+      excludeSchools,
       zeroResult: false,
     };
   }
@@ -364,7 +401,7 @@ async function resolveFilterMapping(
       .map((r) => (r as { aca_class_id: string | null }).aca_class_id)
       .filter((v): v is string => typeof v === "string" && v.length > 0);
     if (acaClassIds.length === 0) {
-      return { allowedStudentIds: null, allowedSchools: null, zeroResult: true };
+      return zero();
     }
 
     const { data: enrollRows, error: enrollErr } = await supabase
@@ -379,7 +416,7 @@ async function resolveFilterMapping(
       if (r.student_id) set.add(r.student_id);
     }
     if (set.size === 0) {
-      return { allowedStudentIds: null, allowedSchools: null, zeroResult: true };
+      return zero();
     }
     allowedStudentIds = Array.from(set);
   }
@@ -397,11 +434,17 @@ async function resolveFilterMapping(
       .map((r) => (r as { school: string }).school)
       .filter((s): s is string => typeof s === "string" && s.length > 0);
     if (allowedSchools.length === 0) {
-      return { allowedStudentIds: null, allowedSchools: null, zeroResult: true };
+      return zero();
     }
   }
 
-  return { allowedStudentIds, allowedSchools, zeroResult: false };
+  return {
+    allowedStudentIds,
+    allowedSchools,
+    excludeStudentIds,
+    excludeSchools,
+    zeroResult: false,
+  };
 }
 
 // ─── crm_students 쿼리 빌더 ─────────────────────────────────
@@ -469,11 +512,17 @@ function buildQuery(
     if (mapping.allowedSchools) q = q.in("school", mapping.allowedSchools);
   }
 
-  // excludeStudentIds 강제 제외 (PostgREST not.in 문법).
-  // uuid 만 들어와 메타문자 인젝션 위험 없음.
-  if (f.excludeStudentIds.length > 0) {
-    q = q.not("id", "in", `(${f.excludeStudentIds.join(",")})`);
+  // 강제 제외 (PostgREST not.in 문법). mapping.excludeStudentIds 는
+  //   excludeStudentIds ∪ excludeClassIds(펼친 student_id) 병합 목록.
+  //   uuid 만 들어와 메타문자 인젝션 위험 없음.
+  // 4개 쿼리(eligible/sample/withdrawn/unsub) 모두 buildQuery 를 거치므로
+  //   withdrawn/unsub 카운트도 exclude 차감된 모집단 위에서 계산된다 —
+  //   제외된 학생은 "탈퇴 자동 제외" 안내에 잡히지 않는다.
+  if (mapping.excludeStudentIds.length > 0) {
+    q = q.not("id", "in", `(${mapping.excludeStudentIds.join(",")})`);
   }
+  // 학교별 제외 — school NOT IN (...). 빈 배열이면 미적용. school IS NULL 은 차감 안 됨.
+  q = applySchoolExclusion(q, mapping.excludeSchools) as StudentsQuery;
 
   return q;
 }

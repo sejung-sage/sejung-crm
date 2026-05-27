@@ -37,6 +37,11 @@ import {
   UNMAPPED_SCHOOL_OR_EXPR,
   applyMappedSchoolFilter,
 } from "@/lib/profile/list-students";
+import {
+  applySchoolExclusion,
+  loadExcludedClassStudentIds,
+  mergeExcludedStudentIds,
+} from "./resolve-exclusions";
 
 /** PostgREST `max_rows` cap (supabase/config.toml). 이보다 크게 잡으면 cap 으로
  *  잘려 early break 회귀가 발생한다. */
@@ -118,6 +123,20 @@ export async function loadAllGroupRecipients(
     if (allowedSchools.length === 0) return [];
   }
 
+  // 3.5) 강좌별 제외 사전 페치 — excludeClassIds(crm_classes.id) → aca_class_id →
+  //      crm_enrollments 매칭 student_id. 강좌 수가 적어 1회성 페치.
+  //      include/조건 분기 무관하게 항상 차감(exclude 승리).
+  const excludeClassStudentIds = await loadExcludedClassStudentIds(
+    supabase,
+    group.filters.excludeClassIds ?? [],
+  );
+  // 명시 제외(excludeStudentIds) + 강좌 제외 펼침을 하나의 not.in uuid 목록으로 병합.
+  const mergedExcludeIds = mergeExcludedStudentIds(
+    group.filters.excludeStudentIds ?? [],
+    excludeClassStudentIds,
+  );
+  const excludeSchools = group.filters.excludeSchools ?? [];
+
   // 4) crm_students 직접 청크 range 페치 (view 풀집계 우회).
   const collected: GroupRecipient[] = [];
   let from = 0;
@@ -162,10 +181,13 @@ export async function loadAllGroupRecipients(
       }
     }
 
-    const excludeIds = group.filters.excludeStudentIds ?? [];
-    if (excludeIds.length > 0) {
-      q = q.not("id", "in", `(${excludeIds.join(",")})`);
+    // 제외 차감(exclude 승리) — include/조건 분기 모두에 적용.
+    //   ① excludeStudentIds + excludeClassIds(펼친 student_id) 병합 not.in
+    //   ② excludeSchools school not.in
+    if (mergedExcludeIds.length > 0) {
+      q = q.not("id", "in", `(${mergedExcludeIds.join(",")})`);
     }
+    q = applySchoolExclusion(q, excludeSchools);
 
     if (safeUnsubPhones.length > 0) {
       q = q.or(

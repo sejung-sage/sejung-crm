@@ -72,16 +72,11 @@ function withNormalizedFilters(row: GroupRow): GroupRow {
   if (parsed.success) {
     return { ...row, filters: parsed.data };
   }
+  // 파싱 실패 시 스키마 기본값(.default) 으로 안전 폴백.
+  // 하드코딩 리터럴 대신 GroupFiltersSchema.parse({}) 를 써서 새 필터 필드가
+  // 추가돼도 기본값이 자동 반영되도록 한다 (필드 추가 시 누락 회귀 방지).
   return {
     ...row,
-    filters: {
-      grades: [],
-      schools: [],
-      subjects: [],
-      regions: [],
-      statuses: [],
-      includeStudentIds: [],
-      excludeStudentIds: [], unmappedSchool: false, mappedSchool: false,
-    },
+    filters: GroupFiltersSchema.parse({}),
   };
 }

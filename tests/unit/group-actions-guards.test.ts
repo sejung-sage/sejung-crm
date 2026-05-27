@@ -30,7 +30,7 @@ describe("Server Actions · dev-seed 조기 반환", () => {
       const r = await createGroupAction({
         name: "테스트 그룹",
         branch: "대치",
-        filters: { grades: ["고2"], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [], unmappedSchool: false, mappedSchool: false },
+        filters: { grades: ["고2"], schools: [], subjects: [], regions: [], statuses: [], includeStudentIds: [], excludeStudentIds: [], excludeSchools: [], excludeClassIds: [], unmappedSchool: false, mappedSchool: false },
       });
       expect(r.status).toBe("dev_seed_mode");
     });

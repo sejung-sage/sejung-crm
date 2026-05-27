@@ -51,6 +51,23 @@ export function applyGroupFiltersDev(
       ? new Set(filters.excludeStudentIds)
       : null;
 
+  // 학교별 제외 (2026-05-27) — student.school IN (excludeSchools) 면 차감.
+  // school === null 은 차감 대상 아님 (Supabase NOT IN 과 동일 시맨틱).
+  const excludeSchoolSet =
+    filters.excludeSchools && filters.excludeSchools.length > 0
+      ? new Set(filters.excludeSchools)
+      : null;
+
+  // 강좌별 제외 (2026-05-27) — excludeClassIds(aca_class_id) → student_id 차감.
+  //   dev-seed 엔 crm_classes 시드가 없어 crm_classes.id → aca_class_id 변환 불가.
+  //   DEV_ENROLLMENTS 의 aca_class_id 인덱스로 직접 매칭한다 (best-effort).
+  //   시드 enrollment 의 aca_class_id 는 모두 NULL 이라 실제 매칭은 0명 —
+  //   "aca_class_id NULL(자체 등록 강좌)은 매칭 0명" 계약과 일치.
+  const excludeClassStudentSet =
+    filters.excludeClassIds && filters.excludeClassIds.length > 0
+      ? buildDevExcludeClassStudentSet(filters.excludeClassIds)
+      : null;
+
   return profiles.filter((p) => {
     // 1) 분원
     if (branchTrim && p.branch !== branchTrim) return false;
@@ -61,8 +78,16 @@ export function applyGroupFiltersDev(
     // 3) 수신거부 제외 (학부모 연락처 기준)
     if (p.parent_phone && unsub.has(p.parent_phone)) return false;
 
-    // 3.5) 명시 제외 — includeStudentIds 분기보다 먼저 적용해 일관성 유지.
+    // 3.5) 제외 차감(exclude 승리) — includeStudentIds 분기보다 먼저 적용해
+    //      "이 학생만 보낼 건데 그중 일부는 빼고" 시맨틱을 일관 유지.
+    //   ① 명시 제외(excludeStudentIds)
     if (excludeSet && excludeSet.has(p.id)) return false;
+    //   ② 학교별 제외 — school null 은 차감 안 함.
+    if (excludeSchoolSet && p.school !== null && excludeSchoolSet.has(p.school)) {
+      return false;
+    }
+    //   ③ 강좌별 제외 — 제외 강좌 수강 학생 차감.
+    if (excludeClassStudentSet && excludeClassStudentSet.has(p.id)) return false;
 
     // 4) 직접 선택 모드 — includeStudentIds 만 매칭, 조건 절 무시.
     if (includeSet) {
@@ -112,6 +137,28 @@ export function applyGroupFiltersDev(
 
     return true;
   });
+}
+
+/**
+ * 강좌별 제외 (dev-seed) — 제외 대상 student_id set 산출.
+ *
+ * Supabase 경로는 crm_classes.id → aca_class_id → crm_enrollments 로 매핑하지만
+ * dev-seed 엔 crm_classes 시드가 없어 변환 불가. DEV_ENROLLMENTS 의 aca_class_id
+ * 인덱스로 직접 매칭한다 (excludeClassIds 를 aca_class_id 로 간주하는 best-effort).
+ * 시드 enrollment 의 aca_class_id 는 모두 NULL 이라 실제 매칭 0명 — "aca_class_id
+ * NULL 은 매칭 0명" 계약과 일치.
+ */
+function buildDevExcludeClassStudentSet(
+  excludeClassIds: readonly string[],
+): Set<string> {
+  const wanted = new Set(excludeClassIds);
+  const result = new Set<string>();
+  for (const e of DEV_ENROLLMENTS) {
+    if (e.aca_class_id !== null && wanted.has(e.aca_class_id)) {
+      result.add(e.student_id);
+    }
+  }
+  return result;
 }
 
 /**

@@ -480,6 +480,32 @@ export async function searchStudentsAction(
   }
 }
 
+// ─── listClassOptionsAction ───────────────────────────────
+// 그룹 빌더의 "강좌별 제외" 드롭다운 옵션을 분원 변경 시 재페치.
+// 초기값은 페이지(new/edit)가 prop 으로 내려주고, master 가 분원 칩을 바꾸면
+// 이 액션으로 새 분원의 강좌 목록을 다시 가져온다. 조회 전용 — 권한 가드 없음.
+
+import { listClassOptions, type ClassOption } from "@/lib/classes/list-class-options";
+
+export type ListClassOptionsResult =
+  | { status: "success"; data: ClassOption[] }
+  | { status: "failed"; reason: string };
+
+export async function listClassOptionsAction(
+  branch: unknown,
+): Promise<ListClassOptionsResult> {
+  if (typeof branch !== "string" || branch.trim().length === 0) {
+    return { status: "failed", reason: "분원은 필수입니다" };
+  }
+  try {
+    const data = await listClassOptions(branch.trim());
+    return { status: "success", data };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "강좌 목록 조회 실패";
+    return { status: "failed", reason: msg };
+  }
+}
+
 // ─── diffRecipientsAction ──────────────────────────────────
 // 그룹 수정 폼에서 필터를 바꿨을 때 "추가 N명 / 제거 M명" 미리보기 용.
 // 조회 전용 — 쓰기 권한 가드 없음 (필터값 자체는 민감하지 않음).

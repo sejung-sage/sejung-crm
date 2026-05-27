@@ -3,6 +3,7 @@ import { countRecipients } from "@/lib/groups/count-recipients";
 import { getSchoolOptions } from "@/lib/groups/school-options";
 import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { getClassDetail } from "@/lib/classes/get-class-detail";
+import { listClassOptions } from "@/lib/classes/list-class-options";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
@@ -10,7 +11,7 @@ import {
   findDevProfileById,
   isDevSeedMode,
 } from "@/lib/profile/students-dev-seed";
-import type { GroupFilters } from "@/lib/schemas/group";
+import { GroupFiltersSchema, type GroupFilters } from "@/lib/schemas/group";
 import type { Grade } from "@/types/database";
 
 /**
@@ -149,27 +150,29 @@ export default async function NewGroupPage({
   }
 
   const branch = prefill?.branch ?? (await resolveDefaultBranch());
+  // 스키마 기본값(.default) 위에 prefill 만 덮어쓴다. parse({}) 를 쓰면
+  // 새 필터 필드(excludeSchools/excludeClassIds 등)가 추가돼도 기본값이 자동 반영.
   const initialFilters: GroupFilters = {
-    grades: [],
-    schools: [],
-    subjects: [],
-    regions: [],
-    statuses: [],
+    ...GroupFiltersSchema.parse({}),
     includeStudentIds: prefill ? prefill.recipients.map((r) => r.id) : [],
-    excludeStudentIds: [],
-    unmappedSchool: false,
-    mappedSchool: false,
   };
 
-  const [initialPreview, schoolOptions, filterOptions, currentUser] =
-    await Promise.all([
-      countRecipients(initialFilters, branch),
-      getSchoolOptions(branch),
-      // 그룹은 모든 status(탈퇴 제외) + 졸업·미정 학생도 발송 대상 가능 →
-      // includeHidden=true 로 옵션 추출. statuses 는 빈 배열 = 전체 매칭.
-      listStudentFilterOptions({ branch, includeHidden: true }),
-      getCurrentUser(),
-    ]);
+  const [
+    initialPreview,
+    schoolOptions,
+    filterOptions,
+    classOptions,
+    currentUser,
+  ] = await Promise.all([
+    countRecipients(initialFilters, branch),
+    getSchoolOptions(branch),
+    // 그룹은 모든 status(탈퇴 제외) + 졸업·미정 학생도 발송 대상 가능 →
+    // includeHidden=true 로 옵션 추출. statuses 는 빈 배열 = 전체 매칭.
+    listStudentFilterOptions({ branch, includeHidden: true }),
+    // 강좌별 제외 드롭다운 후보 (진행 중 강좌만).
+    listClassOptions(branch),
+    getCurrentUser(),
+  ]);
 
   // 분원 칩 변경 권한: master 만 다른 분원 그룹 생성 가능.
   const canPickBranch = currentUser?.role === "master";
@@ -186,6 +189,7 @@ export default async function NewGroupPage({
         },
       }}
       schoolOptions={schoolOptions}
+      classOptions={classOptions}
       initialPreview={{
         total: initialPreview.total,
         sample: initialPreview.sample,

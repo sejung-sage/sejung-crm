@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ChevronLeft, Loader2, Search, X } from "lucide-react";
+import { ChevronLeft, Loader2, MinusCircle, Search, X } from "lucide-react";
 import type { GroupFilters } from "@/lib/schemas/group";
 import type { Grade, StudentStatus, Subject } from "@/types/database";
 import type {
@@ -15,9 +15,12 @@ import {
   createGroupAction,
   diffRecipientsAction,
   groupBuilderFilterOptionsAction,
+  listClassOptionsAction,
   searchStudentsAction,
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
+import type { ClassOption } from "@/lib/classes/list-class-options";
+import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
 import { BRANCHES } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
 import { formatPhone, maskPhone } from "@/lib/phone";
@@ -52,6 +55,17 @@ interface Props {
   };
   /** 학교 토글 칩 후보. dev-seed · Supabase 공통으로 상위 후보를 넘겨줌. */
   schoolOptions: string[];
+  /**
+   * 강좌별 제외 드롭다운 후보 (진행 중 강좌만, id+이름). 분원 기준 prefetch.
+   * master 가 분원 칩을 바꾸면 listClassOptionsAction 으로 재페치한다.
+   */
+  classOptions: ClassOption[];
+  /**
+   * 수정 모드에서 이미 저장된 excludeClassIds 의 칩 라벨 prefill.
+   * 종강 등으로 진행 중 classOptions 에서 빠진 강좌라도 칩으로 보여줘 해제 가능.
+   * 신규 모드면 undefined.
+   */
+  prefilledExcludeClasses?: ClassOption[];
   /** 초기 프리뷰(서버에서 한 번 계산). */
   initialPreview: SamplePreview;
   mode: "create" | "edit";
@@ -204,6 +218,8 @@ export function GroupBuilder({
   groupId,
   initial,
   schoolOptions,
+  classOptions,
+  prefilledExcludeClasses,
   initialPreview,
   mode,
   oldFilters,
@@ -245,6 +261,18 @@ export function GroupBuilder({
   // 학교 검색어 — 학생 명단 SchoolSearchPanel 과 동일한 패턴.
   // schoolOptions 가 수천개 단위라 더보기/접기 대신 검색+스크롤로 전환.
   const [schoolQuery, setSchoolQuery] = useState("");
+
+  // ── 제외 조건 (0076, 박은주 부원장 요청) ──────────────────
+  // 학교별 제외: 포함(schools) 과 동일한 학교 옵션 소스에서 선택. 빨강/취소선 톤.
+  const [excludeSchools, setExcludeSchools] = useState<string[]>(
+    initial.filters.excludeSchools ?? [],
+  );
+  const [excludeSchoolQuery, setExcludeSchoolQuery] = useState("");
+  // 강좌별 제외: crm_classes.id 선택. 칩 라벨 표시를 위해 {id,name} 메타도 보관.
+  // 초기값 = 저장된 excludeClassIds 의 메타(prefilledExcludeClasses).
+  const [excludeClasses, setExcludeClasses] = useState<ClassOption[]>(
+    prefilledExcludeClasses ?? [],
+  );
 
   // '졸업·미정' 학년 영역 expand. 초기값은 현재 선택된 grades 에 포함되면 펼침.
   const [showHiddenGrades, setShowHiddenGrades] = useState<boolean>(() =>
@@ -296,6 +324,13 @@ export function GroupBuilder({
   const optionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const optionsReqIdRef = useRef<number>(0);
 
+  // 강좌별 제외 드롭다운 후보 — branch 변경 시 재페치 (master 분원 이동 대응).
+  // 초기값은 prop(classOptions). 첫 마운트는 페이지 prefetch 와 동일하므로 스킵.
+  const [dynamicClassOptions, setDynamicClassOptions] =
+    useState<ClassOption[]>(classOptions);
+  const classOptionsReqIdRef = useRef<number>(0);
+  const classOptionsBranchRef = useRef<string>(initial.branch);
+
   // 선택된 region 으로 좁힌 학교 옵션. region 미선택 시 dynamicSchoolOptions 전체.
   // server 라운드트립 없이 즉시 반영 — schoolGroups 매핑이 이미 client 에 있음.
   const visibleSchoolOptions = useMemo(() => {
@@ -316,6 +351,12 @@ export function GroupBuilder({
   // 빌더 폼에서는 직접 편집 안 함. 수정 모드에선 초기값에 들어있는 제외
   // 목록을 그대로 유지해 저장 시 손실되지 않게 한다.
   const initialExcludeIds = initial.filters.excludeStudentIds ?? [];
+  // 학교별/강좌별 제외 (0076) 는 아래 폼 상태(excludeSchools/excludeClasses)에서 관리.
+  // excludeClassIds 는 excludeClasses 메타에서 id 만 추려 만든다.
+  const excludeClassIds = useMemo(
+    () => excludeClasses.map((c) => c.id),
+    [excludeClasses],
+  );
   const filters: GroupFilters = useMemo(
     () => ({
       grades,
@@ -327,6 +368,8 @@ export function GroupBuilder({
       statuses,
       includeStudentIds: includeStudents.map((s) => s.id),
       excludeStudentIds: initialExcludeIds,
+      excludeSchools,
+      excludeClassIds,
       unmappedSchool,
       mappedSchool,
     }),
@@ -338,6 +381,8 @@ export function GroupBuilder({
       statuses,
       includeStudents,
       initialExcludeIds,
+      excludeSchools,
+      excludeClassIds,
       unmappedSchool,
       mappedSchool,
     ],
@@ -364,6 +409,22 @@ export function GroupBuilder({
       if (optionsDebounceRef.current) clearTimeout(optionsDebounceRef.current);
     };
   }, [branch, statuses]);
+
+  // branch 변경 시 강좌별 제외 후보 재페치.
+  // 첫 마운트는 prop(classOptions) 와 동일하므로 스킵 (불필요 라운드트립 회피).
+  useEffect(() => {
+    if (!branch) return;
+    if (classOptionsBranchRef.current === branch) return;
+    classOptionsBranchRef.current = branch;
+    const myReq = ++classOptionsReqIdRef.current;
+    (async () => {
+      const result = await listClassOptionsAction(branch);
+      if (myReq !== classOptionsReqIdRef.current) return;
+      if (result.status === "success") {
+        setDynamicClassOptions(result.data);
+      }
+    })();
+  }, [branch]);
 
   // filters/branch 변경 시 디바운스 카운트 호출
   useEffect(() => {
@@ -799,6 +860,69 @@ export function GroupBuilder({
                 }
                 onRemove={(id) =>
                   setIncludeStudents((prev) => prev.filter((x) => x.id !== id))
+                }
+              />
+            </Field>
+          </section>
+
+          {/* 제외 조건 — 위 조건으로 잡힌 수신자에서 빼는 영역.
+              포함 영역과 시각적으로 명확히 구분 (빨강/취소선 톤). */}
+          <section className="rounded-xl border border-danger/40 bg-[color:var(--danger-bg)] p-6 space-y-5">
+            <div className="space-y-1">
+              <h2 className="flex items-center gap-1.5 text-[16px] font-semibold text-[color:var(--danger)]">
+                <MinusCircle className="size-4" strokeWidth={2} aria-hidden />
+                제외 조건
+              </h2>
+              <p className="text-[13px] text-[color:var(--text-muted)]">
+                위 조건으로 잡힌 수신자 중, 아래에 해당하는 학생은 발송에서
+                빠집니다.
+              </p>
+            </div>
+
+            <Field
+              label="이 학교 제외"
+              hint={
+                excludeSchools.length === 0
+                  ? "선택한 학교의 학생은 발송 대상에서 제외됩니다"
+                  : `${excludeSchools.length}개 학교 제외`
+              }
+            >
+              <ExcludeSchoolPanel
+                schoolOptions={visibleSchoolOptions}
+                selected={excludeSchools}
+                query={excludeSchoolQuery}
+                onQueryChange={setExcludeSchoolQuery}
+                onToggle={(s) =>
+                  toggleFromList(excludeSchools, s, (next) =>
+                    setExcludeSchools(next),
+                  )
+                }
+                onRemove={(s) =>
+                  setExcludeSchools((prev) => prev.filter((x) => x !== s))
+                }
+              />
+            </Field>
+
+            <Field
+              label="이 강좌 수강생 제외"
+              hint={
+                excludeClasses.length === 0
+                  ? "선택한 강좌를 듣는 학생은 발송 대상에서 제외됩니다"
+                  : `${excludeClasses.length}개 강좌 수강생 제외`
+              }
+            >
+              <ExcludeClassPicker
+                options={dynamicClassOptions}
+                selected={excludeClasses}
+                onToggle={(c) =>
+                  setExcludeClasses((prev) =>
+                    prev.find((x) => x.id === c.id)
+                      ? prev.filter((x) => x.id !== c.id)
+                      : [...prev, c],
+                  )
+                }
+                onRemove={(id) =>
+                  setExcludeClasses((prev) => prev.filter((x) => x.id !== id))
                 }
               />
             </Field>
@@ -1378,6 +1502,241 @@ function DirectStudentPicker({
                 className="ml-1 size-5 inline-flex items-center justify-center rounded-full hover:bg-[color:var(--bg-hover)] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
               >
                 ×
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 학교별 제외 패널 (0076).
+ *
+ * 포함(schools) 의 GroupSchoolSearchPanel 과 동일한 학교 옵션 소스
+ * (visibleSchoolOptions) 를 쓰되, "빼기" 의미가 한눈에 보이도록:
+ *  - 선택된 학교 칩은 빨강 테두리 + 취소선 + X 제거 버튼.
+ *  - 후보 리스트의 선택된 항목도 빨강 톤으로 표시.
+ *
+ * include 칩(검정 active)과 시각적으로 명확히 구분된다.
+ */
+function ExcludeSchoolPanel({
+  schoolOptions,
+  selected,
+  query,
+  onQueryChange,
+  onToggle,
+  onRemove,
+}: {
+  schoolOptions: string[];
+  selected: string[];
+  query: string;
+  onQueryChange: (q: string) => void;
+  onToggle: (s: string) => void;
+  onRemove: (s: string) => void;
+}) {
+  const normalized = query.trim().toLowerCase();
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  // 선택된 학교는 옵션에 없어도 칩으로 보여줘야 함 — 머지.
+  const merged = useMemo(() => {
+    const set = new Set(schoolOptions);
+    for (const s of selected) set.add(s);
+    return Array.from(set);
+  }, [schoolOptions, selected]);
+  const filtered =
+    normalized.length === 0
+      ? merged
+      : merged.filter((s) => s.toLowerCase().includes(normalized));
+
+  return (
+    <div className="space-y-2">
+      {/* 선택된 제외 학교 칩 (빨강·취소선) */}
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {selected.map((s) => (
+            <span
+              key={s}
+              className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full border border-[color:var(--danger)] bg-bg-card text-[13px] font-medium text-[color:var(--danger)]"
+            >
+              <span className="line-through">{s}</span>
+              <button
+                type="button"
+                onClick={() => onRemove(s)}
+                aria-label={`${s} 제외 해제`}
+                className="ml-0.5 size-5 inline-flex items-center justify-center rounded-full text-[color:var(--danger)] hover:bg-[color:var(--danger-bg)]"
+              >
+                <X className="size-3.5" strokeWidth={2} aria-hidden />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* 검색 입력 */}
+      <label className="relative block">
+        <span className="sr-only">제외할 학교 검색</span>
+        <Search
+          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="제외할 학교명 검색 (예: 휘문, 단대부)"
+          className="
+            w-full h-10 rounded-lg pl-9 pr-9
+            bg-bg-card border border-[color:var(--border)]
+            text-[14px] text-[color:var(--text)]
+            placeholder:text-[color:var(--text-dim)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+          "
+        />
+        {query.length > 0 && (
+          <button
+            type="button"
+            onClick={() => onQueryChange("")}
+            aria-label="검색어 지우기"
+            className="
+              absolute right-2 top-1/2 -translate-y-1/2
+              inline-flex items-center justify-center size-6 rounded-md
+              text-[color:var(--text-muted)] hover:text-[color:var(--text)]
+              hover:bg-[color:var(--bg-hover)]
+            "
+          >
+            <X className="size-4" strokeWidth={1.75} aria-hidden />
+          </button>
+        )}
+      </label>
+
+      {/* 후보 리스트 — 선택 시 빨강 톤 */}
+      <div className="max-h-[280px] overflow-y-auto pr-1 rounded-lg bg-bg-card border border-[color:var(--border)] p-3">
+        {filtered.length === 0 ? (
+          <p className="text-[13px] text-[color:var(--text-muted)] py-2 text-center">
+            {normalized.length > 0
+              ? `"${query.trim()}" 와(과) 일치하는 학교가 없습니다.`
+              : "표시할 학교가 없습니다."}
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {filtered.map((s) => {
+              const active = selectedSet.has(s);
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => onToggle(s)}
+                  aria-pressed={active}
+                  className={`
+                    inline-flex items-center h-8 px-3 rounded-full
+                    text-[14px] font-medium border transition-colors
+                    ${
+                      active
+                        ? "border-[color:var(--danger)] bg-[color:var(--danger-bg)] text-[color:var(--danger)] line-through"
+                        : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--danger)] hover:text-[color:var(--danger)]"
+                    }
+                  `}
+                >
+                  {s}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 강좌별 제외 선택기 (0076).
+ *
+ * 검색 가능한 다중 선택 드롭다운(MultiSelectDropdown)으로 강좌를 고르고,
+ * 선택된 강좌는 아래에 빨강 테두리 칩으로 표시한다 (강좌명 + 강사 보조 라벨).
+ *
+ * MultiSelectDropdown 은 string[] 기반이라, 라벨("반명 · 강사") → ClassOption
+ * 역매핑 테이블을 만들어 onToggle 시 id 메타를 복원한다.
+ */
+function ExcludeClassPicker({
+  options,
+  selected,
+  onToggle,
+  onRemove,
+}: {
+  options: ClassOption[];
+  selected: ClassOption[];
+  onToggle: (c: ClassOption) => void;
+  onRemove: (id: string) => void;
+}) {
+  // 드롭다운 라벨 생성 — 동명 반 구분을 위해 강사명을 붙인다.
+  const labelOf = (c: ClassOption) =>
+    c.teacher_name ? `${c.name} · ${c.teacher_name}` : c.name;
+
+  // 선택된 강좌가 진행 중 options 에서 빠졌어도(종강 등) 드롭다운에 보여 해제 가능.
+  const merged = useMemo(() => {
+    const byId = new Map<string, ClassOption>();
+    for (const c of options) byId.set(c.id, c);
+    for (const c of selected) if (!byId.has(c.id)) byId.set(c.id, c);
+    return Array.from(byId.values());
+  }, [options, selected]);
+
+  // 라벨 → ClassOption 역매핑. 라벨 충돌 시 먼저 들어온 것을 유지.
+  const optionByLabel = useMemo(() => {
+    const m = new Map<string, ClassOption>();
+    for (const c of merged) {
+      const label = labelOf(c);
+      if (!m.has(label)) m.set(label, c);
+    }
+    return m;
+  }, [merged]);
+
+  const labelOptions = useMemo(
+    () =>
+      Array.from(optionByLabel.keys()).sort((a, b) => a.localeCompare(b, "ko")),
+    [optionByLabel],
+  );
+  const selectedLabels = useMemo(
+    () => selected.map(labelOf),
+    [selected],
+  );
+
+  return (
+    <div className="space-y-2">
+      <MultiSelectDropdown
+        label="제외할 강좌 선택"
+        options={labelOptions}
+        selected={selectedLabels}
+        onToggle={(label) => {
+          const c = optionByLabel.get(label);
+          if (c) onToggle(c);
+        }}
+        searchable
+        searchPlaceholder="강좌명·강사 검색..."
+        emptyHint="이 분원에 진행 중 강좌가 없습니다"
+      />
+
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pt-1">
+          {selected.map((c) => (
+            <span
+              key={c.id}
+              className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full border border-[color:var(--danger)] bg-bg-card text-[13px] font-medium text-[color:var(--danger)]"
+            >
+              <span className="line-through">{c.name}</span>
+              {c.teacher_name && (
+                <span className="text-[11px] text-[color:var(--text-muted)] no-underline">
+                  {c.teacher_name}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => onRemove(c.id)}
+                aria-label={`${c.name} 제외 해제`}
+                className="ml-0.5 size-5 inline-flex items-center justify-center rounded-full text-[color:var(--danger)] hover:bg-[color:var(--danger-bg)]"
+              >
+                <X className="size-3.5" strokeWidth={2} aria-hidden />
               </button>
             </span>
           ))}

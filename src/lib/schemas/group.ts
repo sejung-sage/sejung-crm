@@ -68,6 +68,43 @@ export const GroupFiltersSchema = z.object({
    */
   excludeStudentIds: z.array(z.string().uuid()).default([]),
   /**
+   * 학교별 제외 (박은주 부원장 요청 2026-05-27). schools(포함) 의 대칭 필드.
+   * student.school IN (excludeSchools) 면 최종 수신자에서 제외한다.
+   *
+   * 용도: 학교별 진도 차이로 "이번 안내는 A·B 고만 빼고 보냄" 같은 케이스.
+   * 자유 입력 문자열(schools 와 동일 규칙) — students.school 원값과 정확 일치 매칭.
+   *
+   * 적용 순서: include(조건 + includeStudentIds) 산정 → exclude 차감 단계에서
+   *   excludeStudentIds / excludeSchools / excludeClassIds 와 함께 제거.
+   *   include 와 exclude 가 겹치면 exclude 가 승리(차감 우선).
+   *
+   * 백워드 호환: `.default([])` 라 옛 그룹 JSONB 에 키가 없어도 빈 배열 = "제외 없음".
+   */
+  excludeSchools: z.array(z.string().trim().min(1).max(40)).default([]),
+  /**
+   * 강좌별 제외 (박은주 부원장 요청 2026-05-27). crm_classes.id (UUID) 목록.
+   * 해당 강좌(들)에 현재 수강(enrollment)이 있는 학생을 최종 수신자에서 제외한다.
+   *
+   * 용도: "교재 이미 받은 강좌 수강생 제외", "다른 강좌 듣는 학생 혼란 방지".
+   *
+   * ── 동적(dynamic) 결정 근거 ──────────────────────────────
+   * include 의 강좌 prefill 은 학생을 includeStudentIds 로 펼치는 정적 방식이지만,
+   * 제외는 강좌 id 자체를 저장해 **발송 시점에 그 강좌 현재 수강생을 동적으로 차감**한다.
+   *   - 그룹은 filters 만 저장하고 발송 시점 재조회한다는 그룹 철학과 일치.
+   *   - 강좌에 새로 들어온 학생(교재 새로 받은 학생)도 자동 제외되어, 빌드 시점
+   *     정적 펼침이 놓치는 "신규 수강생 누락" 혼란을 방지.
+   * 정적으로 펼치면 그룹을 다시 편집하지 않는 한 새 수강생이 발송 대상에 남는다.
+   *
+   * ── 매핑 경로 (수신자 해석 시) ──────────────────────────
+   * crm_classes.id IN (excludeClassIds) → crm_classes.aca_class_id 페치 →
+   * crm_enrollments.aca_class_id IN (그 aca_class_id) → student_id 차집합.
+   * (crm_enrollments 는 class.id 가 아닌 aca_class_id 로 연결됨. aca_class_id 가
+   *  NULL 인 자체 등록 강좌는 enrollment 매칭이 불가하므로 제외 대상 0명.)
+   *
+   * 백워드 호환: `.default([])` 라 옛 그룹 JSONB 에 키가 없어도 빈 배열 = "제외 없음".
+   */
+  excludeClassIds: z.array(z.string().uuid()).default([]),
+  /**
    * 학교 미등록 학생만. 학생 명단의 unmappedSchool 와 정확히 동일 의미.
    * school IS NULL OR school IN (UNMAPPED_SCHOOL_PATTERNS).
    * 백워드 호환: `.default(false)`.
