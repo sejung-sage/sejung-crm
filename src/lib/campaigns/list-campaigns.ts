@@ -9,6 +9,7 @@
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import type { CampaignListItem } from "@/types/database";
 import type { CampaignListQuery } from "@/lib/schemas/campaign";
 import {
@@ -74,6 +75,14 @@ async function listFromSupabase(
   const from = (query.page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
+  // 발송내역 가시성 1차 가드(앱): master 는 전체, 그 외는 본인 발송분만.
+  // RLS(0075)가 2차로 동일 규칙을 강제하므로 더블 가드 — 앱 단에서 미리 좁혀
+  // 불필요한 row 스캔/노출을 막는다. 비-master 는 query.sender 를 무시하고
+  // 본인 id 로 강제 고정. (master 만 발송자 필터를 쓸 수 있다.)
+  const viewer = await getCurrentUser();
+  const restrictOwnerId =
+    viewer && viewer.role !== "master" ? viewer.user_id : null;
+
   // count 와 body 분리 병렬. select(*, count:exact) 는 body+count 가 같은 쿼리에
   // 묶여 풀 스캔 비용 증가. head:exact 만 별도 호출하면 인덱스 only-scan.
   // PostgREST 는 from() 직후엔 filter 가 없고 select() 이후 chain 만 가능.
@@ -109,7 +118,9 @@ async function listFromSupabase(
     }
     if (query.from) next = next.gte("sent_at", `${query.from}T00:00:00+09:00`);
     if (query.to) next = next.lte("sent_at", `${query.to}T23:59:59+09:00`);
-    if (query.sender) next = next.eq("created_by", query.sender);
+    // 비-master 는 본인 id 로 강제, master 는 발송자 필터(query.sender) 적용.
+    const effectiveSender = restrictOwnerId ?? (query.sender || null);
+    if (effectiveSender) next = next.eq("created_by", effectiveSender);
     return next;
   };
 

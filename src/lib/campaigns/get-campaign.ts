@@ -8,6 +8,7 @@
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import type { CampaignListItem } from "@/types/database";
 import {
   findDevCampaignById,
@@ -43,6 +44,14 @@ export async function getCampaign(
 
   const row = data as Record<string, unknown>;
   const createdBy = (row.created_by ?? null) as string | null;
+
+  // 발송내역 가시성 1차 가드(앱): master 는 전체, 그 외는 본인 발송분만.
+  // RLS(0075)가 2차로 막지만, 명시적 가드로 비-소유자 직딥 접근 시 not-found 처리.
+  const viewer = await getCurrentUser();
+  if (viewer && viewer.role !== "master" && createdBy !== viewer.user_id) {
+    return null;
+  }
+
   const templateId = (row.template_id ?? null) as string | null;
   const groupId = (row.group_id ?? null) as string | null;
 

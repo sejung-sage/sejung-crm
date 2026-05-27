@@ -4,6 +4,7 @@ import { CampaignListQuerySchema } from "@/lib/schemas/campaign";
 import { CampaignsToolbar } from "@/components/campaigns/campaigns-toolbar";
 import { CampaignsTable } from "@/components/campaigns/campaigns-table";
 import { Pagination } from "@/components/students/pagination";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 
 /**
@@ -36,9 +37,14 @@ export default async function CampaignsPage({
     page: pick(raw.page) ?? 1,
   });
 
+  // 발송자 필터는 master 만 — 그 외 역할은 본인 발송분만 보이므로 의미 없음.
+  // senders 가 빈 배열이면 툴바가 발송자 드롭다운을 자동으로 숨긴다.
+  const viewer = await getCurrentUser();
+  const isMaster = viewer?.role === "master";
+
   const [result, senders] = await Promise.all([
     listCampaigns(parsed),
-    listCampaignSenders(),
+    isMaster ? listCampaignSenders() : Promise.resolve([]),
   ]);
   const devMode = isDevSeedMode();
 
