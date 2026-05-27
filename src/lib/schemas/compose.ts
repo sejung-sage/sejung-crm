@@ -53,6 +53,19 @@ export const ComposeStep2Schema = z
      * {이름} 개인화 변수와는 상호배타 (아래 refine 에서 강제).
      */
     dedupeByPhone: z.boolean().default(false),
+    /**
+     * 발송 대상 — 학부모 대표번호(parent_phone)로 보낼지. 0077.
+     * Aca2000 의 "학부모" 체크박스. 세정 운영 기본값 = TRUE.
+     * sendToStudent 와 독립이며 둘 다 TRUE 면 한 학생이 학부모·학생 양쪽으로
+     * 최대 2건 발송된다(레그 확장). 번호 없는 레그는 발송 시점에 스킵.
+     */
+    sendToParent: z.boolean().default(true),
+    /**
+     * 발송 대상 — 학생 개인번호(phone)로 보낼지. 0077.
+     * Aca2000 의 "학생" 체크박스. 기본값 = FALSE.
+     * sendToParent 와 독립. 둘 다 FALSE 는 아래 refine 으로 금지.
+     */
+    sendToStudent: z.boolean().default(false),
   })
   .refine(
     (v) =>
@@ -73,6 +86,16 @@ export const ComposeStep2Schema = z
       message:
         "{이름} 변수가 포함된 본문은 동일번호 1회 발송과 함께 사용할 수 없습니다. 변수를 빼거나 동일번호 1회 발송을 끄세요.",
       path: ["dedupeByPhone"],
+    },
+  )
+  .refine(
+    // 발송 대상(학부모/학생) 최소 하나는 선택. 둘 다 끄면 발송 레그가 0개라
+    // 무조건 "수신자 없음" 으로 끝난다. DB CHECK(chk_campaigns_send_target)가
+    // 최종 방어선이지만 사용자에게는 여기서 한글로 즉시 안내한다.
+    (v) => v.sendToParent || v.sendToStudent,
+    {
+      message: "발송 대상(학부모·학생) 중 최소 하나를 선택하세요",
+      path: ["sendToParent"],
     },
   );
 export type ComposeStep2 = z.infer<typeof ComposeStep2Schema>;

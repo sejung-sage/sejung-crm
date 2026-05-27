@@ -41,6 +41,17 @@ export interface ComposeStep2State {
    * 본문에 {이름} 변수가 있으면 비활성/경고 처리한다(개인화 상호배타).
    */
   dedupeByPhone: boolean;
+  /**
+   * 발송 대상 — 학부모 대표번호로 발송. 0077 도입. 세정 기본값 TRUE.
+   * frontend-dev 가 step2 패널에 Aca2000 처럼 "학부모"/"학생" 독립 체크박스로
+   * 노출한다. 최소 하나는 체크돼야 함(Zod refine 이 강제).
+   */
+  sendToParent: boolean;
+  /**
+   * 발송 대상 — 학생 개인번호로 발송. 0077 도입. 기본값 FALSE.
+   * sendToParent 와 독립. 둘 다 체크하면 학부모·학생 양쪽 발송.
+   */
+  sendToStudent: boolean;
 }
 
 interface Props {
@@ -85,6 +96,9 @@ export function ComposeWizard({
         body: initialTemplate.body,
         isAd: initialTemplate.is_ad,
         dedupeByPhone: false,
+        // 0077 발송 대상 기본값: 학부모 단독(세정 운영 기본). UI 토글은 frontend-dev.
+        sendToParent: true,
+        sendToStudent: false,
       };
     }
     return {
@@ -94,6 +108,9 @@ export function ComposeWizard({
       body: "",
       isAd: false,
       dedupeByPhone: false,
+      // 0077 발송 대상 기본값: 학부모 단독(세정 운영 기본). UI 토글은 frontend-dev.
+      sendToParent: true,
+      sendToStudent: false,
     };
   });
 

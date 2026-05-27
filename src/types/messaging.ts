@@ -13,26 +13,50 @@
 export type SmsType = "SMS" | "LMS" | "ALIMTALK";
 
 /**
- * 동일번호 1회 발송(중복 번호 dedupe) 카운트 계약.
+ * 발송 카운트 계약 (레그 확장 + 동일번호 dedupe 통합).
  *
- * 미리보기/발송 인원 표시에서 "원래 N명 → 실제 M건(중복 K건 합침)" 을
- * 일관되게 보여주기 위한 공용 타입. backend(preview-recipients/send-campaign)
- * 가 산출해 반환하고, frontend(미리보기·발송 확인 UI) 가 그대로 표시한다.
+ * 미리보기/발송 인원 표시에서 "대상 학생 N명 → 실제 발송 M건" 을 일관되게
+ * 보여주기 위한 공용 타입. backend(preview-recipients/send-campaign) 가
+ * 산출해 반환하고, frontend(미리보기·발송 확인 UI) 가 그대로 표시한다.
  *
- * 불변식: collapsed = targetStudents - actualMessages (>= 0).
- *  - dedupeByPhone=false 이거나 합쳐질 중복이 없으면 collapsed=0,
- *    actualMessages = targetStudents.
- *  - 가드(탈퇴/수신거부/야간) 제외는 이 계약 "이전"에 이미 적용됐다고 본다.
- *    즉 targetStudents 는 가드 통과 후 발송 후보 학생 수다.
+ * ── 레그(leg) 모델 (0077, 발송 대상 번호 선택) ───────────────
+ * 한 학생은 send_to_parent / send_to_student 선택에 따라 0~2개의 발송
+ * 레그로 확장된다(학부모 레그 + 학생 레그). 번호가 없는 레그는 스킵.
+ * 따라서 종전 "학생 1명 = 1건" 가정이 깨지고, 학생 1명이 0·1·2건이 된다.
+ *
+ * ── 산출 순서 (backend 구현 계약) ────────────────────────────
+ *   레그 확장 → 발송 안전 가드(레그별 번호 기준) → dedupe(collapseByPhone).
+ *   - targetStudents : 가드 통과 후 발송 후보 "학생" 수 (레그 아님). 사람 수.
+ *   - legs           : 위 학생들에서 펼쳐진 레그(번호) 합계. 번호 없는 레그
+ *                      스킵 후 값. dedupe 적용 "전". (targetStudents 의 1~2배)
+ *   - actualMessages : 실제 발송(큐 적재) 건수. dedupe OFF 면 = legs,
+ *                      dedupe ON 이면 고유 정규화 번호 수 (<= legs).
+ *   - collapsed      : dedupe 로 합쳐져 발송되지 않은 건수 = legs - actualMessages.
+ *
+ * ── 불변식 ──────────────────────────────────────────────────
+ *   actualMessages = legs - collapsed   (collapsed >= 0)
+ *   legs >= targetStudents              (레그 1개 이상인 학생만 후보로 셈)
+ *   비용은 actualMessages(레그/큐 적재 기준) × 단가.
+ *
+ * 단일 대상(학부모만, 기존 동작)일 때: legs = targetStudents 이고,
+ * dedupe OFF 면 actualMessages = legs = targetStudents (종전과 동일).
+ *
+ * 가드(탈퇴/수신거부/야간) 제외는 이 계약 "이전"에 적용됐다고 본다.
  */
 export interface DedupeCounts {
   /** 동일번호 1회 발송이 적용됐는지(=campaign.dedupe_by_phone). */
   dedupeApplied: boolean;
-  /** 가드 통과 후 발송 후보 학생 수 (합치기 전). */
+  /** 가드 통과 후 발송 후보 "학생" 수 (사람 수, 레그 아님). */
   targetStudents: number;
-  /** 실제 발송(큐 적재) 건수. dedupe ON 이면 고유 번호 수, OFF 면 = targetStudents. */
+  /**
+   * 레그 확장 결과 발송 후보 레그(번호) 합계. dedupe 적용 전.
+   * 단일 대상(학부모만)이면 targetStudents 와 같다.
+   * 학부모·학생 동시 선택이면 최대 targetStudents 의 2배 (번호 결측 레그 차감).
+   */
+  legs: number;
+  /** 실제 발송(큐 적재) 건수. dedupe ON 이면 고유 번호 수, OFF 면 = legs. */
   actualMessages: number;
-  /** 동일번호로 합쳐져 발송되지 않은 중복 건수 = targetStudents - actualMessages. */
+  /** 동일번호로 합쳐져 발송되지 않은 중복 건수 = legs - actualMessages. */
   collapsed: number;
 }
 

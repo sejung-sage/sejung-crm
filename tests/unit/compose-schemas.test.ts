@@ -272,6 +272,110 @@ describe("ComposeStep2Schema · {이름} ↔ 동일번호 1회 발송 상호배�
   });
 });
 
+describe("ComposeStep2Schema · 발송 대상(학부모/학생) 선택 (0077)", () => {
+  // 한 학생은 send_to_parent / send_to_student 선택에 따라 0~2 레그로 확장.
+  // 둘 다 false 면 발송 레그 0개 → "최소 하나" refine 으로 즉시 한글 안내.
+  // DB CHECK(chk_campaigns_send_target)가 최종 방어선이지만 폼 단에서 막는다.
+
+  it("기본값: sendToParent=true / sendToStudent=false (둘 다 생략)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "본문",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.sendToParent).toBe(true);
+      expect(r.data.sendToStudent).toBe(false);
+    }
+  });
+
+  it("sendToParent=true + sendToStudent=false → 통과 (학부모만)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "본문",
+      sendToParent: true,
+      sendToStudent: false,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("sendToParent=false + sendToStudent=true → 통과 (학생만)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "본문",
+      sendToParent: false,
+      sendToStudent: true,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("sendToParent=true + sendToStudent=true → 통과 (둘 다)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "본문",
+      sendToParent: true,
+      sendToStudent: true,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("sendToParent=false + sendToStudent=false → 실패 (path sendToParent, 한글 메시지)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "본문",
+      sendToParent: false,
+      sendToStudent: false,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      const issue = r.error.issues.find((i) => i.path[0] === "sendToParent");
+      expect(issue).toBeDefined();
+      expect(issue?.path).toEqual(["sendToParent"]);
+      expect(issue?.message).toMatch(/발송 대상/);
+      expect(issue?.message).toMatch(/최소 하나/);
+    }
+  });
+
+  it("sendToStudent=false 만 명시(sendToParent 생략→기본 true) → 통과", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "본문",
+      sendToStudent: false,
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.sendToParent).toBe(true);
+    }
+  });
+
+  it("sendToParent=false 만 명시(sendToStudent 생략→기본 false) → 실패 (둘 다 false)", () => {
+    // sendToParent 를 명시적으로 끄고 sendToStudent 를 생략하면 기본 false →
+    // 둘 다 false 가 되어 refine 에 걸린다.
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "본문",
+      sendToParent: false,
+    });
+    expect(r.success).toBe(false);
+    if (!r.success) {
+      expect(
+        r.error.issues.some((i) => i.path[0] === "sendToParent"),
+      ).toBe(true);
+    }
+  });
+
+  it("발송 대상 둘 다 선택 + dedupeByPhone=true → 통과 (독립 토글)", () => {
+    const r = ComposeStep2Schema.safeParse({
+      type: "SMS",
+      body: "정기 시험 안내입니다",
+      sendToParent: true,
+      sendToStudent: true,
+      dedupeByPhone: true,
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
 describe("ComposeStep3Schema · 캠페인 제목", () => {
   it("title 정상 → success", () => {
     const r = ComposeStep3Schema.safeParse({ title: "4월 주간테스트 안내" });

@@ -27,6 +27,9 @@ const validStep2Sms = {
   body: "안녕하세요",
   isAd: false,
   dedupeByPhone: false,
+  // 0077 발송 대상 — refine(최소 하나 true) 통과용 기본값. 학생 레그 검증은 qa 후속.
+  sendToParent: true,
+  sendToStudent: false,
 };
 
 describe("previewAction · dev-seed 에서도 정상 동작", () => {

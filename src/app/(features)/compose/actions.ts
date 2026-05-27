@@ -94,6 +94,8 @@ export async function previewAction(
       isAd: parsed.step2.isAd,
       type: parsed.step2.type,
       dedupeByPhone: parsed.step2.dedupeByPhone,
+      sendToParent: parsed.step2.sendToParent,
+      sendToStudent: parsed.step2.sendToStudent,
       scheduledAt: new Date(),
     });
     return { status: "success", data };
@@ -186,6 +188,8 @@ export async function sendNowAction(
     type: parsed.step2.type,
     isAd: parsed.step2.isAd,
     dedupeByPhone: parsed.step2.dedupeByPhone,
+    sendToParent: parsed.step2.sendToParent,
+    sendToStudent: parsed.step2.sendToStudent,
     scheduledAt: null,
     isTest: false,
   });
@@ -241,6 +245,8 @@ export async function scheduleAction(
     type: parsed.step2.type,
     isAd: parsed.step2.isAd,
     dedupeByPhone: parsed.step2.dedupeByPhone,
+    sendToParent: parsed.step2.sendToParent,
+    sendToStudent: parsed.step2.sendToStudent,
     scheduledAt,
     isTest: false,
   });

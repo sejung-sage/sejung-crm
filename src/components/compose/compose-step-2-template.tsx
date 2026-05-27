@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Megaphone, Users } from "lucide-react";
+import { AlertTriangle, Megaphone, Phone, Users } from "lucide-react";
 import type { TemplateRow } from "@/types/database";
 import { byteProgress } from "@/lib/messaging/sms-bytes";
 import { hasNameToken } from "@/lib/messaging/personalize";
@@ -92,7 +92,148 @@ export function ComposeStep2Template({ templates, value, onChange }: Props) {
       ) : (
         <InlineComposer value={value} onChange={onChange} />
       )}
+
+      {/* 발송 대상 번호 — 본문 입력 방식과 무관한 공통 발송 옵션이라 모드 밖에 배치. */}
+      <SendTargetPicker value={value} onChange={onChange} />
     </div>
+  );
+}
+
+// ─── 발송 대상 번호 (학부모 / 학생) ──────────────────────────
+//
+// compose-step-3-preview.tsx 와 동일 시맨틱의 parity 미러.
+//  - 학부모/학생 독립 체크박스 2개. 세정 기본값 = 학부모 단독.
+//  - 둘 다 해제 방지(최소 하나 유지). 서버 Zod refine 이 최종 차단.
+//  - 둘 다 켜면 학생당 2건 발송 → 문자비 증가 경고.
+
+function SendTargetPicker({
+  value,
+  onChange,
+}: {
+  value: ComposeStep2State;
+  onChange: (v: ComposeStep2State) => void;
+}) {
+  const [warn, setWarn] = useState<string | null>(null);
+  const bothTargets = value.sendToParent && value.sendToStudent;
+
+  const toggle = (which: "parent" | "student", next: boolean) => {
+    if (next) {
+      setWarn(null);
+      onChange({
+        ...value,
+        sendToParent: which === "parent" ? true : value.sendToParent,
+        sendToStudent: which === "student" ? true : value.sendToStudent,
+      });
+      return;
+    }
+    const wouldParent = which === "parent" ? false : value.sendToParent;
+    const wouldStudent = which === "student" ? false : value.sendToStudent;
+    if (!wouldParent && !wouldStudent) {
+      setWarn(
+        "학부모·학생 중 최소 하나는 선택해야 합니다. 다른 대상을 먼저 선택하세요.",
+      );
+      return;
+    }
+    setWarn(null);
+    onChange({
+      ...value,
+      sendToParent: wouldParent,
+      sendToStudent: wouldStudent,
+    });
+  };
+
+  return (
+    <fieldset className="space-y-2">
+      <legend className="flex items-center gap-1.5 text-[14px] font-medium text-[color:var(--text)]">
+        <Phone className="size-4" strokeWidth={1.75} aria-hidden />
+        발송 대상 번호
+      </legend>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <label
+          className={`
+            flex items-start gap-3 p-3 rounded-lg border cursor-pointer
+            transition-colors
+            ${
+              value.sendToParent
+                ? "border-[color:var(--action)] bg-[color:var(--bg-muted)]"
+                : "border-[color:var(--border)] hover:bg-[color:var(--bg-hover)]"
+            }
+          `}
+        >
+          <input
+            type="checkbox"
+            checked={value.sendToParent}
+            onChange={(e) => toggle("parent", e.target.checked)}
+            className="mt-1 size-4 accent-[color:var(--action)]"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-[14px] font-medium text-[color:var(--text)]">
+              학부모 번호
+            </span>
+            <span className="text-[12px] text-[color:var(--text-muted)]">
+              학부모 대표 연락처로 보냅니다.
+            </span>
+          </span>
+        </label>
+        <label
+          className={`
+            flex items-start gap-3 p-3 rounded-lg border cursor-pointer
+            transition-colors
+            ${
+              value.sendToStudent
+                ? "border-[color:var(--action)] bg-[color:var(--bg-muted)]"
+                : "border-[color:var(--border)] hover:bg-[color:var(--bg-hover)]"
+            }
+          `}
+        >
+          <input
+            type="checkbox"
+            checked={value.sendToStudent}
+            onChange={(e) => toggle("student", e.target.checked)}
+            className="mt-1 size-4 accent-[color:var(--action)]"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-[14px] font-medium text-[color:var(--text)]">
+              학생 번호
+            </span>
+            <span className="text-[12px] text-[color:var(--text-muted)]">
+              학생 개인 연락처로 보냅니다.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {warn && (
+        <p
+          role="alert"
+          className="flex items-start gap-1.5 text-[13px] leading-relaxed text-[color:var(--danger)]"
+        >
+          <AlertTriangle
+            className="size-3.5 mt-0.5 shrink-0"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          {warn}
+        </p>
+      )}
+
+      {bothTargets && (
+        <div
+          role="note"
+          className="flex items-start gap-2 rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-4 py-3"
+        >
+          <Users
+            className="size-4 mt-0.5 text-[color:var(--text-muted)] shrink-0"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          <div className="text-[13px] leading-relaxed text-[color:var(--text-muted)]">
+            학부모·학생 모두 선택하면 학생 1명당 최대 2건이 발송돼 문자비가
+            늘어납니다. 번호가 없는 쪽은 자동으로 제외됩니다.
+          </div>
+        </div>
+      )}
+    </fieldset>
   );
 }
 
@@ -164,6 +305,9 @@ function TemplatePicker({
     const t = templates.find((x) => x.id === id);
     if (!t) return;
     onChange({
+      // 발송 대상(sendToParent/sendToStudent)은 본문·템플릿과 독립한 발송
+      // 옵션이므로 템플릿 선택 시에도 기존 선택을 유지(...value).
+      ...value,
       templateId: t.id,
       type: t.type,
       subject: t.subject,

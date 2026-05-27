@@ -192,6 +192,9 @@ async function listFromSupabase(
       type: (row.type ?? null) as CampaignListItem["type"],
       is_ad: (row.is_ad ?? false) as boolean,
       dedupe_by_phone: (row.dedupe_by_phone ?? false) as boolean,
+      // 0077 발송 대상. DEFAULT(parent=true, student=false)로 기존 행도 채워짐.
+      send_to_parent: (row.send_to_parent ?? true) as boolean,
+      send_to_student: (row.send_to_student ?? false) as boolean,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
       template_name: null,

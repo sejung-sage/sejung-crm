@@ -30,10 +30,10 @@ import {
   checkQuietHours,
   insertAdTag,
   insertUnsubscribeFooter,
-  type Recipient,
 } from "./guards";
 import { calculateCost } from "./calculate-cost";
 import { collapseByPhone } from "./dedupe-recipients";
+import { expandRecipientLegs, countDistinctStudents } from "./expand-legs";
 import type { SmsCostBreakdown } from "./cost-rates";
 import type { GroupRow, StudentStatus } from "@/types/database";
 import type { DedupeCounts } from "@/types/messaging";
@@ -91,12 +91,32 @@ export interface PreviewRecipientsInput {
   isAd: boolean;
   type: "SMS" | "LMS" | "ALIMTALK";
   /**
-   * 동일번호 1회 발송(중복 번호 dedupe). TRUE 면 고유 parent_phone 수를 산출해
+   * 동일번호 1회 발송(중복 번호 dedupe). TRUE 면 고유 번호 수를 산출해
    * actualMessages/cost 에 반영한다. 미설정 시 false 동작.
    */
   dedupeByPhone?: boolean;
+  /**
+   * 발송 대상 — 학부모 대표번호(parent_phone) 레그. 미설정 시 true(세정 기본값).
+   * 0077. sendToStudent 와 독립.
+   */
+  sendToParent?: boolean;
+  /**
+   * 발송 대상 — 학생 개인번호(phone) 레그. 미설정 시 false. 0077.
+   */
+  sendToStudent?: boolean;
   /** 미설정 → 현재 시각 (즉시 발송). */
   scheduledAt?: Date;
+}
+
+/** PreviewRecipientsInput 의 발송 대상 토글 정규화 (미설정 = 세정 운영 기본값). */
+function resolvePreviewTargets(input: PreviewRecipientsInput): {
+  sendToParent: boolean;
+  sendToStudent: boolean;
+} {
+  return {
+    sendToParent: input.sendToParent ?? true,
+    sendToStudent: input.sendToStudent ?? false,
+  };
 }
 
 const SAMPLE_LIMIT = 5;
@@ -123,25 +143,38 @@ function previewFromDevSeed(
   input: PreviewRecipientsInput,
   group: GroupRow,
 ): PreviewResult {
+  const targets = resolvePreviewTargets(input);
   const allCandidates = applyGroupFiltersDev(
     DEV_STUDENT_PROFILES,
     group.filters,
     group.branch,
   );
-  const recipients: Recipient[] = allCandidates
-    .filter((p) => !!p.parent_phone)
-    .map((p) => ({
-      studentId: p.id,
-      phone: (p.parent_phone ?? "").replace(/\D/g, ""),
+
+  // 레그 확장 — 산출 순서 1단계. GroupRecipient 형태로 정규화 후 expandRecipientLegs.
+  //  dev-seed 는 수신거부 시드 미보유라 unsubscribedPhones 비움.
+  const legs = expandRecipientLegs(
+    allCandidates.map((p) => ({
+      id: p.id,
       name: p.name,
+      parent_phone: p.parent_phone,
+      phone: p.phone,
       status: p.status,
-    }));
+    })),
+    {
+      sendToParent: targets.sendToParent,
+      sendToStudent: targets.sendToStudent,
+      unsubscribedPhones: [],
+    },
+  );
+
+  // targetStudents = 레그 1개 이상 생성된 고유 학생 수.
+  const targetStudents = countDistinctStudents(legs);
 
   const guarded = applyAllGuards({
     body: input.body,
     isAd: input.isAd,
     scheduledAt: input.scheduledAt ?? new Date(),
-    recipients,
+    recipients: legs,
     unsubscribedPhones: [], // dev-seed 미보유
   });
 
@@ -154,7 +187,7 @@ function previewFromDevSeed(
     if (count > 0) excludedReasons.push({ reason, count });
   }
 
-  // dedupe — 가드 통과 후 eligible 에만 collapse. 비용은 actualMessages 기준.
+  // dedupe — 가드 통과 후 eligible 레그에만 collapse. 비용은 actualMessages 기준.
   const { counts: dedupe } = collapseByPhone(
     guarded.eligible.map((r) => ({
       studentId: r.studentId,
@@ -162,10 +195,12 @@ function previewFromDevSeed(
       name: r.name,
     })),
     input.dedupeByPhone ?? false,
+    countDistinctStudents(guarded.eligible),
   );
 
   return {
-    recipientCount: guarded.eligible.length,
+    // recipientCount = 발송 후보 "학생" 수(사람 수). 레그 합계는 dedupe.legs.
+    recipientCount: targetStudents,
     excludedCount: guarded.excluded.length,
     excludedReasons,
     finalBody: guarded.finalBody,
@@ -186,6 +221,7 @@ async function previewFromSupabase(
   group: GroupRow,
 ): Promise<PreviewResult> {
   const supabase = await createSupabaseServerClient();
+  const targets = resolvePreviewTargets(input);
 
   // 텍스트 가드는 row 무관 — 즉시 계산.
   const withAdTag = insertAdTag(input.body, input.isAd);
@@ -221,24 +257,28 @@ async function previewFromSupabase(
     excludedReasons.push({ reason: "수신거부", count: unsubExcludedCount });
   }
 
-  // dedupe — targetStudents = eligibleCount(가드 통과 후 발송 후보 학생 수).
-  //   OFF: actualMessages = targetStudents (추가 쿼리 없음).
-  //   ON : 후보 phone 을 로드해 고유 번호 수 산출 (Set dedupe).
-  const dedupe = await resolveDedupeCounts({
+  // 레그 카운트 산출.
+  //   - 학부모 단독 + dedupe OFF: 추가 쿼리 없이 fast count(eligibleCount) 사용.
+  //     이 경로에선 legs = targetStudents = actualMessages (종전 동작 동일).
+  //   - 학생 레그 포함 또는 dedupe ON: 후보 전체 로드 후 레그 확장으로 정확 산출.
+  const dedupe = await resolveLegCounts({
     supabase,
     group,
     eligibleCount,
     dedupeByPhone: input.dedupeByPhone ?? false,
+    sendToParent: targets.sendToParent,
+    sendToStudent: targets.sendToStudent,
   });
 
   return {
-    recipientCount: eligibleCount,
+    // recipientCount = 발송 후보 "학생" 수(사람 수). 레그 합계는 dedupe.legs.
+    recipientCount: dedupe.targetStudents,
     excludedCount: withdrawnCount + unsubExcludedCount,
     excludedReasons,
     finalBody,
     blockedByQuietHours: !quiet.allowed,
     blockReason: quiet.reason,
-    // 비용은 actualMessages 기준 — dedupe ON 시 절감액 반영.
+    // 비용은 actualMessages(레그 dedupe 후) 기준 — dedupe/단일학생 절감액 반영.
     cost: calculateCost(input.type, dedupe.actualMessages),
     sampleRecipients: eligibleSample,
     dedupe,
@@ -246,61 +286,77 @@ async function previewFromSupabase(
 }
 
 /**
- * dedupe 카운트 산출 (Supabase 경로).
+ * 레그 카운트 산출 (Supabase 경로). DedupeCounts(targetStudents/legs/
+ * actualMessages/collapsed) 를 정확히 채운다.
  *
- *  - dedupeByPhone=false: 추가 쿼리 없이 actualMessages = eligibleCount.
- *  - dedupeByPhone=true : loadAllGroupRecipients 로 가드 통과 후보 전체를 로드
- *    (분원·탈퇴·수신거부·필터 가드 SQL 단 적용 + registered_at DESC 순)한 뒤
- *    정규화 phone 을 Set 으로 dedupe 해 고유 번호 수를 센다.
+ * fast-path (추가 쿼리 없음):
+ *   학부모 단독(sendToParent && !sendToStudent) + dedupeByPhone=false.
+ *   이 경로에선 한 학생 = 학부모 레그 1개라 legs = targetStudents = eligibleCount
+ *   (fast head count). actualMessages = legs (종전 동작 동일).
  *
- * 후보 로드는 dedupe ON 일 때만 수행 — opt-in 이므로 기본 미리보기 비용은 불변.
+ * full-load path (loadAllGroupRecipients):
+ *   학생 레그 포함(sendToStudent) 또는 dedupeByPhone=true.
+ *   후보 전체(분원·탈퇴 SQL 단 + registered_at DESC) 를 로드해 레그 확장:
+ *     - 레그별 번호 기준 수신거부 제외(가드 강화)
+ *     - 번호 결측 레그 스킵
+ *   확장 결과로 targetStudents(고유 학생 수)·legs(레그 합계) 를 세고,
+ *   dedupe ON 이면 고유 정규화 번호 수를 actualMessages 로, OFF 면 legs 그대로.
+ *
  * PostgREST max_rows(1,000) 청크 페이징은 loadAllGroupRecipients 내부에서 처리.
  *
- * 주의: targetStudents 는 fast count(eligibleCount) 를 진실 소스로 사용한다.
- * 후보 로더가 parent_phone NULL row 를 포함할 수 있어 actualMessages 산출 시
- * NULL/빈 phone 은 제외한다. 따라서 actualMessages <= targetStudents 가 보장돼
- * 불변식(collapsed >= 0) 이 깨지지 않는다.
+ * 불변식: actualMessages = legs - collapsed (>= 0), legs >= targetStudents.
  */
-async function resolveDedupeCounts(args: {
+async function resolveLegCounts(args: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   group: GroupRow;
   eligibleCount: number;
   dedupeByPhone: boolean;
+  sendToParent: boolean;
+  sendToStudent: boolean;
 }): Promise<DedupeCounts> {
-  const { supabase, group, eligibleCount, dedupeByPhone } = args;
+  const {
+    supabase,
+    group,
+    eligibleCount,
+    dedupeByPhone,
+    sendToParent,
+    sendToStudent,
+  } = args;
 
-  if (!dedupeByPhone) {
+  // fast-path: 학부모 단독 + dedupe OFF → 추가 쿼리 없이 fast count 사용.
+  if (sendToParent && !sendToStudent && !dedupeByPhone) {
     return {
       dedupeApplied: false,
       targetStudents: eligibleCount,
+      legs: eligibleCount,
       actualMessages: eligibleCount,
       collapsed: 0,
     };
   }
 
-  // 가드 통과 후보 전체 로드 후 고유 번호 수 산출.
-  const rows = await loadAllGroupRecipients(
-    supabase,
-    group.id,
-    MAX_PREVIEW_DEDUPE_RECIPIENTS,
-  );
-  const phones = new Set<string>();
-  for (const r of rows) {
-    if (!r.parent_phone) continue;
-    const norm = r.parent_phone.replace(/\D/g, "");
-    if (norm.length > 0) phones.add(norm);
-  }
+  // full-load path — 후보 전체 로드 + 레그 확장.
+  const [rows, unsubPhones] = await Promise.all([
+    loadAllGroupRecipients(supabase, group.id, MAX_PREVIEW_DEDUPE_RECIPIENTS),
+    getUnsubscribedPhones(),
+  ]);
 
-  const actualMessages = phones.size;
-  // targetStudents 는 fast count 를 신뢰. actualMessages 가 그보다 크면(이론상
-  // 발생 불가하나 데이터 정합 방어) targetStudents 로 clamp.
-  const safeActual = Math.min(actualMessages, eligibleCount);
-  return {
-    dedupeApplied: true,
-    targetStudents: eligibleCount,
-    actualMessages: safeActual,
-    collapsed: eligibleCount - safeActual,
-  };
+  const legArr = expandRecipientLegs(rows, {
+    sendToParent,
+    sendToStudent,
+    unsubscribedPhones: unsubPhones,
+  });
+
+  const targetStudents = countDistinctStudents(legArr);
+  const { counts } = collapseByPhone(
+    legArr.map((r) => ({
+      studentId: r.studentId,
+      phone: r.phone,
+      name: r.name,
+    })),
+    dedupeByPhone,
+    targetStudents,
+  );
+  return counts;
 }
 
 function emptyPreview(
@@ -320,6 +376,7 @@ function emptyPreview(
     dedupe: {
       dedupeApplied: input.dedupeByPhone ?? false,
       targetStudents: 0,
+      legs: 0,
       actualMessages: 0,
       collapsed: 0,
     },

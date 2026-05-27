@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { AlertTriangle, Loader2, Megaphone, Moon, Users } from "lucide-react";
+import {
+  AlertTriangle,
+  Loader2,
+  Megaphone,
+  Moon,
+  Phone,
+  Users,
+} from "lucide-react";
 import type { GroupListItem, TemplateRow } from "@/types/database";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
 import { previewAction } from "@/app/(features)/compose/actions";
@@ -149,6 +156,42 @@ export function ComposeStep3Preview({
     }
   };
 
+  // 발송 대상(학부모/학생) 둘 다 켜졌는지 — 동시 발송 비용 경고에 사용.
+  const bothTargets = step2.sendToParent && step2.sendToStudent;
+
+  // 마지막 남은 하나를 해제하려 하면 막고 경고를 띄운다(최소 하나 유지).
+  // 서버 Zod refine 이 최종 차단선이지만 UI 가 먼저 안내해 잘못된 클릭을 방지.
+  const [targetWarn, setTargetWarn] = useState<string | null>(null);
+
+  const toggleTarget = (which: "parent" | "student", next: boolean) => {
+    // 켜는 동작은 항상 허용.
+    if (next) {
+      setTargetWarn(null);
+      onStep2Change({
+        ...step2,
+        sendToParent: which === "parent" ? true : step2.sendToParent,
+        sendToStudent: which === "student" ? true : step2.sendToStudent,
+      });
+      return;
+    }
+    // 끄는 동작: 끄고 나면 둘 다 false 가 되는지 검사.
+    const wouldParent = which === "parent" ? false : step2.sendToParent;
+    const wouldStudent = which === "student" ? false : step2.sendToStudent;
+    if (!wouldParent && !wouldStudent) {
+      // 마지막 하나는 해제 불가 — 경고만 노출하고 상태는 유지.
+      setTargetWarn(
+        "학부모·학생 중 최소 하나는 선택해야 합니다. 다른 대상을 먼저 선택하세요.",
+      );
+      return;
+    }
+    setTargetWarn(null);
+    onStep2Change({
+      ...step2,
+      sendToParent: wouldParent,
+      sendToStudent: wouldStudent,
+    });
+  };
+
   const onPickTemplate = (id: string) => {
     if (!id) {
       onStep2Change({ ...step2, templateId: undefined });
@@ -157,6 +200,9 @@ export function ComposeStep3Preview({
     const t = templates.find((x) => x.id === id);
     if (!t) return;
     onStep2Change({
+      // 발송 대상(sendToParent/sendToStudent)은 발송 옵션이라 템플릿 선택 시에도
+      // 기존 선택을 유지(...step2).
+      ...step2,
       templateId: t.id,
       type: t.type,
       subject: t.subject,
@@ -191,13 +237,14 @@ export function ComposeStep3Preview({
     });
   };
 
-  // 서버 미리보기는 본문/제목 변경에는 트리거 X. groupId/type/isAd/dedupe 가 바뀔 때만.
+  // 서버 미리보기는 본문/제목 변경에는 트리거 X. groupId/type/isAd/dedupe/대상이 바뀔 때만.
   //   - recipientCount: groupId 만 영향
-  //   - cost: groupId × type × dedupe(actualMessages 기준 비용)
+  //   - cost: groupId × type × dedupe(actualMessages 기준 비용) × 발송 대상(레그 수)
   //   - blockedByQuietHours: isAd × 현재 시각
   //   - sampleRecipients: groupId 만 영향
-  //   - dedupe(DedupeCounts): groupId × dedupeByPhone
+  //   - dedupe(DedupeCounts): groupId × dedupeByPhone × sendToParent × sendToStudent
   // body/subject 변경은 클라이언트에서 즉시 반영 → 서버 호출 불필요.
+  // 발송 대상(학부모/학생) 변경은 레그 수·비용을 바꾸므로 재계산 트리거에 포함.
   useEffect(() => {
     setErrorMsg(null);
     startLoading(async () => {
@@ -212,6 +259,8 @@ export function ComposeStep3Preview({
           body: step2.body,
           isAd: step2.isAd,
           dedupeByPhone: step2.dedupeByPhone,
+          sendToParent: step2.sendToParent,
+          sendToStudent: step2.sendToStudent,
         },
       });
       if (result.status === "success") {
@@ -222,7 +271,14 @@ export function ComposeStep3Preview({
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [groupId, step2.isAd, step2.type, step2.dedupeByPhone]);
+  }, [
+    groupId,
+    step2.isAd,
+    step2.type,
+    step2.dedupeByPhone,
+    step2.sendToParent,
+    step2.sendToStudent,
+  ]);
 
   return (
     <div className="space-y-5">
@@ -421,6 +477,80 @@ export function ComposeStep3Preview({
               결과는 미리보기 아래에 따로 표시됩니다.
             </p>
           </div>
+
+          {/* 발송 대상 번호 — Aca2000 식 "학부모"/"학생" 독립 체크박스 2개.
+              최소 하나 유지(둘 다 해제 방지). 둘 다 켜면 학생당 2건 발송 경고. */}
+          <fieldset className="space-y-1.5 pt-1">
+            <legend className="flex items-center gap-1.5 text-[12px] text-[color:var(--text-muted)]">
+              <Phone className="size-3.5" strokeWidth={1.75} aria-hidden />
+              발송 대상 번호
+            </legend>
+            <div className="space-y-2">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={step2.sendToParent}
+                  onChange={(e) => toggleTarget("parent", e.target.checked)}
+                  className="mt-0.5 size-4 accent-[color:var(--action)]"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[13px] font-medium text-[color:var(--text)]">
+                    학부모 번호
+                  </span>
+                  <span className="text-[11px] text-[color:var(--text-muted)]">
+                    학부모 대표 연락처로 보냅니다.
+                  </span>
+                </span>
+              </label>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={step2.sendToStudent}
+                  onChange={(e) => toggleTarget("student", e.target.checked)}
+                  className="mt-0.5 size-4 accent-[color:var(--action)]"
+                />
+                <span className="flex flex-col gap-0.5">
+                  <span className="text-[13px] font-medium text-[color:var(--text)]">
+                    학생 번호
+                  </span>
+                  <span className="text-[11px] text-[color:var(--text-muted)]">
+                    학생 개인 연락처로 보냅니다.
+                  </span>
+                </span>
+              </label>
+            </div>
+
+            {targetWarn && (
+              <p
+                role="alert"
+                className="flex items-start gap-1.5 text-[12px] leading-relaxed text-[color:var(--danger)]"
+              >
+                <AlertTriangle
+                  className="size-3.5 mt-0.5 shrink-0"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                {targetWarn}
+              </p>
+            )}
+
+            {bothTargets && (
+              <div
+                role="note"
+                className="flex items-start gap-2 rounded-md border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-3 py-2"
+              >
+                <Users
+                  className="size-3.5 mt-0.5 text-[color:var(--text-muted)] shrink-0"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                <p className="text-[12px] leading-relaxed text-[color:var(--text-muted)]">
+                  학부모·학생 모두 선택하면 학생 1명당 최대 2건이 발송돼
+                  문자비가 늘어납니다. 번호가 없는 쪽은 자동으로 제외됩니다.
+                </p>
+              </div>
+            )}
+          </fieldset>
 
           {/* 광고 체크 */}
           <label className="flex items-start gap-2 cursor-pointer pt-1">

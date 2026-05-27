@@ -6,11 +6,17 @@
  * 약 5,000 라운드트립으로 Server Action 300s 타임아웃을 초과했다.
  *
  * 본 함수는 발송 큐 적재 직전 eligible 재조회 전용. 다음을 보장한다:
- *   - unsubscribes 1회만 페치
  *   - getGroup 1회만 호출
  *   - crm_students 직접 청크 range 페치 (view 풀집계 우회 — count-recipients 와
  *     동일 패턴. subjects/regions 사전 매핑으로 좁힘)
- *   - 60K 기준 약 62 쿼리 (1 + 1 + 60)
+ *   - 60K 기준 약 61 쿼리 (1 + 60)
+ *
+ * 레그 모델 (0077): parent_phone·phone 두 번호를 모두 SELECT 해 반환한다.
+ *   발송 대상 번호 선택(학부모/학생) 레그 확장은 호출자(`expandRecipientLegs`)가
+ *   수행한다. 수신거부 제외도 "레그별 번호" 기준이라 호출자 책임으로 이동했다 —
+ *   본 함수는 더 이상 parent_phone 기준으로 수신거부를 걸지 않는다(학부모 번호
+ *   수신거부가 학생 번호 레그를 죽이면 안 되기 때문). 탈퇴 학생은 기존대로 행
+ *   자체를 SQL 단에서 제외(status='탈퇴' neq, 레그 무관).
  *
  * 주의: CHUNK_SIZE 는 반드시 PostgREST `max_rows` (supabase/config.toml 의
  * `max_rows = 1000`) 이하여야 한다. cap 보다 크면 서버가 무성 잘라서 응답하고,
@@ -22,7 +28,7 @@
  *   - subjects: classes JOIN enrollments 사전 매핑 (ETL 상 enrollments.subject NULL)
  *   - regions: crm_school_regions 사전 매핑
  *   - 빈 statuses default = ['재원생', '수강이력자', '수강 x'] (탈퇴 제외)
- *   - 분원·탈퇴·수신거부 가드 항상 적용
+ *   - 분원·탈퇴 가드 항상 적용 (수신거부는 레그별로 호출자가 적용)
  *
  * 호출자는 Supabase 클라이언트를 주입한다 — Server Action 은 server 클라이언트,
  * cron 디스패처는 service 클라이언트를 사용.
@@ -30,7 +36,6 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGroup } from "./get-group";
-import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
 import { isAllSubjects } from "@/lib/schemas/common";
 import type { Database, StudentStatus } from "@/types/database";
 import {
@@ -50,7 +55,10 @@ const CHUNK_SIZE = 1_000;
 export interface GroupRecipient {
   id: string;
   name: string;
+  /** 학부모 대표번호. 학부모 레그 후보. NULL 이면 학부모 레그 스킵. */
   parent_phone: string | null;
+  /** 학생 개인번호. 학생 레그 후보. NULL 이면 학생 레그 스킵. (0077) */
+  phone: string | null;
   status: StudentStatus;
 }
 
@@ -61,9 +69,6 @@ export async function loadAllGroupRecipients(
 ): Promise<GroupRecipient[]> {
   const group = await getGroup(groupId);
   if (!group) return [];
-
-  // 1) 수신거부 phone — React cache dedupe (preview/count-recipients 와 공유).
-  const safeUnsubPhones = await getUnsubscribedPhones();
 
   // 2) subjects 사전 매핑 — count-recipients 와 동일 정책.
   //    ETL 상 enrollments.subject 는 NULL → classes.subject 로 두 단계 매핑.
@@ -146,7 +151,7 @@ export async function loadAllGroupRecipients(
 
     let q = supabase
       .from("crm_students")
-      .select("id, name, parent_phone, status")
+      .select("id, name, parent_phone, phone, status")
       .neq("status", "탈퇴")
       .eq("branch", group.branch);
 
@@ -189,11 +194,9 @@ export async function loadAllGroupRecipients(
     }
     q = applySchoolExclusion(q, excludeSchools);
 
-    if (safeUnsubPhones.length > 0) {
-      q = q.or(
-        `parent_phone.is.null,parent_phone.not.in.(${safeUnsubPhones.join(",")})`,
-      );
-    }
+    // 수신거부 제외는 더 이상 SQL 단(parent_phone 기준)에서 하지 않는다.
+    // 레그 확장(0077) 후 "레그별 번호" 기준으로 호출자(expandRecipientLegs)가
+    // 독립 판정한다 — 학부모 번호 수신거부가 학생 번호 레그를 죽이면 안 되기 때문.
 
     const { data, error } = await q
       .order("registered_at", { ascending: false, nullsFirst: false })

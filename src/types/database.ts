@@ -319,6 +319,20 @@ export interface CampaignRow {
    * 레이어에서 비활성화한다. 기본 FALSE(학생 1명당 1건, 종전 동작).
    */
   dedupe_by_phone: boolean;
+  /**
+   * 발송 대상 — 학부모 대표번호(crm_students.parent_phone) 발송 여부. 0077 추가.
+   * TRUE 면 학부모 레그를 생성한다(번호 없으면 스킵). 세정 운영 기본값 TRUE.
+   * send_to_student 와 독립이며 둘 다 TRUE 면 한 학생이 학부모·학생 양쪽으로
+   * 최대 2건 발송된다. 둘 다 FALSE 는 DB CHECK(chk_campaigns_send_target)와
+   * Zod refine 으로 금지.
+   */
+  send_to_parent: boolean;
+  /**
+   * 발송 대상 — 학생 개인번호(crm_students.phone) 발송 여부. 0077 추가.
+   * TRUE 면 학생 레그를 생성한다(번호 없으면 스킵). 기본값 FALSE.
+   * send_to_parent 와 독립. 수신거부 제외는 레그의 번호 기준으로 독립 판정.
+   */
+  send_to_student: boolean;
   created_at: string;
   updated_at: string;
 }

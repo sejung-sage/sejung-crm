@@ -173,6 +173,7 @@ describe("collapseByPhone · 경계값", () => {
     expect(offResult.counts).toEqual({
       dedupeApplied: false,
       targetStudents: 0,
+      legs: 0,
       actualMessages: 0,
       collapsed: 0,
     });
@@ -182,6 +183,7 @@ describe("collapseByPhone · 경계값", () => {
     expect(onResult.counts).toEqual({
       dedupeApplied: true,
       targetStudents: 0,
+      legs: 0,
       actualMessages: 0,
       collapsed: 0,
     });
@@ -286,6 +288,102 @@ describe("collapseByPhone · 카운트 불변식", () => {
     const input = [rcpt("s1", "01011112222", "A")];
     expect(collapseByPhone(input, true).counts.dedupeApplied).toBe(true);
     expect(collapseByPhone(input, false).counts.dedupeApplied).toBe(false);
+  });
+});
+
+describe("collapseByPhone · 레그(leg) 모델 + targetStudents 주입 (0077)", () => {
+  // 레그 확장(expandRecipientLegs) 후 collapse 입력은 "레그(번호) 배열" 이다.
+  // 한 학생이 학부모·학생 양쪽을 선택하면 같은 studentId 가 다른 phone 으로
+  // 2 row 들어온다. targetStudents 는 호출자(레그 확장 전 단계)가 더 정확히
+  // 알기 때문에 옵션으로 주입한다.
+
+  it("동시 발송 legs=2N 인데 학생=학부모 동일번호면 collapse 로 actualMessages < legs", () => {
+    // s1 의 학부모 번호 == 학생 번호 (학부모 휴대폰에 학생도 등록된 케이스).
+    const legs = [
+      rcpt("s1", "01011112222", "김학생"), // 학부모 레그
+      rcpt("s1", "01011112222", "김학생"), // 학생 레그(동일번호)
+    ];
+    const { recipients, counts } = collapseByPhone(legs, true, 1);
+    expect(recipients.length).toBe(1);
+    expect(counts.targetStudents).toBe(1); // 사람 1명
+    expect(counts.legs).toBe(2); // 레그 2개
+    expect(counts.actualMessages).toBe(1); // 합쳐짐
+    expect(counts.collapsed).toBe(1);
+    expect(counts.actualMessages).toBeLessThan(counts.legs);
+  });
+
+  it("형제 2명이 같은 학부모 번호 공유 (학부모만 발송) → 1건, targetStudents=2", () => {
+    // 학부모만 발송: 형제 각각 학부모 레그 1개씩, 같은 번호.
+    const legs = [
+      rcpt("s1", "01011112222", "형"),
+      rcpt("s2", "01011112222", "동생"),
+    ];
+    const { recipients, counts } = collapseByPhone(legs, true, 2);
+    expect(recipients.length).toBe(1);
+    expect(counts.targetStudents).toBe(2); // 사람 2명
+    expect(counts.legs).toBe(2);
+    expect(counts.actualMessages).toBe(1);
+    expect(counts.collapsed).toBe(1);
+  });
+
+  it("불변식 actualMessages = legs - collapsed (targetStudents 주입)", () => {
+    const legs = [
+      rcpt("s1", "01011110000", "A"), // 학부모
+      rcpt("s1", "01011119999", "A"), // 학생(다른 번호)
+      rcpt("s2", "01011110000", "B"), // 형제, A 와 같은 학부모 번호 → 합쳐짐
+    ];
+    const { counts } = collapseByPhone(legs, true, 2);
+    expect(counts.legs).toBe(3);
+    expect(counts.actualMessages).toBe(2); // 01011110000, 01011119999
+    expect(counts.collapsed).toBe(1);
+    expect(counts.actualMessages).toBe(counts.legs - counts.collapsed);
+  });
+
+  it("불변식 legs >= targetStudents (주입 시)", () => {
+    // 학부모·학생 동시 발송 → 2명에서 레그 4개. dedupe 후에도 legs >= targetStudents.
+    const legs = [
+      rcpt("s1", "01011110000", "A"),
+      rcpt("s1", "01022220000", "A"),
+      rcpt("s2", "01033330000", "B"),
+      rcpt("s2", "01044440000", "B"),
+    ];
+    const { counts } = collapseByPhone(legs, true, 2);
+    expect(counts.legs).toBe(4);
+    expect(counts.targetStudents).toBe(2);
+    expect(counts.legs).toBeGreaterThanOrEqual(counts.targetStudents);
+  });
+
+  it("dedupe OFF · 레그 모델 → actualMessages = legs (합치기 없음, targetStudents 주입)", () => {
+    const legs = [
+      rcpt("s1", "01011112222", "김학생"), // 학부모
+      rcpt("s1", "01011112222", "김학생"), // 학생(동일번호) — OFF 라 합쳐지지 않음
+    ];
+    const { recipients, counts } = collapseByPhone(legs, false, 1);
+    expect(recipients.length).toBe(2);
+    expect(counts.targetStudents).toBe(1);
+    expect(counts.legs).toBe(2);
+    expect(counts.actualMessages).toBe(2); // = legs
+    expect(counts.collapsed).toBe(0);
+  });
+
+  it("targetStudents 미주입이면 입력 고유 studentId 수로 추정 (레그 2개 학생도 1명)", () => {
+    const legs = [
+      rcpt("s1", "01011110000", "A"), // 학부모
+      rcpt("s1", "01022220000", "A"), // 학생
+    ];
+    const { counts } = collapseByPhone(legs, true); // targetStudents 미주입
+    expect(counts.targetStudents).toBe(1); // 고유 studentId 수
+    expect(counts.legs).toBe(2);
+  });
+
+  it("주입 targetStudents 는 collapse 결과 배열에 영향 없음 (카운트 표시용)", () => {
+    const legs = [
+      rcpt("s1", "01011110000", "A"),
+      rcpt("s2", "01022220000", "B"),
+    ];
+    const withInject = collapseByPhone(legs, true, 2);
+    const withoutInject = collapseByPhone(legs, true);
+    expect(withInject.recipients).toEqual(withoutInject.recipients);
   });
 });
 

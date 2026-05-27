@@ -2,6 +2,7 @@
 
 import { AlertTriangle, Send, CalendarClock } from "lucide-react";
 import type { DedupeCounts } from "@/types/messaging";
+import { shouldShowLegBreakdown } from "./dedupe-count-note";
 
 /**
  * 문자 발송 직전 확인 다이얼로그.
@@ -52,8 +53,21 @@ export function ConfirmSendDialog({
       ? `${messageBody.slice(0, BODY_PREVIEW_LENGTH)}…`
       : messageBody;
 
-  const dedupeApplied =
-    !!dedupe && dedupe.dedupeApplied && dedupe.collapsed > 0;
+  // 레그 확장(학부모·학생 동시 발송) 또는 동일번호 합침으로 학생 수≠발송 건수면
+  // "실제 발송 M건 · 대상 학생 N명" 분리 표기. 둘 다 N=M 이면 단일 인원만.
+  const showBreakdown = shouldShowLegBreakdown(dedupe);
+  // 부연 메모: 동시 발송 / 동일번호 합침을 상황에 맞게 합산.
+  const breakdownNotes: string[] = [];
+  if (dedupe) {
+    if (dedupe.actualMessages > dedupe.targetStudents) {
+      breakdownNotes.push("학부모·학생 동시 발송");
+    }
+    if (dedupe.dedupeApplied && dedupe.collapsed > 0) {
+      breakdownNotes.push(
+        `동일번호 ${dedupe.collapsed.toLocaleString("ko-KR")}건 합침`,
+      );
+    }
+  }
 
   const scheduleLabel =
     mode === "schedule" && scheduleAt
@@ -98,16 +112,17 @@ export function ConfirmSendDialog({
 
         <div className="px-6 py-4 bg-[color:var(--bg-muted)] border-y border-[color:var(--border)] space-y-3">
           <Row
-            label={dedupeApplied ? "실제 발송" : "수신자"}
+            label={showBreakdown ? "실제 발송" : "수신자"}
             value={
-              dedupeApplied && dedupe ? (
+              showBreakdown && dedupe ? (
                 <span className="tabular-nums text-right">
                   <strong className="text-[color:var(--text)]">
                     {dedupe.actualMessages.toLocaleString("ko-KR")}건
                   </strong>
                   <span className="block text-[12px] text-[color:var(--text-muted)]">
-                    대상 학생 {dedupe.targetStudents.toLocaleString("ko-KR")}명 ·
-                    동일번호 {dedupe.collapsed.toLocaleString("ko-KR")}건 합침
+                    대상 학생 {dedupe.targetStudents.toLocaleString("ko-KR")}명
+                    {breakdownNotes.length > 0 &&
+                      ` · ${breakdownNotes.join(" · ")}`}
                   </span>
                 </span>
               ) : (

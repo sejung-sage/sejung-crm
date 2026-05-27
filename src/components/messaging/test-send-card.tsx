@@ -56,8 +56,17 @@ export function TestSendCard({
     }
     startSending(async () => {
       const result = await testSendAction({
-        // 테스트 발송은 본인 번호 1건 — dedupe 무관, 항상 false.
-        step2: { type, subject, body, isAd, dedupeByPhone: false },
+        // 테스트 발송은 본인 번호 1건 — dedupe·발송대상 무관. refine 통과용으로
+        // sendToParent=true 고정(학생 레그 없음). 실제 발송 대상은 테스트에 영향 없음.
+        step2: {
+          type,
+          subject,
+          body,
+          isAd,
+          dedupeByPhone: false,
+          sendToParent: true,
+          sendToStudent: false,
+        },
         toPhone: normalized,
       });
       if (result.status === "success") {

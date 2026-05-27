@@ -11,7 +11,11 @@ import {
 } from "@/app/(features)/compose/actions";
 import type { ComposeStep2State } from "./compose-wizard";
 import { ConfirmSendDialog } from "./confirm-send-dialog";
-import { DedupeCountNote, extractDedupeCounts } from "./dedupe-count-note";
+import {
+  DedupeCountNote,
+  extractDedupeCounts,
+  shouldShowLegBreakdown,
+} from "./dedupe-count-note";
 
 /**
  * F3 Part B · Step 4 — 즉시 발송 / 예약 발송 + 최종 요약 + 결과 처리.
@@ -66,8 +70,13 @@ export function ComposeStep4Send({
   // 예약 모드일 때 datetime-local 의 min 값 (현재 시각 + 1분)
   const minScheduleAt = useMemo(() => toLocalDatetimeInput(new Date(Date.now() + 60_000)), []);
 
-  // backend 가 내려준 동일번호 1회 발송 카운트(있을 때만). 실제 발송 건수 표기에 사용.
+  // backend 가 내려준 발송 카운트(있을 때만). 실제 발송 건수 표기에 사용.
   const dedupeCounts = useMemo(() => extractDedupeCounts(preview), [preview]);
+  // 레그 확장(동시 발송)·동일번호 합침으로 학생 수≠발송 건수인지.
+  const showBreakdown = useMemo(
+    () => shouldShowLegBreakdown(dedupeCounts),
+    [dedupeCounts],
+  );
 
   const isReady = mode === "now" || (mode === "schedule" && !!scheduleAt);
 
@@ -98,6 +107,8 @@ export function ComposeStep4Send({
             body: step2.body,
             isAd: step2.isAd,
             dedupeByPhone: step2.dedupeByPhone,
+            sendToParent: step2.sendToParent,
+            sendToStudent: step2.sendToStudent,
           },
           step3: { title: title.trim() },
         });
@@ -115,6 +126,8 @@ export function ComposeStep4Send({
             body: step2.body,
             isAd: step2.isAd,
             dedupeByPhone: step2.dedupeByPhone,
+            sendToParent: step2.sendToParent,
+            sendToStudent: step2.sendToStudent,
           },
           step3: { title: title.trim() },
           scheduleAt: iso,
@@ -243,13 +256,9 @@ export function ComposeStep4Send({
         <Summary label="그룹" value={selectedGroup.name} />
         <Summary label="유형" value={step2.type} />
         <Summary
-          label={
-            dedupeCounts?.dedupeApplied && dedupeCounts.collapsed > 0
-              ? "실제 발송"
-              : "수신자"
-          }
+          label={showBreakdown ? "실제 발송" : "수신자"}
           value={
-            dedupeCounts?.dedupeApplied && dedupeCounts.collapsed > 0
+            showBreakdown && dedupeCounts
               ? `${dedupeCounts.actualMessages.toLocaleString("ko-KR")}건`
               : `${preview.recipientCount.toLocaleString("ko-KR")}명`
           }

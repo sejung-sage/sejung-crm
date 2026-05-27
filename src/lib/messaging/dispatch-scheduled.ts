@@ -28,8 +28,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { waitUntil } from "@vercel/functions";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
-import { applyAllGuards, type Recipient } from "./guards";
+import { applyAllGuards } from "./guards";
 import { collapseByPhone } from "./dedupe-recipients";
+import { expandRecipientLegs, countDistinctStudents } from "./expand-legs";
 import { getMessagingBaseUrl } from "./base-url";
 import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import type { CampaignRow, MessageStatus, TemplateType } from "@/types/database";
@@ -164,6 +165,10 @@ async function dispatchOne(
     body: campaign.body,
     isAd: campaign.is_ad,
     dedupeByPhone: campaign.dedupe_by_phone,
+    // 0077 — 예약 시 영속화한 발송 대상 토글을 dispatch 시점 그대로 적용.
+    // 과거(0077 이전) 캠페인은 컬럼이 DEFAULT(parent=true/student=false) 라 종전 동작.
+    sendToParent: campaign.send_to_parent,
+    sendToStudent: campaign.send_to_student,
     scheduledAt: new Date(campaign.scheduled_at ?? Date.now()),
     supabase,
   });
@@ -260,6 +265,8 @@ async function loadEligibleForCampaign(args: {
   body: string;
   isAd: boolean;
   dedupeByPhone: boolean;
+  sendToParent: boolean;
+  sendToStudent: boolean;
   scheduledAt: Date;
   supabase: SrvClient;
 }): Promise<
@@ -270,32 +277,31 @@ async function loadEligibleForCampaign(args: {
     }
   | { kind: "blocked"; reason: string }
 > {
-  // 1) 후보 전체 일괄 수집 — SQL 단에서 분원·탈퇴·수신거부 가드까지 처리.
-  //    60K 기준 8~10 쿼리로 끝남.
-  const rows = await loadAllGroupRecipients(
-    args.supabase,
-    args.groupId,
-    MAX_RECIPIENTS_PER_CAMPAIGN,
-  );
+  // 1) 후보 전체 일괄 수집 — SQL 단에서 분원·탈퇴 가드까지 처리(수신거부는
+  //    레그별이라 아래 확장 단에서). parent_phone·phone 둘 다 로드. 60K 기준 8~10 쿼리.
+  const [rows, unsubPhones] = await Promise.all([
+    loadAllGroupRecipients(args.supabase, args.groupId, MAX_RECIPIENTS_PER_CAMPAIGN),
+    loadUnsubscribedPhones(args.supabase),
+  ]);
 
-  const collected: Recipient[] = [];
-  for (const r of rows) {
-    if (!r.parent_phone) continue;
-    collected.push({
-      studentId: r.id,
-      phone: r.parent_phone.replace(/\D/g, ""),
-      name: r.name,
-      status: r.status,
-    });
-  }
+  // 2) 레그 확장 (학부모/학생) — 산출 순서 1단계.
+  //    번호 결측 레그 스킵 + 레그별 번호 기준 수신거부 제외(가드 강화).
+  const legs = expandRecipientLegs(rows, {
+    sendToParent: args.sendToParent,
+    sendToStudent: args.sendToStudent,
+    unsubscribedPhones: unsubPhones,
+  });
 
-  // 2) 본문 가드 (광고 prefix / 080 footer / 야간 차단) 적용.
-  //    수신거부·탈퇴는 SQL 단에서 이미 제외됐으므로 unsubscribedPhones 비워서 호출.
+  // 레그 1개 이상 생성된 고유 학생 수. (0레그 학생 제외 → 불변식 보장.)
+  const targetStudents = countDistinctStudents(legs);
+
+  // 3) 본문 가드 (광고 prefix / 080 footer / 야간 차단) 적용.
+  //    탈퇴는 SQL 단, 수신거부는 레그 확장 단에서 제외됐으므로 unsubscribedPhones 비워서 호출.
   const guarded = applyAllGuards({
     body: args.body,
     isAd: args.isAd,
     scheduledAt: args.scheduledAt,
-    recipients: collected,
+    recipients: legs,
     unsubscribedPhones: [],
   });
 
@@ -307,7 +313,7 @@ async function loadEligibleForCampaign(args: {
     };
   }
 
-  // 3) collapse — 가드 통과 직후, eligible 배열에만 dedupe 적용.
+  // 4) collapse — 가드 통과 직후, eligible 레그 배열에만 dedupe 적용.
   //    loadAllGroupRecipients 가 registered_at DESC 순이므로 같은 번호 그룹의
   //    최상위(가장 최근 등록 학생)가 대표로 남는다. dedupe OFF 면 입력 그대로.
   const { recipients } = collapseByPhone(
@@ -317,6 +323,7 @@ async function loadEligibleForCampaign(args: {
       name: r.name,
     })),
     args.dedupeByPhone,
+    targetStudents,
   );
 
   return {
@@ -324,6 +331,23 @@ async function loadEligibleForCampaign(args: {
     recipients,
     finalBody: guarded.finalBody,
   };
+}
+
+/** 수신거부 번호 직접 페치 (cron service client 용 — React cache 미사용 경로). */
+const SAFE_PHONE_PATTERN = /^[\d-]+$/;
+async function loadUnsubscribedPhones(supabase: SrvClient): Promise<string[]> {
+  const { data, error } = await supabase
+    .from("crm_unsubscribes")
+    .select("phone");
+  if (error) {
+    throw new Error(`수신거부 목록 조회에 실패했습니다: ${error.message}`);
+  }
+  return ((data ?? []) as Array<{ phone: string }>)
+    .map((r) => r.phone)
+    .filter(
+      (v): v is string =>
+        typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
+    );
 }
 
 // ─── DB 헬퍼 ───────────────────────────────────────────────
