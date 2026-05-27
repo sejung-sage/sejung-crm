@@ -147,6 +147,40 @@ export const UpdateGroupInputSchema = CreateGroupInputSchema.partial().extend({
 export type UpdateGroupInput = z.infer<typeof UpdateGroupInputSchema>;
 
 /**
+ * /groups/new?class=<id>&filter=... 강좌 prefill 의 filter 파라미터.
+ *
+ * "종강 강좌 → 다음 시즌 미등록(이탈) 추적" 기능(박은주 부원장 2026-05-27)용.
+ *  - 'all'    : 강좌 수강생 전체를 includeStudentIds 로 prefill (기존 동작, 기본값).
+ *  - 'lapsed' : 강좌 수강생 중 **이탈 학생만** prefill.
+ *               이탈 정의 = crm_students.status !== '재원생'
+ *               (재원생 = 어딘가 진행 중 수강 보유 → 다음 시즌도 다니는 중이라 제외).
+ *               status ∈ {수강이력자, 수강 x, 탈퇴} 가 이탈 후보.
+ *
+ * 미지정/오타/빈 값은 모두 'all' 로 폴백 (catch). 강좌 prefill 이 없는
+ * (student prefill 또는 prefill 없음) 진입에서는 이 값을 무시한다.
+ *
+ * 해석 위치: groups/new page 의 강좌 prefill 로직(서버). getClassDetail 이
+ * 이제 ClassStudentRow.status 를 들고 오므로 별도 추가 쿼리 없이 students 를
+ * status !== '재원생' 으로 거른 뒤 그 id 만 recipients/includeStudentIds 로 채운다.
+ *
+ * 탈퇴 학생: 이탈 명단(prefill)에는 포함되지만, 발송 시점에 기존 안전 가드가
+ * 탈퇴/수신거부를 자동 제외하므로 실제 수신자에서는 빠진다. (이중 정책 의도적)
+ */
+export const ClassPrefillFilterSchema = z
+  .enum(["all", "lapsed"])
+  .catch("all");
+export type ClassPrefillFilter = z.infer<typeof ClassPrefillFilterSchema>;
+
+/**
+ * 학생이 "이탈(lapsed)" 후보인지 판정.
+ * 단일 소스 — page prefill, UI 섹션 카운트가 같은 술어를 공유하도록 export.
+ * 이탈 = 재원생이 아님 (어디에도 진행 중 수강이 없음).
+ */
+export function isLapsedStudent(status: string): boolean {
+  return status !== "재원생";
+}
+
+/**
  * 그룹 리스트 화면 searchParams 검증 스키마.
  * - q: 그룹명 부분일치 검색
  * - branch: 분원 필터 (빈 문자열이면 전체 분원)

@@ -11,7 +11,13 @@ import {
   findDevProfileById,
   isDevSeedMode,
 } from "@/lib/profile/students-dev-seed";
-import { GroupFiltersSchema, type GroupFilters } from "@/lib/schemas/group";
+import {
+  ClassPrefillFilterSchema,
+  GroupFiltersSchema,
+  isLapsedStudent,
+  type ClassPrefillFilter,
+  type GroupFilters,
+} from "@/lib/schemas/group";
 import type { Grade } from "@/types/database";
 
 /**
@@ -108,19 +114,49 @@ async function fetchPrefillFromStudent(
 
 /**
  * 강좌 ID 로 진입한 케이스. 강좌 상세 로더를 그대로 재사용해서
- * 수강생 전체를 includeStudents 에 prefill.
+ * 수강생을 includeStudents 에 prefill.
+ *
+ * filter 파라미터 ("종강 강좌 → 다음 시즌 미등록 추적", 박은주 부원장 2026-05-27):
+ *  - 'all'    : 강좌 수강생 전체 (기존 동작, 기본값).
+ *  - 'lapsed' : 수강생 중 이탈 학생(status !== '재원생')만.
+ *               이탈 판정은 isLapsedStudent 단일 소스 사용.
+ *
+ * getClassDetail 이 이제 ClassStudentRow.status 를 들고 오므로 추가 쿼리 없이
+ * 단일 getClassDetail 호출 결과(students)를 status 로 거른다. 강좌 1개 단위라
+ * RPC/추가 쿼리 불필요.
+ *
+ * 필터링 후 0명이면(이탈자 없음) null 반환 — 'all' 의 0명 처리와 동일하게 안전.
  *
  * 주의: getClassDetail 은 dev-seed 모드에서 null 반환하므로
  * dev-seed 환경에서는 강좌 prefill 자체가 동작하지 않음 (의도적 — 강좌 시드 부재).
  */
-async function fetchPrefillFromClass(classId: string): Promise<Prefill | null> {
+async function fetchPrefillFromClass(
+  classId: string,
+  filter: ClassPrefillFilter,
+): Promise<Prefill | null> {
   const detail = await getClassDetail(classId);
   if (!detail) return null;
   if (detail.students.length === 0) return null;
+
+  // 'lapsed' 면 이탈 학생만 (재원생 제외). 'all' 이면 전체 유지.
+  const selected =
+    filter === "lapsed"
+      ? detail.students.filter((s) => isLapsedStudent(s.status))
+      : detail.students;
+
+  // 필터링 후 0명(이탈자 없음)이면 기존 0명 처리와 동일하게 null.
+  if (selected.length === 0) return null;
+
+  // groupName placeholder 차별화: 'lapsed' 는 재등록 안내 톤, 'all' 은 기존 유지.
+  const groupName =
+    filter === "lapsed"
+      ? `${detail.class.name} 미등록 재등록 안내`
+      : `${detail.class.name} 일회성`;
+
   return {
     branch: detail.class.branch,
-    groupName: `${detail.class.name} 일회성`,
-    recipients: detail.students.map((s) => ({
+    groupName,
+    recipients: selected.map((s) => ({
       id: s.id,
       name: s.name,
       parent_phone: s.parent_phone,
@@ -139,6 +175,9 @@ export default async function NewGroupPage({
   const studentId =
     typeof raw.student === "string" ? raw.student.trim() : "";
   const classId = typeof raw.class === "string" ? raw.class.trim() : "";
+  // 강좌 prefill 의 'all' | 'lapsed'. 미지정/오타/빈 값은 catch 로 'all' 폴백.
+  // student prefill 또는 prefill 없음 진입에선 무시됨 (fetchPrefillFromClass 만 사용).
+  const classFilter = ClassPrefillFilterSchema.parse(raw.filter);
 
   // 학생 prefill 우선 — 학생 단건이 강좌보다 더 specific.
   // 동시 지정은 비정상 흐름이지만 학생 우선으로 안전 처리.
@@ -146,7 +185,7 @@ export default async function NewGroupPage({
   if (studentId) {
     prefill = await fetchPrefillFromStudent(studentId);
   } else if (classId) {
-    prefill = await fetchPrefillFromClass(classId);
+    prefill = await fetchPrefillFromClass(classId, classFilter);
   }
 
   const branch = prefill?.branch ?? (await resolveDefaultBranch());

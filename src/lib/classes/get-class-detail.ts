@@ -108,13 +108,13 @@ async function getFromSupabase(
     studentIds.length > 0
       ? supabase
           .from("crm_students")
-          .select("id, name, school, grade, parent_phone")
+          .select("id, name, school, grade, parent_phone, status")
           .in("id", studentIds)
       : Promise.resolve({
           data: [] as Array<
             Pick<
               StudentProfileRow,
-              "id" | "name" | "school" | "grade" | "parent_phone"
+              "id" | "name" | "school" | "grade" | "parent_phone" | "status"
             >
           >,
           error: null,
@@ -159,7 +159,7 @@ async function getFromSupabase(
 
   type StudentMetaRow = Pick<
     StudentProfileRow,
-    "id" | "name" | "school" | "grade" | "parent_phone"
+    "id" | "name" | "school" | "grade" | "parent_phone" | "status"
   >;
   const profiles = (profilesRes.data ?? []) as StudentMetaRow[];
 
@@ -172,6 +172,7 @@ async function getFromSupabase(
       school: p.school,
       grade: p.grade,
       parent_phone: p.parent_phone,
+      status: p.status,
       attended_count: counts?.attended_count ?? 0,
       absent_count: counts?.absent_count ?? 0,
       late_count: counts?.late_count ?? 0,

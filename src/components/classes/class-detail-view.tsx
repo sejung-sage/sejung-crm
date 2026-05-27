@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import type { ClassDetail } from "@/types/database";
+import { isLapsedStudent } from "@/lib/schemas/group";
 import { ClassDetailHeader } from "@/components/classes/class-detail-header";
 import { ClassKpiCards } from "@/components/classes/class-kpi-cards";
 import { ClassStudentsPanel } from "@/components/classes/class-students-panel";
+import { ClassLapsedPanel } from "@/components/classes/class-lapsed-panel";
 import { ClassAttendanceGrid } from "@/components/classes/class-attendance-grid";
 
 interface Props {
@@ -33,6 +35,13 @@ export function ClassDetailView({
   canRevealPhone = false,
   canSendToClass = false,
 }: Props) {
+  // 다음 시즌 미등록(이탈) 학생 — 추가 fetch 없이 detail.students 를
+  // status 술어(isLapsedStudent: status !== '재원생')로 거른다.
+  // 단일 소스: groups/new prefill(filter=lapsed)과 동일한 판정.
+  const lapsedStudents = detail.students.filter((s) =>
+    isLapsedStudent(s.status),
+  );
+
   return (
     <div className="max-w-7xl space-y-6">
       <nav aria-label="이동 경로">
@@ -64,6 +73,15 @@ export function ClassDetailView({
         </h2>
         <ClassStudentsPanel students={detail.students} canRevealPhone={canRevealPhone} />
       </section>
+
+      {lapsedStudents.length > 0 && (
+        <ClassLapsedPanel
+          lapsedStudents={lapsedStudents}
+          classId={detail.class.id}
+          canRevealPhone={canRevealPhone}
+          canSend={canSendToClass}
+        />
+      )}
 
       <section className="space-y-3" aria-label="학생별 일자 출결">
         <h2 className="text-[16px] font-semibold text-[color:var(--text)]">

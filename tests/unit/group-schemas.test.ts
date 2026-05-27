@@ -4,7 +4,11 @@ import {
   CreateGroupInputSchema,
   UpdateGroupInputSchema,
   GroupListQuerySchema,
+  ClassPrefillFilterSchema,
+  isLapsedStudent,
 } from "@/lib/schemas/group";
+import { StudentStatusSchema } from "@/lib/schemas/common";
+import type { StudentStatus } from "@/types/database";
 
 /**
  * F2 · 발송 그룹 Zod 스키마 단위 테스트.
@@ -237,6 +241,131 @@ describe("UpdateGroupInputSchema", () => {
       if (!parsed.success) {
         const msgs = parsed.error.issues.map((i) => i.message);
         expect(msgs.some((m) => m.includes("그룹 ID"))).toBe(true);
+      }
+    });
+  });
+});
+
+/**
+ * "종강 강좌 → 다음 시즌 미등록(이탈) 추적" (박은주 부원장 2026-05-27)
+ * prefill 이탈 판정의 단일 술어. status !== '재원생' 이면 이탈 후보.
+ * page prefill 과 class-lapsed-panel 카운트가 이 술어를 공유하므로,
+ * StudentStatus 4종 전수 + 임의 비정상 입력까지 고정한다.
+ */
+describe("isLapsedStudent · 이탈 판정 단일 술어", () => {
+  describe("재원생(이탈 아님)", () => {
+    it("'재원생' → false (진행 중 수강 보유 → 다음 시즌도 다니는 중)", () => {
+      expect(isLapsedStudent("재원생")).toBe(false);
+    });
+  });
+
+  describe("이탈 후보(재원생 아님)", () => {
+    it("'수강이력자' → true", () => {
+      expect(isLapsedStudent("수강이력자")).toBe(true);
+    });
+
+    it("'수강 x' → true", () => {
+      expect(isLapsedStudent("수강 x")).toBe(true);
+    });
+
+    it("'탈퇴' → true (명단엔 포함, 발송 시점 안전 가드가 별도 제외)", () => {
+      expect(isLapsedStudent("탈퇴")).toBe(true);
+    });
+  });
+
+  describe("StudentStatus enum 4종 전수 검증", () => {
+    it("'재원생' 만 false, 나머지 3종은 모두 true", () => {
+      // StudentStatusSchema(공통 enum) 를 단일 소스로 순회 — enum 변경 시 자동 추종.
+      const allStatuses = StudentStatusSchema.options;
+      expect(allStatuses).toHaveLength(4);
+
+      const result = Object.fromEntries(
+        allStatuses.map((s) => [s, isLapsedStudent(s)]),
+      );
+      expect(result).toEqual({
+        재원생: false,
+        수강이력자: true,
+        "수강 x": true,
+        탈퇴: true,
+      });
+    });
+
+    it("타입 레벨 StudentStatus 4종도 동일 결과 (database.ts 와 enum 일치 확인)", () => {
+      const typed: ReadonlyArray<StudentStatus> = [
+        "재원생",
+        "수강이력자",
+        "수강 x",
+        "탈퇴",
+      ];
+      const lapsedCount = typed.filter((s) => isLapsedStudent(s)).length;
+      // 재원생 1종만 비-이탈 → 3종 이탈
+      expect(lapsedCount).toBe(3);
+    });
+  });
+
+  describe("경계 · 비정상 입력 (술어는 순수 string 비교)", () => {
+    it("빈 문자열 → true (재원생이 아니므로)", () => {
+      expect(isLapsedStudent("")).toBe(true);
+    });
+
+    it("알 수 없는 값 'unknown' → true", () => {
+      expect(isLapsedStudent("unknown")).toBe(true);
+    });
+  });
+});
+
+/**
+ * /groups/new?class=<id>&filter=... 의 filter 파라미터 스키마.
+ * 미지정/오타/빈값/부적합 타입은 모두 'all' 로 폴백(.catch) — 강좌 prefill 의
+ * 기본 동작(전체 수강생)이 안전 기본이 되도록.
+ */
+describe("ClassPrefillFilterSchema · prefill filter 폴백", () => {
+  describe("유효 값은 그대로 통과", () => {
+    it("'all' → 'all'", () => {
+      expect(ClassPrefillFilterSchema.parse("all")).toBe("all");
+    });
+
+    it("'lapsed' → 'lapsed'", () => {
+      expect(ClassPrefillFilterSchema.parse("lapsed")).toBe("lapsed");
+    });
+  });
+
+  describe("비유효 값은 'all' 로 폴백 (.catch)", () => {
+    it("빈 문자열 '' → 'all'", () => {
+      expect(ClassPrefillFilterSchema.parse("")).toBe("all");
+    });
+
+    it("오타 'lapse' → 'all'", () => {
+      expect(ClassPrefillFilterSchema.parse("lapse")).toBe("all");
+    });
+
+    it("대문자 'LAPSED' (대소문자 구분) → 'all'", () => {
+      expect(ClassPrefillFilterSchema.parse("LAPSED")).toBe("all");
+    });
+
+    it("undefined (파라미터 미지정) → 'all'", () => {
+      expect(ClassPrefillFilterSchema.parse(undefined)).toBe("all");
+    });
+
+    it("null → 'all'", () => {
+      expect(ClassPrefillFilterSchema.parse(null)).toBe("all");
+    });
+
+    it("배열 ['lapsed'] (searchParams 중복 키) → 'all'", () => {
+      expect(ClassPrefillFilterSchema.parse(["lapsed"])).toBe("all");
+    });
+
+    it("숫자 1 (부적합 타입) → 'all'", () => {
+      expect(ClassPrefillFilterSchema.parse(1)).toBe("all");
+    });
+  });
+
+  describe("safeParse 도 항상 success (catch 라 throw 없음)", () => {
+    it("오타 입력이어도 success=true, data='all'", () => {
+      const r = ClassPrefillFilterSchema.safeParse("xxx");
+      expect(r.success).toBe(true);
+      if (r.success) {
+        expect(r.data).toBe("all");
       }
     });
   });

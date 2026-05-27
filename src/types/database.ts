@@ -608,6 +608,17 @@ export interface ClassStudentRow {
   school: string | null;
   grade: Grade | null;
   parent_phone: string | null;
+  /**
+   * 학생의 현재 재원 상태 (crm_students.status 원값, 출결 카운트와 무관한 학생 단위 속성).
+   *
+   * "종강 강좌 → 다음 시즌 미등록(이탈) 추적" 기능(박은주 부원장 2026-05-27)을 위해 추가.
+   * 이탈(lapsed) 정의 = status !== '재원생'. 재원생은 어딘가 진행 중 수강이 있는 학생이라
+   * 이탈에서 제외. status ∈ {수강이력자, 수강 x, 탈퇴} 가 이탈 후보.
+   *  - groups/new?class=<id>&filter=lapsed prefill 이 이 컬럼으로 includeStudentIds 를 거른다.
+   *  - 강좌 상세 UI 의 "다음 시즌 미등록 학생" 섹션이 같은 기준으로 카운트·명단을 그린다.
+   * 탈퇴 학생은 명단(이탈의 일종)에는 포함되나 발송 시 기존 안전 가드가 자동 제외한다.
+   */
+  status: StudentStatus;
   /** 이 강좌에서의 출석 카운트 (status='출석'). */
   attended_count: number;
   /** 이 강좌에서의 결석 카운트. */
