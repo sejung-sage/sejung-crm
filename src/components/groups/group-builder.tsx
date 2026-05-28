@@ -5,11 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   ChevronLeft,
-  Filter,
-  ListChecks,
   Loader2,
   MinusCircle,
-  Search,
   X,
 } from "lucide-react";
 import type { GroupFilters, GroupKind } from "@/lib/schemas/group";
@@ -24,7 +21,6 @@ import {
   diffRecipientsAction,
   groupBuilderFilterOptionsAction,
   listClassOptionsAction,
-  searchStudentsAction,
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
 import type { ClassOption } from "@/lib/classes/list-class-options";
@@ -262,31 +258,22 @@ export function GroupBuilder({
     initial.filters.includeStudents ?? [],
   );
   // 그룹 종류 (사용자 확정 2026-05-27): 'filter'(조건 동기화) | 'custom'(고정 명단).
-  // 옛 그룹 JSONB 에 kind 키 없으면 GroupFiltersSchema 기본값 'filter'.
-  // prefill(student/class/lapsed) 진입은 page 에서 'custom' 으로 내려준다.
-  const [kind, setKind] = useState<GroupKind>(initial.filters.kind ?? "filter");
-  // prefill(강좌/학생/이탈) 진입은 custom + 명단이 미리 채워진 상태로 열린다.
-  // 이 경우 종류 전환을 잠가(custom 고정) prefill 명단이 사라지는 혼란을 막는다.
-  // (단순화 — 사용자 확정: prefill 은 custom 고정 + 안내.)
-  const prefillLocked =
-    mode === "create" &&
-    initial.filters.kind === "custom" &&
-    (initial.filters.includeStudents?.length ?? 0) > 0;
+  // 사용자 결정(2026-05): 빌더에서 "종류 선택" UI 는 숨긴다. 진입 컨텍스트로 자동 분기:
+  //  - 수동 그룹 생성(prefill 없음) → 'filter' (옛 그룹 JSONB 의 kind 미지정도 포함)
+  //  - prefill(강좌별 #5 / 종강 미등록 #6 / 학생 직접) 진입 → page 가 'custom' 으로 내려줌
+  // kind 는 마운트 시점에 고정 — 빌더 안에서 바꿀 수 없으므로 setter 없이 상수처럼 둔다.
+  const kind: GroupKind = initial.filters.kind ?? "filter";
   // 재원 상태 — 다중 선택. 빈 배열 = default 재원생 만 (수신자 산정 단에서 처리).
   // 옛 그룹 JSONB 에 statuses 키 없으면 빈 배열 → 기존 동작 보존.
   const [statuses, setStatuses] = useState<StudentStatus[]>(
     initial.filters.statuses ?? [],
   );
-  // 학교 검색어 — 학생 명단 SchoolSearchPanel 과 동일한 패턴.
-  // schoolOptions 가 수천개 단위라 더보기/접기 대신 검색+스크롤로 전환.
-  const [schoolQuery, setSchoolQuery] = useState("");
-
   // ── 제외 조건 (0076, 박은주 부원장 요청) ──────────────────
   // 학교별 제외: 포함(schools) 과 동일한 학교 옵션 소스에서 선택. 빨강/취소선 톤.
+  // 학교 검색은 MultiSelectDropdown 패널 내부 상태로 위임 (별도 query state 불필요).
   const [excludeSchools, setExcludeSchools] = useState<string[]>(
     initial.filters.excludeSchools ?? [],
   );
-  const [excludeSchoolQuery, setExcludeSchoolQuery] = useState("");
   // 강좌별 제외: crm_classes.id 선택. 칩 라벨 표시를 위해 {id,name} 메타도 보관.
   // 초기값 = 저장된 excludeClassIds 의 메타(prefilledExcludeClasses).
   const [excludeClasses, setExcludeClasses] = useState<ClassOption[]>(
@@ -537,9 +524,9 @@ export function GroupBuilder({
       setSubmitError("분원은 필수입니다");
       return;
     }
-    // 커스텀 그룹은 명단 1명 이상 필수 (서버 refine 과 동일 — 선차단).
+    // 고정 명단 그룹은 학생 1명 이상 필수 (서버 refine 과 동일 — 선차단).
     if (customEmpty) {
-      setSubmitError("커스텀 그룹은 학생을 1명 이상 직접 추가해야 합니다");
+      setSubmitError("발송할 학생이 1명 이상 있어야 저장할 수 있습니다");
       return;
     }
 
@@ -618,7 +605,7 @@ export function GroupBuilder({
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
           {isCustom
-            ? "학생을 직접 골라 담은 고정 명단입니다. 수신거부·탈퇴 학생은 자동 제외됩니다."
+            ? "미리 담긴 학생만 발송하는 고정 명단입니다. 수신거부·탈퇴 학생은 자동 제외됩니다."
             : "학년·학교·지역·과목 조건으로 수신자를 지정합니다. 수신거부·탈퇴 학생은 자동 제외됩니다."}
         </p>
       </div>
@@ -678,49 +665,6 @@ export function GroupBuilder({
                 })}
               </div>
             </Field>
-          </section>
-
-          {/* 그룹 종류 — 필터(동기화) vs 커스텀(고정 명단). 첫 단계 선택. */}
-          <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4">
-            <div className="space-y-1">
-              <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-                그룹 종류
-              </h2>
-              <p className="text-[13px] text-[color:var(--text-muted)]">
-                수신자를 정하는 방식을 고릅니다. 만든 뒤에도 수정에서 바꿀 수
-                있어요.
-              </p>
-            </div>
-
-            <div
-              role="radiogroup"
-              aria-label="그룹 종류"
-              className="grid grid-cols-1 sm:grid-cols-2 gap-2.5"
-            >
-              <KindOption
-                title="필터 그룹"
-                subtitle="조건에 맞는 학생이 자동 포함됩니다. 새 학생도 자동 반영."
-                icon={Filter}
-                active={!isCustom}
-                disabled={prefillLocked}
-                onSelect={() => setKind("filter")}
-              />
-              <KindOption
-                title="커스텀 그룹"
-                subtitle="학생을 직접 골라 담은 고정 명단입니다."
-                icon={ListChecks}
-                active={isCustom}
-                disabled={prefillLocked}
-                onSelect={() => setKind("custom")}
-              />
-            </div>
-
-            {prefillLocked && (
-              <p className="text-[12px] text-[color:var(--text-dim)]">
-                강좌·학생 명단으로 시작해 커스텀 그룹으로 고정됩니다. 조건으로
-                만들려면 빈 그룹에서 새로 시작하세요.
-              </p>
-            )}
           </section>
 
           {/* 필터 — 'filter' 종류에서만 노출 (조건 동기화 그룹). */}
@@ -843,8 +787,6 @@ export function GroupBuilder({
                   schoolOptions={visibleSchoolOptions}
                   selected={schools}
                   grades={grades}
-                  query={schoolQuery}
-                  onQueryChange={setSchoolQuery}
                   onToggle={(s) =>
                     toggleFromList(schools, s, (next) => setSchools(next))
                   }
@@ -919,16 +861,19 @@ export function GroupBuilder({
           </section>
           )}
 
-          {/* 학생 직접 선택 — 'custom' 종류에서만 노출 (고정 명단 그룹). */}
+          {/* 담긴 학생 명단 검토 — 'custom' 종류(prefill 진입)에서만 노출.
+              강좌별 발송(#5)·종강 미등록 추적(#6)·학생 직접 진입으로 이미 담긴
+              명단을 검토(칩 + X 개별 제거)만 한다. 검색·추가 입력은 없다 —
+              사용자 결정(2026-05): 빌더에서 free-form 학생 추가 UI 제거. */}
           {isCustom && (
           <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-5">
             <div className="space-y-1">
               <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-                학생 직접 선택
+                담긴 학생 명단
               </h2>
               <p className="text-[13px] text-[color:var(--text-muted)]">
-                이름·학부모 연락처로 검색해 발송할 학생을 직접 담습니다. 담은
-                학생만 고정 발송 대상이 됩니다.
+                미리 담긴 학생들이 이 그룹의 고정 발송 대상입니다. 빼고 싶은
+                학생은 칩의 X 로 제거할 수 있어요.
               </p>
             </div>
 
@@ -937,18 +882,12 @@ export function GroupBuilder({
               hint={
                 includeStudents.length > 0
                   ? `${includeStudents.length}명 담김`
-                  : "아직 담긴 학생이 없습니다 — 1명 이상 추가해 주세요"
+                  : "담긴 학생이 없습니다"
               }
             >
-              <DirectStudentPicker
-                branch={branch}
-                selected={includeStudents}
+              <IncludeStudentReview
+                students={includeStudents}
                 canRevealPhone={canRevealPhone}
-                onAdd={(s) =>
-                  setIncludeStudents((prev) =>
-                    prev.find((x) => x.id === s.id) ? prev : [...prev, s],
-                  )
-                }
                 onRemove={(id) =>
                   setIncludeStudents((prev) => prev.filter((x) => x.id !== id))
                 }
@@ -960,7 +899,8 @@ export function GroupBuilder({
                 role="status"
                 className="text-[13px] text-[color:var(--danger)]"
               >
-                커스텀 그룹은 학생을 1명 이상 담아야 저장할 수 있습니다.
+                발송할 학생이 1명 이상 있어야 저장할 수 있습니다. 모두 제거되었다면
+                이전 화면에서 다시 학생을 골라 담아 주세요.
               </p>
             )}
           </section>
@@ -993,8 +933,6 @@ export function GroupBuilder({
               <ExcludeSchoolPanel
                 schoolOptions={visibleSchoolOptions}
                 selected={excludeSchools}
-                query={excludeSchoolQuery}
-                onQueryChange={setExcludeSchoolQuery}
                 onToggle={(s) =>
                   toggleFromList(excludeSchools, s, (next) =>
                     setExcludeSchools(next),
@@ -1068,7 +1006,7 @@ export function GroupBuilder({
               disabled={isPending || customEmpty}
               title={
                 customEmpty
-                  ? "커스텀 그룹은 학생을 1명 이상 담아야 저장할 수 있습니다"
+                  ? "발송할 학생이 1명 이상 있어야 저장할 수 있습니다"
                   : undefined
               }
               className="
@@ -1303,67 +1241,6 @@ function Field({
   );
 }
 
-/**
- * 그룹 종류 선택 카드 (라디오 시맨틱).
- * 아이콘 + 제목 + 설명. 색만으로 구분하지 않고 선택 시 검정 테두리 + 체크 톤.
- */
-function KindOption({
-  title,
-  subtitle,
-  icon: Icon,
-  active,
-  disabled,
-  onSelect,
-}: {
-  title: string;
-  subtitle: string;
-  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
-  active: boolean;
-  disabled?: boolean;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={active}
-      disabled={disabled}
-      onClick={onSelect}
-      className={`
-        flex items-start gap-3 rounded-lg border p-4 text-left
-        transition-colors
-        disabled:cursor-not-allowed disabled:opacity-60
-        ${
-          active
-            ? "border-[color:var(--action)] bg-[color:var(--bg-hover)]"
-            : "border-[color:var(--border)] bg-bg-card hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
-        }
-      `}
-    >
-      <span
-        className={`
-          mt-0.5 inline-flex size-7 shrink-0 items-center justify-center rounded-full
-          ${
-            active
-              ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
-              : "bg-[color:var(--bg-muted)] text-[color:var(--text-muted)]"
-          }
-        `}
-      >
-        <Icon className="size-4" strokeWidth={1.75} aria-hidden />
-      </span>
-      <span className="min-w-0">
-        <span className="block text-[14px] font-semibold text-[color:var(--text)]">
-          {title}
-        </span>
-        <span className="mt-0.5 block text-[12px] leading-snug text-[color:var(--text-muted)]">
-          {subtitle}
-        </span>
-      </span>
-    </button>
-  );
-}
-
 function Chip({
   label,
   active,
@@ -1397,283 +1274,79 @@ function Chip({
 /**
  * 발송 그룹 학교 검색·선택 패널.
  *
- * 학생 명단의 SchoolSearchPanel 과 유사하지만 그룹 빌더는 schoolOptions
- * 를 단일 string[] 로 받기 때문에 (지역 그룹 정보 없음) 평면 리스트로 렌더.
+ * 학교 후보가 수백 개(448개)라 칩-wall 로 펼치면 페이지를 잡아먹어,
+ * 강사 선택과 동일한 MultiSelectDropdown(평소 접힘 → 클릭 → 검색·스크롤·체크)
+ * 으로 전환했다. 선택된 학교는 드롭다운 아래 칩(검정 active 톤)으로 노출하며
+ * 칩의 X 로 개별 해제할 수 있다.
  *
- * 검색어 부분일치 + 스크롤 컨테이너 + 선택된 학교 카운트.
- * 선택된 학교가 schoolOptions 에 없어도 항상 보이도록 머지 후 렌더.
+ * 학년 선택에 맞춰 후보를 고/중/초 학교급으로 좁히는 로직은 유지
+ * (선택된 학교는 학년과 무관히 항상 후보에 남겨 해제 가능).
+ * 선택된 학교가 옵션에 없어도(학년·지역 좁힘으로 빠짐) 칩과 드롭다운에서 유지.
  */
 function GroupSchoolSearchPanel({
   schoolOptions,
   selected,
   grades,
-  query,
-  onQueryChange,
   onToggle,
 }: {
   schoolOptions: string[];
   selected: string[];
   grades: Grade[];
-  query: string;
-  onQueryChange: (q: string) => void;
   onToggle: (s: string) => void;
 }) {
-  const normalized = query.trim().toLowerCase();
-  // 선택된 학교는 옵션에 없어도 칩으로 보여줘야 함 — 머지.
-  const merged = (() => {
+  // 선택된 학교는 옵션에 없어도 후보에 머지해 해제 가능하게 유지.
+  const merged = useMemo(() => {
     const set = new Set(schoolOptions);
     for (const s of selected) set.add(s);
     return Array.from(set);
-  })();
+  }, [schoolOptions, selected]);
   // 학년 선택에 맞춰 학교 후보 좁히기 — 고/중/초 학교명 끝글자로 추론.
   // 선택된 학교는 학년과 무관히 항상 노출 (탈선 방지).
-  const allowedLevels = gradesToSchoolLevels(grades);
-  const levelFiltered =
-    allowedLevels === null
-      ? merged
-      : merged.filter(
-          (s) =>
-            selected.includes(s) ||
-            allowedLevels.includes(inferSchoolLevel(s)),
-        );
-  const filtered =
-    normalized.length === 0
-      ? levelFiltered
-      : levelFiltered.filter((s) => s.toLowerCase().includes(normalized));
+  const allowedLevels = useMemo(() => gradesToSchoolLevels(grades), [grades]);
+  const dropdownOptions = useMemo(() => {
+    const list =
+      allowedLevels === null
+        ? merged
+        : merged.filter(
+            (s) =>
+              selected.includes(s) ||
+              allowedLevels.includes(inferSchoolLevel(s)),
+          );
+    return [...list].sort((a, b) => a.localeCompare(b, "ko"));
+  }, [merged, allowedLevels, selected]);
 
   return (
     <div className="space-y-2">
-      <label className="relative block">
-        <span className="sr-only">학교 검색</span>
-        <Search
-          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
-          strokeWidth={1.75}
-          aria-hidden
+      <div className="flex flex-wrap items-center gap-2">
+        <MultiSelectDropdown
+          label="학교 선택"
+          options={dropdownOptions}
+          selected={selected}
+          onToggle={onToggle}
+          searchable
+          searchPlaceholder="학교명 검색 (예: 휘문, 단대부)"
+          emptyHint="표시할 학교가 없습니다"
         />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="학교명 검색 (예: 휘문, 단대부)"
-          className="
-            w-full h-10 rounded-lg pl-9 pr-9
-            bg-bg-card border border-[color:var(--border)]
-            text-[14px] text-[color:var(--text)]
-            placeholder:text-[color:var(--text-dim)]
-            focus:outline-none focus:border-[color:var(--border-strong)]
-          "
-        />
-        {query.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onQueryChange("")}
-            aria-label="검색어 지우기"
-            className="
-              absolute right-2 top-1/2 -translate-y-1/2
-              inline-flex items-center justify-center size-6 rounded-md
-              text-[color:var(--text-muted)] hover:text-[color:var(--text)]
-              hover:bg-[color:var(--bg-hover)]
-            "
-          >
-            <X className="size-4" strokeWidth={1.75} aria-hidden />
-          </button>
-        )}
-      </label>
-
-      <p className="text-[12px] text-[color:var(--text-muted)]">
-        {normalized.length > 0
-          ? `검색 결과 ${filtered.length.toLocaleString()}개`
-          : `총 ${merged.length.toLocaleString()}개 학교`}
-        {selected.length > 0 && (
-          <>
-            <span className="mx-1.5 text-[color:var(--text-dim)]">·</span>
-            <span>선택 {selected.length}개</span>
-          </>
-        )}
-      </p>
-
-      <div className="max-h-[360px] overflow-y-auto pr-1 rounded-lg bg-[color:var(--bg-muted)] p-3">
-        {filtered.length === 0 ? (
-          <p className="text-[13px] text-[color:var(--text-muted)] py-2 text-center">
-            {normalized.length > 0
-              ? `"${query.trim()}" 와(과) 일치하는 학교가 없습니다.`
-              : "표시할 학교가 없습니다."}
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {filtered.map((s) => (
-              <Chip
-                key={s}
-                label={s}
-                active={selected.includes(s)}
-                onClick={() => onToggle(s)}
-              />
-            ))}
-          </div>
-        )}
+        <span className="text-[12px] text-[color:var(--text-muted)]">
+          총 {dropdownOptions.length.toLocaleString()}개 학교
+          {selected.length > 0 && (
+            <>
+              <span className="mx-1.5 text-[color:var(--text-dim)]">·</span>
+              <span>선택 {selected.length}개</span>
+            </>
+          )}
+        </span>
       </div>
-    </div>
-  );
-}
 
-/**
- * 학생 직접 선택 컴포넌트.
- * 검색어 (>=2자) → searchStudentsAction → 결과 리스트.
- * 선택된 학생은 칩으로 표시, X 버튼으로 제거.
- */
-function DirectStudentPicker({
-  branch,
-  selected,
-  onAdd,
-  onRemove,
-  canRevealPhone,
-}: {
-  branch: string;
-  selected: DirectStudent[];
-  onAdd: (s: DirectStudent) => void;
-  onRemove: (id: string) => void;
-  canRevealPhone: boolean;
-}) {
-  const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<DirectStudent[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const debRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const reqIdRef = useRef(0);
-
-  useEffect(() => {
-    if (debRef.current) clearTimeout(debRef.current);
-    if (!branch || query.trim().length < 2) {
-      setHits([]);
-      setLoading(false);
-      setError(null);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    const myReq = ++reqIdRef.current;
-    debRef.current = setTimeout(async () => {
-      const r = await searchStudentsAction(query, branch);
-      if (myReq !== reqIdRef.current) return;
-      if (r.status === "success") {
-        setHits(
-          r.data.map((d) => ({
-            id: d.id,
-            name: d.name,
-            parent_phone: d.parent_phone,
-            school: d.school,
-            grade: d.grade,
-          })),
-        );
-      } else {
-        setError(r.reason);
-        setHits([]);
-      }
-      setLoading(false);
-    }, 250);
-    return () => {
-      if (debRef.current) clearTimeout(debRef.current);
-    };
-  }, [query, branch]);
-
-  const selectedIds = useMemo(() => new Set(selected.map((s) => s.id)), [selected]);
-
-  return (
-    <div className="space-y-2">
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder={
-          branch
-            ? "이름 또는 학부모 연락처 일부 (2자 이상)"
-            : "분원을 먼저 선택해주세요"
-        }
-        disabled={!branch}
-        className="block w-full min-h-[40px] rounded-md border border-[color:var(--border)] bg-bg-card px-3 text-[14px] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:ring-2 focus:ring-[color:var(--action)] disabled:bg-[color:var(--bg-muted)]"
-      />
-
-      {error && (
-        <div className="text-[12px] text-[color:var(--danger)]" role="alert">
-          {error}
-        </div>
-      )}
-
-      {query.trim().length >= 2 && (
-        <div className="rounded-md border border-[color:var(--border)] bg-bg-card max-h-60 overflow-y-auto">
-          {loading && (
-            <div className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
-              검색 중...
-            </div>
-          )}
-          {!loading && hits.length === 0 && !error && (
-            <div className="px-3 py-2 text-[13px] text-[color:var(--text-muted)]">
-              일치하는 학생이 없습니다
-            </div>
-          )}
-          {!loading &&
-            hits.map((h) => {
-              const already = selectedIds.has(h.id);
-              return (
-                <button
-                  type="button"
-                  key={h.id}
-                  disabled={already}
-                  onClick={() => {
-                    onAdd(h);
-                    setQuery("");
-                    setHits([]);
-                  }}
-                  className="block w-full text-left px-3 py-2 text-[14px] hover:bg-[color:var(--bg-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-[color:var(--text)]">
-                      {h.name}
-                    </span>
-                    <span className="text-[12px] text-[color:var(--text-muted)]">
-                      {h.school ?? "—"} · {h.grade ?? "—"} ·{" "}
-                      {h.parent_phone
-                        ? canRevealPhone
-                          ? formatPhone(h.parent_phone) || h.parent_phone
-                          : maskPhone(h.parent_phone)
-                        : "연락처 없음"}
-                    </span>
-                    {already && (
-                      <span className="ml-auto text-[12px] text-[color:var(--text-muted)]">
-                        이미 추가됨
-                      </span>
-                    )}
-                  </div>
-                </button>
-              );
-            })}
-        </div>
-      )}
-
+      {/* 선택된 학교 칩 (검정 active 톤) — X 로 개별 해제 */}
       {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
+        <div className="flex flex-wrap gap-1.5">
           {selected.map((s) => (
-            <span
-              key={s.id}
-              className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full bg-[color:var(--bg-muted)] text-[13px] text-[color:var(--text)] border border-[color:var(--border)]"
-            >
-              {s.name}
-              <span className="text-[11px] text-[color:var(--text-muted)]">
-                ({s.parent_phone
-                  ? canRevealPhone
-                    ? formatPhone(s.parent_phone) || s.parent_phone
-                    : maskPhone(s.parent_phone)
-                  : "—"})
-              </span>
-              <button
-                type="button"
-                onClick={() => onRemove(s.id)}
-                aria-label={`${s.name} 제거`}
-                className="ml-1 size-5 inline-flex items-center justify-center rounded-full hover:bg-[color:var(--bg-hover)] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
-              >
-                ×
-              </button>
-            </span>
+            <SelectedSchoolChip
+              key={s}
+              label={s}
+              onRemove={() => onToggle(s)}
+            />
           ))}
         </div>
       )}
@@ -1682,45 +1355,133 @@ function DirectStudentPicker({
 }
 
 /**
+ * 포함 학교 선택 칩 — 검정 active 톤, X 로 개별 해제.
+ * (제외 칩 ExcludeSchoolPanel 의 빨강·취소선 톤과 시각적으로 구분.)
+ */
+function SelectedSchoolChip({
+  label,
+  onRemove,
+}: {
+  label: string;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full bg-[color:var(--bg-muted)] text-[13px] font-medium text-[color:var(--text)] border border-[color:var(--border)]">
+      <span className="truncate max-w-[12rem]">{label}</span>
+      <button
+        type="button"
+        onClick={onRemove}
+        aria-label={`${label} 제거`}
+        className="ml-0.5 size-5 inline-flex items-center justify-center rounded-full text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+      >
+        <X className="size-3.5" strokeWidth={1.75} aria-hidden />
+      </button>
+    </span>
+  );
+}
+
+/**
+ * 담긴 학생 명단 검토 컴포넌트 (read-only review).
+ *
+ * 사용자 결정(2026-05): 빌더에서 free-form 학생 검색·추가 UI 는 제거한다.
+ * prefill(강좌별 발송 #5 / 종강 미등록 추적 #6 / 학생 직접 진입)로 이미 담긴
+ * 명단을 칩으로 보여주고, X 로 개별 제거만 가능하다. 추가 입력은 없음.
+ */
+function IncludeStudentReview({
+  students,
+  onRemove,
+  canRevealPhone,
+}: {
+  students: DirectStudent[];
+  onRemove: (id: string) => void;
+  canRevealPhone: boolean;
+}) {
+  if (students.length === 0) {
+    return (
+      <p className="text-[13px] text-[color:var(--text-muted)]">
+        담긴 학생이 없습니다.
+      </p>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {students.map((s) => (
+        <span
+          key={s.id}
+          className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full bg-[color:var(--bg-muted)] text-[13px] text-[color:var(--text)] border border-[color:var(--border)]"
+        >
+          <span className="font-medium">{s.name}</span>
+          <span className="text-[11px] text-[color:var(--text-muted)]">
+            (
+            {s.parent_phone
+              ? canRevealPhone
+                ? formatPhone(s.parent_phone) || s.parent_phone
+                : maskPhone(s.parent_phone)
+              : "—"}
+            )
+          </span>
+          <button
+            type="button"
+            onClick={() => onRemove(s.id)}
+            aria-label={`${s.name} 제거`}
+            className="ml-1 size-5 inline-flex items-center justify-center rounded-full hover:bg-[color:var(--bg-hover)] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
+          >
+            <X className="size-3.5" strokeWidth={1.75} aria-hidden />
+          </button>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
  * 학교별 제외 패널 (0076).
  *
- * 포함(schools) 의 GroupSchoolSearchPanel 과 동일한 학교 옵션 소스
- * (visibleSchoolOptions) 를 쓰되, "빼기" 의미가 한눈에 보이도록:
- *  - 선택된 학교 칩은 빨강 테두리 + 취소선 + X 제거 버튼.
- *  - 후보 리스트의 선택된 항목도 빨강 톤으로 표시.
+ * 포함(schools) 과 동일하게 학교 후보가 수백 개라, 칩-wall 대신 강사 선택과
+ * 같은 MultiSelectDropdown(평소 접힘 → 클릭 → 검색·스크롤·체크)으로 전환했다.
+ * 단 "빼기" 의미가 한눈에 보이도록 선택된 학교는 드롭다운 아래에 빨강 테두리 +
+ * 취소선 칩으로 노출하고 X 로 개별 해제한다.
  *
- * include 칩(검정 active)과 시각적으로 명확히 구분된다.
+ * include 패널(검정 active 칩)과 시각적으로 명확히 구분된다.
  */
 function ExcludeSchoolPanel({
   schoolOptions,
   selected,
-  query,
-  onQueryChange,
   onToggle,
   onRemove,
 }: {
   schoolOptions: string[];
   selected: string[];
-  query: string;
-  onQueryChange: (q: string) => void;
   onToggle: (s: string) => void;
   onRemove: (s: string) => void;
 }) {
-  const normalized = query.trim().toLowerCase();
-  const selectedSet = useMemo(() => new Set(selected), [selected]);
-  // 선택된 학교는 옵션에 없어도 칩으로 보여줘야 함 — 머지.
-  const merged = useMemo(() => {
+  // 선택된 학교는 옵션에 없어도 후보에 머지해 해제 가능하게 유지.
+  const dropdownOptions = useMemo(() => {
     const set = new Set(schoolOptions);
     for (const s of selected) set.add(s);
-    return Array.from(set);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
   }, [schoolOptions, selected]);
-  const filtered =
-    normalized.length === 0
-      ? merged
-      : merged.filter((s) => s.toLowerCase().includes(normalized));
 
   return (
     <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <MultiSelectDropdown
+          label="제외할 학교 선택"
+          options={dropdownOptions}
+          selected={selected}
+          onToggle={onToggle}
+          searchable
+          searchPlaceholder="제외할 학교명 검색 (예: 휘문, 단대부)"
+          emptyHint="표시할 학교가 없습니다"
+        />
+        {selected.length > 0 && (
+          <span className="text-[12px] text-[color:var(--text-muted)]">
+            {selected.length}개 학교 제외
+          </span>
+        )}
+      </div>
+
       {/* 선택된 제외 학교 칩 (빨강·취소선) */}
       {selected.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -1729,7 +1490,7 @@ function ExcludeSchoolPanel({
               key={s}
               className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full border border-[color:var(--danger)] bg-bg-card text-[13px] font-medium text-[color:var(--danger)]"
             >
-              <span className="line-through">{s}</span>
+              <span className="line-through truncate max-w-[12rem]">{s}</span>
               <button
                 type="button"
                 onClick={() => onRemove(s)}
@@ -1742,80 +1503,6 @@ function ExcludeSchoolPanel({
           ))}
         </div>
       )}
-
-      {/* 검색 입력 */}
-      <label className="relative block">
-        <span className="sr-only">제외할 학교 검색</span>
-        <Search
-          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
-          strokeWidth={1.75}
-          aria-hidden
-        />
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          placeholder="제외할 학교명 검색 (예: 휘문, 단대부)"
-          className="
-            w-full h-10 rounded-lg pl-9 pr-9
-            bg-bg-card border border-[color:var(--border)]
-            text-[14px] text-[color:var(--text)]
-            placeholder:text-[color:var(--text-dim)]
-            focus:outline-none focus:border-[color:var(--border-strong)]
-          "
-        />
-        {query.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onQueryChange("")}
-            aria-label="검색어 지우기"
-            className="
-              absolute right-2 top-1/2 -translate-y-1/2
-              inline-flex items-center justify-center size-6 rounded-md
-              text-[color:var(--text-muted)] hover:text-[color:var(--text)]
-              hover:bg-[color:var(--bg-hover)]
-            "
-          >
-            <X className="size-4" strokeWidth={1.75} aria-hidden />
-          </button>
-        )}
-      </label>
-
-      {/* 후보 리스트 — 선택 시 빨강 톤 */}
-      <div className="max-h-[280px] overflow-y-auto pr-1 rounded-lg bg-bg-card border border-[color:var(--border)] p-3">
-        {filtered.length === 0 ? (
-          <p className="text-[13px] text-[color:var(--text-muted)] py-2 text-center">
-            {normalized.length > 0
-              ? `"${query.trim()}" 와(과) 일치하는 학교가 없습니다.`
-              : "표시할 학교가 없습니다."}
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {filtered.map((s) => {
-              const active = selectedSet.has(s);
-              return (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => onToggle(s)}
-                  aria-pressed={active}
-                  className={`
-                    inline-flex items-center h-8 px-3 rounded-full
-                    text-[14px] font-medium border transition-colors
-                    ${
-                      active
-                        ? "border-[color:var(--danger)] bg-[color:var(--danger-bg)] text-[color:var(--danger)] line-through"
-                        : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--danger)] hover:text-[color:var(--danger)]"
-                    }
-                  `}
-                >
-                  {s}
-                </button>
-              );
-            })}
-          </div>
-        )}
-      </div>
     </div>
   );
 }
