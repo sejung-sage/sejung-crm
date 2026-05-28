@@ -351,8 +351,10 @@ export function ComposeStep3Preview({
         </div>
       )}
 
-      {/* 2 column — 좌: 메타 컨트롤 / 우: editable 미리보기(sticky) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-6 items-start">
+      {/* 2 column — 좌: 메타 컨트롤 / 우: editable 미리보기(sticky)
+          우측 480px: 말풍선 max-w-[85%] × 480 = 408px → 입력칸 ~370px
+          → 제목 40바이트(한글 20자 ~330px)·본문 한 줄 40바이트가 여유롭게 들어감. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_480px] gap-6 items-start">
         {/* 좌측 — 메타 컨트롤 */}
         <div className="space-y-4 min-w-0">
           {/* 템플릿 빠른 불러오기 (선택) */}
