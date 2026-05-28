@@ -790,6 +790,15 @@ export function GroupBuilder({
                   onToggle={(s) =>
                     toggleFromList(schools, s, (next) => setSchools(next))
                   }
+                  onSelectMany={(list) =>
+                    setSchools((prev) =>
+                      Array.from(new Set([...prev, ...list])),
+                    )
+                  }
+                  onClearMany={(list) => {
+                    const remove = new Set(list);
+                    setSchools((prev) => prev.filter((s) => !remove.has(s)));
+                  }}
                 />
               </div>
             </Field>
@@ -941,6 +950,12 @@ export function GroupBuilder({
                 onRemove={(s) =>
                   setExcludeSchools((prev) => prev.filter((x) => x !== s))
                 }
+                onClearMany={(list) => {
+                  const remove = new Set(list);
+                  setExcludeSchools((prev) =>
+                    prev.filter((x) => !remove.has(x)),
+                  );
+                }}
               />
             </Field>
 
@@ -1027,8 +1042,8 @@ export function GroupBuilder({
           </div>
         </div>
 
-        {/* 우측: 프리뷰 */}
-        <aside className="lg:sticky lg:top-6 h-fit">
+        {/* 우측: 프리뷰 + 선택 요약 */}
+        <aside className="lg:sticky lg:top-6 h-fit space-y-4">
           <div
             className={`
               relative rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4
@@ -1158,6 +1173,22 @@ export function GroupBuilder({
               비활성(탈퇴) · 수신거부 학생은 자동 제외됩니다.
             </p>
           </div>
+
+          {/* 선택 요약 — 어떤 조건이 들어갔고 무엇이 빠지는지 한눈에.
+              custom(고정 명단)은 조건이 없으므로 명단 수만 간단히 표기. */}
+          <SelectionSummary
+            isCustom={isCustom}
+            customCount={includeStudents.length}
+            grades={grades}
+            schools={schools}
+            unmappedSchool={unmappedSchool}
+            mappedSchool={mappedSchool}
+            statuses={statuses}
+            regions={regions}
+            subjects={subjects}
+            excludeSchools={excludeSchools}
+            excludeClasses={excludeClasses}
+          />
         </aside>
       </div>
 
@@ -1283,16 +1314,26 @@ function Chip({
  * (선택된 학교는 학년과 무관히 항상 후보에 남겨 해제 가능).
  * 선택된 학교가 옵션에 없어도(학년·지역 좁힘으로 빠짐) 칩과 드롭다운에서 유지.
  */
+// 선택 칩을 개별로 깔지, 요약 텍스트로 접을지 결정하는 임계값.
+// 이 수를 초과하면 460개 학교 칩-wall 을 막기 위해 "N개 선택됨" 요약으로 대체.
+const SCHOOL_CHIP_LIMIT = 20;
+
 function GroupSchoolSearchPanel({
   schoolOptions,
   selected,
   grades,
   onToggle,
+  onSelectMany,
+  onClearMany,
 }: {
   schoolOptions: string[];
   selected: string[];
   grades: Grade[];
   onToggle: (s: string) => void;
+  /** 드롭다운 "전체 선택" — 현재 보이는 옵션 목록을 일괄 추가. */
+  onSelectMany: (schools: string[]) => void;
+  /** 드롭다운 "전체 해제" — 현재 보이는 옵션 목록을 일괄 해제. */
+  onClearMany: (schools: string[]) => void;
 }) {
   // 선택된 학교는 옵션에 없어도 후보에 머지해 해제 가능하게 유지.
   const merged = useMemo(() => {
@@ -1315,6 +1356,9 @@ function GroupSchoolSearchPanel({
     return [...list].sort((a, b) => a.localeCompare(b, "ko"));
   }, [merged, allowedLevels, selected]);
 
+  // 선택 수가 많으면 개별 칩 대신 요약 (460개 칩-wall 방지).
+  const tooMany = selected.length > SCHOOL_CHIP_LIMIT;
+
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -1323,6 +1367,8 @@ function GroupSchoolSearchPanel({
           options={dropdownOptions}
           selected={selected}
           onToggle={onToggle}
+          onSelectAll={(visible) => onSelectMany(visible)}
+          onClearAll={(visible) => onClearMany(visible)}
           searchable
           searchPlaceholder="학교명 검색 (예: 휘문, 단대부)"
           emptyHint="표시할 학교가 없습니다"
@@ -1338,18 +1384,32 @@ function GroupSchoolSearchPanel({
         </span>
       </div>
 
-      {/* 선택된 학교 칩 (검정 active 톤) — X 로 개별 해제 */}
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {selected.map((s) => (
-            <SelectedSchoolChip
-              key={s}
-              label={s}
-              onRemove={() => onToggle(s)}
-            />
-          ))}
-        </div>
-      )}
+      {/* 선택된 학교 표시.
+          - 적으면(임계값 이하) 개별 칩(검정 active 톤) — X 로 개별 해제.
+          - 많으면 "N개 선택됨" 요약 + "전체 해제" — 칩-wall 방지. */}
+      {selected.length > 0 &&
+        (tooMany ? (
+          <div className="inline-flex items-center gap-2 h-8 pl-3 pr-1.5 rounded-full bg-[color:var(--bg-muted)] text-[13px] font-medium text-[color:var(--text)] border border-[color:var(--border)]">
+            <span>학교 {selected.length.toLocaleString()}개 선택됨</span>
+            <button
+              type="button"
+              onClick={() => onClearMany(selected)}
+              className="ml-0.5 inline-flex items-center h-6 px-2 rounded-full text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+            >
+              전체 해제
+            </button>
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {selected.map((s) => (
+              <SelectedSchoolChip
+                key={s}
+                label={s}
+                onRemove={() => onToggle(s)}
+              />
+            ))}
+          </div>
+        ))}
     </div>
   );
 }
@@ -1450,11 +1510,14 @@ function ExcludeSchoolPanel({
   selected,
   onToggle,
   onRemove,
+  onClearMany,
 }: {
   schoolOptions: string[];
   selected: string[];
   onToggle: (s: string) => void;
   onRemove: (s: string) => void;
+  /** 드롭다운 "전체 해제" — 현재 보이는 옵션 목록을 일괄 해제. */
+  onClearMany: (schools: string[]) => void;
 }) {
   // 선택된 학교는 옵션에 없어도 후보에 머지해 해제 가능하게 유지.
   const dropdownOptions = useMemo(() => {
@@ -1462,6 +1525,10 @@ function ExcludeSchoolPanel({
     for (const s of selected) set.add(s);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
   }, [schoolOptions, selected]);
+
+  // 제외 영역은 "전체 선택"(전원 제외)이 의미 없으므로 onSelectAll 미전달.
+  // "전체 해제"만 노출해 일괄 취소만 돕는다.
+  const tooMany = selected.length > SCHOOL_CHIP_LIMIT;
 
   return (
     <div className="space-y-2">
@@ -1471,6 +1538,7 @@ function ExcludeSchoolPanel({
           options={dropdownOptions}
           selected={selected}
           onToggle={onToggle}
+          onClearAll={(visible) => onClearMany(visible)}
           searchable
           searchPlaceholder="제외할 학교명 검색 (예: 휘문, 단대부)"
           emptyHint="표시할 학교가 없습니다"
@@ -1482,8 +1550,22 @@ function ExcludeSchoolPanel({
         )}
       </div>
 
-      {/* 선택된 제외 학교 칩 (빨강·취소선) */}
-      {selected.length > 0 && (
+      {/* 선택된 제외 학교 표시 — 많으면 요약(빨강 톤) + 전체 해제 */}
+      {selected.length > 0 && tooMany && (
+        <div className="inline-flex items-center gap-2 h-8 pl-3 pr-1.5 rounded-full border border-[color:var(--danger)] bg-bg-card text-[13px] font-medium text-[color:var(--danger)]">
+          <span>학교 {selected.length.toLocaleString()}개 제외</span>
+          <button
+            type="button"
+            onClick={() => onClearMany(selected)}
+            className="ml-0.5 inline-flex items-center h-6 px-2 rounded-full text-[12px] text-[color:var(--danger)] hover:bg-[color:var(--danger-bg)]"
+          >
+            전체 해제
+          </button>
+        </div>
+      )}
+
+      {/* 선택된 제외 학교 칩 (빨강·취소선) — 적을 때만 개별 노출 */}
+      {selected.length > 0 && !tooMany && (
         <div className="flex flex-wrap gap-1.5">
           {selected.map((s) => (
             <span
@@ -1601,4 +1683,215 @@ function ExcludeClassPicker({
       )}
     </div>
   );
+}
+
+/**
+ * 선택 요약 패널 (우측 컬럼, 수신자 미리보기 카드 아래).
+ *
+ * 현재 빌더의 필터 state 를 그대로 읽어 "무엇이 들어갔고(포함) 무엇이 빠지는지
+ * (제외)" 를 한 카드에 정리한다. 40~60대 사용자가 발송 전에 조건을 눈으로 확인하는
+ * 용도 — 포함은 기본 톤, 제외는 --danger 톤으로 시각 구분한다.
+ *
+ * 표시 규칙:
+ *  - 설정 안 한 조건은 "전체"/"없음" 으로 명시 (빈칸으로 두지 않음).
+ *  - 학교가 많으면(임계값 초과) 앞 몇 개 + "외 N개" 로 줄여 칩-wall 방지.
+ *  - custom(고정 명단)은 조건이 없으므로 담긴 명단 수만 간단히 보여준다.
+ */
+function SelectionSummary({
+  isCustom,
+  customCount,
+  grades,
+  schools,
+  unmappedSchool,
+  mappedSchool,
+  statuses,
+  regions,
+  subjects,
+  excludeSchools,
+  excludeClasses,
+}: {
+  isCustom: boolean;
+  customCount: number;
+  grades: Grade[];
+  schools: string[];
+  unmappedSchool: boolean;
+  mappedSchool: boolean;
+  statuses: StudentStatus[];
+  regions: string[];
+  subjects: string[];
+  excludeSchools: string[];
+  excludeClasses: ClassOption[];
+}) {
+  if (isCustom) {
+    return (
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-2">
+        <h2 className="text-[13px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+          선택 요약
+        </h2>
+        <p className="text-[14px] text-[color:var(--text)]">
+          직접 담은 명단{" "}
+          <strong className="tabular-nums">
+            {customCount.toLocaleString()}명
+          </strong>
+        </p>
+        <p className="text-[12px] text-[color:var(--text-dim)] leading-relaxed">
+          고정 명단 그룹이라 조건 필터는 적용되지 않습니다.
+        </p>
+      </div>
+    );
+  }
+
+  // 학교 요약 — 등록/미등록 토글이 켜져 있으면 그쪽 시맨틱을 우선 표기.
+  const schoolNote = mappedSchool
+    ? "학교 등록 학생만"
+    : unmappedSchool
+      ? "학교 미등록 학생만"
+      : null;
+
+  return (
+    <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4">
+      <h2 className="text-[13px] font-medium uppercase tracking-wide text-[color:var(--text-muted)]">
+        선택 요약
+      </h2>
+
+      {/* 포함 조건 */}
+      <dl className="space-y-3">
+        <SummaryRow label="학년">
+          {grades.length === 0 ? (
+            <SummaryMuted>전 학년</SummaryMuted>
+          ) : (
+            <SummaryChips items={grades} />
+          )}
+        </SummaryRow>
+
+        <SummaryRow label="학교">
+          {schools.length === 0 ? (
+            <SummaryMuted>{schoolNote ?? "전 학교"}</SummaryMuted>
+          ) : (
+            <span className="text-[13px] text-[color:var(--text)]">
+              {summarizeList(schools)}
+            </span>
+          )}
+          {schoolNote && schools.length > 0 && (
+            <p className="mt-1 text-[12px] text-[color:var(--text-muted)]">
+              {schoolNote}
+            </p>
+          )}
+        </SummaryRow>
+
+        <SummaryRow label="재원 상태">
+          {statuses.length === 0 ? (
+            <SummaryMuted>재원생 (기본)</SummaryMuted>
+          ) : (
+            <SummaryChips items={statuses} />
+          )}
+        </SummaryRow>
+
+        <SummaryRow label="지역">
+          {regions.length === 0 ? (
+            <SummaryMuted>전 지역</SummaryMuted>
+          ) : (
+            <SummaryChips items={regions} />
+          )}
+        </SummaryRow>
+
+        <SummaryRow label="과목">
+          {subjects.length === 0 ? (
+            <SummaryMuted>전 과목</SummaryMuted>
+          ) : (
+            <SummaryChips items={subjects} />
+          )}
+        </SummaryRow>
+      </dl>
+
+      {/* 제외 조건 — --danger 톤으로 포함과 시각 구분 */}
+      <div className="pt-3 border-t border-[color:var(--border)]">
+        <p className="flex items-center gap-1 text-[12px] font-medium uppercase tracking-wide text-[color:var(--danger)]">
+          <MinusCircle className="size-3.5" strokeWidth={2} aria-hidden />
+          제외
+        </p>
+        <dl className="mt-3 space-y-3">
+          <SummaryRow label="제외 학교" danger>
+            {excludeSchools.length === 0 ? (
+              <SummaryMuted>없음</SummaryMuted>
+            ) : (
+              <span className="text-[13px] text-[color:var(--danger)]">
+                {summarizeList(excludeSchools)}
+              </span>
+            )}
+          </SummaryRow>
+
+          <SummaryRow label="제외 강좌" danger>
+            {excludeClasses.length === 0 ? (
+              <SummaryMuted>없음</SummaryMuted>
+            ) : (
+              <span className="text-[13px] text-[color:var(--danger)]">
+                {summarizeList(excludeClasses.map((c) => c.name))}
+              </span>
+            )}
+          </SummaryRow>
+        </dl>
+      </div>
+    </div>
+  );
+}
+
+/** 요약 한 줄 (라벨 + 값). danger 면 라벨도 빨강 톤. */
+function SummaryRow({
+  label,
+  danger,
+  children,
+}: {
+  label: string;
+  danger?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1">
+      <dt
+        className={`text-[12px] font-medium ${
+          danger
+            ? "text-[color:var(--danger)]"
+            : "text-[color:var(--text-muted)]"
+        }`}
+      >
+        {label}
+      </dt>
+      <dd>{children}</dd>
+    </div>
+  );
+}
+
+/** "설정 안 함" 값을 위한 회색 텍스트. */
+function SummaryMuted({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="text-[13px] text-[color:var(--text-dim)]">{children}</span>
+  );
+}
+
+/** 소수 항목을 작은 칩으로 나열 (학년·상태·지역·과목용). */
+function SummaryChips({ items }: { items: string[] }) {
+  return (
+    <div className="flex flex-wrap gap-1">
+      {items.map((it) => (
+        <span
+          key={it}
+          className="inline-flex items-center h-6 px-2 rounded-full bg-[color:var(--bg-muted)] text-[12px] font-medium text-[color:var(--text)] border border-[color:var(--border)]"
+        >
+          {it}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/**
+ * 학교/강좌처럼 수가 많을 수 있는 목록을 "휘문고, 단대부고 외 M개" 로 축약.
+ * 임계값(4개) 이하면 전부 나열, 초과면 앞 2개 + "외 N개".
+ */
+function summarizeList(items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length <= 4) return items.join(", ");
+  const head = items.slice(0, 2).join(", ");
+  return `${head} 외 ${items.length - 2}개`;
 }

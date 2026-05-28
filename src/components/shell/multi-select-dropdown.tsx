@@ -28,6 +28,8 @@ export function MultiSelectDropdown({
   emptyHint,
   searchable = false,
   searchPlaceholder,
+  onSelectAll,
+  onClearAll,
 }: {
   /** 트리거 버튼 라벨 ("강사 선택" 등). */
   label: string;
@@ -43,6 +45,18 @@ export function MultiSelectDropdown({
   searchable?: boolean;
   /** 검색창 placeholder. searchable=true 일 때만 의미 있음. */
   searchPlaceholder?: string;
+  /**
+   * "전체 선택" 액션. 지정 시 패널 상단(옵션 목록 위)에 "전체 선택" 버튼 노출.
+   * 인자는 **현재 드롭다운에 보이는(검색 적용된) 옵션**. 부모가 이 목록만
+   * 일괄 선택한다. 미지정(기본)이면 버튼 자체가 렌더되지 않아 다른 사용처
+   * (강사 선택 등)에는 영향이 없다.
+   */
+  onSelectAll?: (visibleOptions: string[]) => void;
+  /**
+   * "전체 해제" 액션. 지정 시 "전체 선택"과 함께 노출.
+   * 인자는 현재 드롭다운에 보이는(검색 적용된) 옵션. 부모가 이 목록만 해제한다.
+   */
+  onClearAll?: (visibleOptions: string[]) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -158,6 +172,40 @@ export function MultiSelectDropdown({
                   </button>
                 )}
               </label>
+            </div>
+          )}
+          {(onSelectAll || onClearAll) && filtered.length > 0 && (
+            <div className="flex items-center gap-1 px-2 py-1.5 border-b border-[color:var(--border)]">
+              {onSelectAll && (
+                <button
+                  type="button"
+                  onClick={() => onSelectAll(filtered)}
+                  className="
+                    inline-flex items-center h-7 px-2 rounded-md
+                    text-[12px] font-medium text-[color:var(--text)]
+                    hover:bg-[color:var(--bg-hover)]
+                    transition-colors
+                  "
+                >
+                  {normalized.length > 0
+                    ? `검색 결과 ${filtered.length}개 모두 선택`
+                    : "전체 선택"}
+                </button>
+              )}
+              {onClearAll && (
+                <button
+                  type="button"
+                  onClick={() => onClearAll(filtered)}
+                  className="
+                    inline-flex items-center h-7 px-2 rounded-md
+                    text-[12px] font-medium text-[color:var(--text-muted)]
+                    hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]
+                    transition-colors
+                  "
+                >
+                  전체 해제
+                </button>
+              )}
             </div>
           )}
           <div className="max-h-64 overflow-y-auto p-1">
