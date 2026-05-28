@@ -209,14 +209,17 @@ export function PhonePreviewCard({
 
       {/* ── 말풍선 영역 ───────────────────────────────── */}
       <div className="px-4 py-5 space-y-3 bg-bg-card min-h-[280px]">
-        {/* 본문 말풍선 — 좌측 정렬 */}
+        {/* 본문 말풍선 — 좌측 정렬.
+            editable: 콘텐츠가 짧아도 입력 폭(40바이트 한 줄) 확보를 위해 항상 90% 채움.
+            read-only: 채팅 말풍선처럼 콘텐츠에 맞춰 줄어듦 (max-w-[85%]). */}
         <div className="flex justify-start">
           <div
-            className="
-              max-w-[85%] rounded-2xl rounded-tl-md
+            className={`
+              ${editable ? "w-full max-w-[90%]" : "max-w-[85%]"}
+              rounded-2xl rounded-tl-md
               bg-[color:var(--bg-muted)]
               px-4 py-3 space-y-2
-            "
+            `}
           >
             {subjectVisible && (
               <SubjectField
@@ -272,15 +275,16 @@ export function PhonePreviewCard({
           </div>
         )}
 
-        {/* 광고 footer — 별도 말풍선 */}
+        {/* 광고 footer — 별도 말풍선. 본문 말풍선과 폭 통일. */}
         {isAd && footer && (
           <div className="flex justify-start">
             <div
-              className="
-                max-w-[85%] rounded-2xl rounded-tl-md
+              className={`
+                ${editable ? "w-full max-w-[90%]" : "max-w-[85%]"}
+                rounded-2xl rounded-tl-md
                 bg-[color:var(--bg-muted)]
                 px-4 py-2.5 space-y-1
-              "
+              `}
             >
               <FooterField
                 academyName={footer.academyName}
