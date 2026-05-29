@@ -7,6 +7,7 @@ import {
   MapPin,
   UserCircle2,
   Building2,
+  Megaphone,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
@@ -77,6 +78,15 @@ const NAV_ITEMS: NavItem[] = [
       { href: "/templates", label: "문자 & 알림톡 템플릿" },
       { href: "/campaigns", label: "문자 발송 내역" },
     ],
+  },
+  {
+    // 설명회 신청 시스템 (UI MOCKUP) — master/admin 만 노출.
+    // 원장이 어드민에서 행사를 만들면 학부모 공개 신청 링크가 자동 생성되고
+    // 그 링크를 문자로 보내는 흐름. backend 는 향후 별도 설계.
+    href: "/seminars",
+    label: "설명회",
+    icon: Megaphone,
+    roles: ["master", "admin"],
   },
   // 엑셀 가져오기 — 2026-05-21 잠시 숨김 (Phase 1 고도화 후 재노출 예정).
   // 백엔드 route(/admin/import) + actions 는 보존 — 메뉴만 미노출.

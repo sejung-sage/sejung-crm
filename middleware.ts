@@ -3,10 +3,11 @@
  *
  * 보호 범위:
  *   - `/`, `/students/*`, `/groups/*`, `/templates/*`, `/campaigns/*`,
- *     `/accounts/*`, `/me`, `/admin/*`
+ *     `/accounts/*`, `/me`, `/admin/*`, `/seminars/*`
  *
  * 제외:
  *   - `/login`, `/auth/*` (비밀번호 재설정 콜백 등), 정적 자산 전반
+ *   - `/s/*` (학부모용 공개 설명회 신청 페이지 — NO AUTH)
  *
  * 동작:
  *   1) dev-seed 모드: 세션 검사 스킵. 자동 로그인 시뮬레이션으로 간주하고 통과.
@@ -139,8 +140,9 @@ export const config = {
      *   - _next/image   (이미지 최적화)
      *   - favicon.ico   (정적)
      *   - login, auth/* (비인증 경로)
+     *   - s/*           (학부모용 공개 설명회 신청 페이지 — NO AUTH)
      *   - 확장자 있는 자산(.png, .svg, .ico 등)
      */
-    "/((?!api|_next/static|_next/image|favicon.ico|login|auth|.*\\..*).*)",
+    "/((?!api|_next/static|_next/image|favicon.ico|login|auth|s/|.*\\..*).*)",
   ],
 };
