@@ -25,7 +25,9 @@ export function NewSeminarForm({ canPickBranch, defaultBranch }: Props) {
 
   const [name, setName] = useState("");
   const [branch, setBranch] = useState<Branch>(defaultBranch);
-  const [startsAt, setStartsAt] = useState("");
+  // 설명회는 하루만 진행. 날짜 + 시작 시간 분리 입력.
+  const [seminarDate, setSeminarDate] = useState("");
+  const [startTime, setStartTime] = useState("");
   const [venue, setVenue] = useState("");
   const [capacity, setCapacity] = useState("");
   const [deadline, setDeadline] = useState("");
@@ -97,14 +99,26 @@ export function NewSeminarForm({ canPickBranch, defaultBranch }: Props) {
       </Field>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Field label="진행 일시" hint="비워두면 추후 안내">
-          <input
-            type="datetime-local"
-            value={startsAt}
-            onChange={(e) => setStartsAt(e.target.value)}
-            className={inputClass}
-          />
-        </Field>
+        {/* 설명회는 하루만 진행. 날짜 + 시작 시간만 받는다(종료시간 X). */}
+        <div className="grid grid-cols-2 gap-2">
+          <Field label="설명회 날짜" hint="하루만 진행">
+            <input
+              type="date"
+              value={seminarDate}
+              onChange={(e) => setSeminarDate(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+
+          <Field label="시작 시간">
+            <input
+              type="time"
+              value={startTime}
+              onChange={(e) => setStartTime(e.target.value)}
+              className={inputClass}
+            />
+          </Field>
+        </div>
 
         <Field label="신청 마감일시" hint="비워두면 행사 직전까지 신청 가능">
           <input
