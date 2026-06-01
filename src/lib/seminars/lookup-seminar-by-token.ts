@@ -73,7 +73,10 @@ async function lookupFromSupabase(
 
     // RPC 는 SETOF 반환 — TypeScript 시그니처는 array.
     // Supabase v2 의 RPC 타입 추론이 우리 Database 정의와 잘 안 붙어 좁은 cast 사용.
-    const rpcFn = supabase.rpc as unknown as (
+    // ⚠️ `.bind(supabase)` 필수 — `supabase.rpc` 를 그냥 변수에 담아 호출하면
+    // `this` 바인딩이 깨져 클라이언트 내부 `this.rest` 접근 시 TypeError.
+    // (dev 서버에선 우연히 동작하나 Next prod SSR 번들에선 즉시 터진다.)
+    const rpcFn = supabase.rpc.bind(supabase) as unknown as (
       fn: "lookup_seminar_by_token",
       params: { p_token: string },
     ) => Promise<{

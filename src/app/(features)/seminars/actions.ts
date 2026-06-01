@@ -548,7 +548,9 @@ export async function submitSignupAction(
   const userAgent = hdrs.get("user-agent") ?? null;
 
   const supabase = await createSupabaseServerClient();
-  const rpcFn = supabase.rpc as unknown as (
+  // ⚠️ `.bind(supabase)` 필수 — 변수에 담아 호출하면 `this` 바인딩 깨져
+  // 클라이언트 내부 `this.rest` 가 undefined 가 되어 TypeError. dev 우연 동작.
+  const rpcFn = supabase.rpc.bind(supabase) as unknown as (
     fn: "signup_for_seminar",
     params: {
       p_token: string;
