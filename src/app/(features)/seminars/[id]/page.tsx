@@ -1,12 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { ChevronLeft, Send, Calendar, MapPin, Users, User } from "lucide-react";
+import { ChevronLeft, Send, Calendar, MapPin, Users } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
-import {
-  findMockSeminarById,
-  listMockSignups,
-  buildPublicSignupUrl,
-} from "@/lib/seminars/dev-seed";
+import { getSeminar } from "@/lib/seminars/get-seminar";
+import { listSignups } from "@/lib/seminars/list-signups";
 import { BranchBadge } from "@/components/groups/branch-badge";
 import { SeminarStatusBadge } from "@/components/seminars/seminar-status-badge";
 import { CopyLinkButton } from "@/components/seminars/copy-link-button";
@@ -14,15 +11,14 @@ import { PublicLinkInput } from "@/components/seminars/public-link-input";
 import { SignupsTable } from "@/components/seminars/signups-table";
 import { SeminarDetailActions } from "@/components/seminars/seminar-detail-actions";
 import { formatKstDateTime } from "@/lib/datetime";
+import type { Branch } from "@/config/branches";
 
 /**
  * 설명회 상세 + 신청 명단 (어드민) — `/seminars/[id]`
  *
- * ⚠️ UI MOCKUP ONLY. 백엔드/DB 일체 미연동.
- *
  * 권한: master / admin.
  * - 학부모 전화 평문 노출은 master 만.
- * - admin 도 본인 분원이 아니면 접근 불가(여기서는 시연용으로 분원 제약 생략).
+ * - admin 도 본인 분원이 아니면 접근 불가(RLS 가 1차 차단; 여기서도 확인).
  */
 export default async function SeminarDetailPage({
   params,
@@ -37,12 +33,20 @@ export default async function SeminarDetailPage({
     redirect("/");
   }
 
-  const seminar = findMockSeminarById(id);
+  const seminar = await getSeminar(id);
   if (!seminar) notFound();
 
-  const signups = listMockSignups(seminar.id);
-  const activeCount = signups.filter((s) => s.status === "active").length;
-  const publicPath = buildPublicSignupUrl(seminar.token);
+  // admin 은 본인 분원만.
+  if (
+    currentUser.role === "admin" &&
+    currentUser.branch !== seminar.branch
+  ) {
+    redirect("/seminars");
+  }
+
+  const signups = await listSignups(seminar.id);
+  const activeCount = signups.filter((s) => s.status === "signed").length;
+  const publicPath = `/s/${seminar.link_token}`;
   const canRevealPhone = currentUser.role === "master";
 
   return (
@@ -67,13 +71,13 @@ export default async function SeminarDetailPage({
               <h1 className="text-[24px] font-semibold leading-tight text-[color:var(--text)]">
                 {seminar.name}
               </h1>
-              <BranchBadge branch={seminar.branch} />
+              <BranchBadge branch={seminar.branch as Branch} />
               <SeminarStatusBadge status={seminar.status} />
             </div>
 
             <dl className="flex flex-wrap items-center gap-x-6 gap-y-2 pt-1 text-[14px]">
               <MetaItem icon={Calendar} label="일시">
-                {formatKstDateTime(seminar.starts_at)}
+                {formatKstDateTime(seminar.held_at)}
               </MetaItem>
               {seminar.venue && (
                 <MetaItem icon={MapPin} label="장소">
@@ -82,9 +86,6 @@ export default async function SeminarDetailPage({
               )}
               <MetaItem icon={Users} label="정원">
                 {seminar.capacity ? `${seminar.capacity}명` : "무제한"}
-              </MetaItem>
-              <MetaItem icon={User} label="작성자">
-                {seminar.created_by_name}
               </MetaItem>
             </dl>
 
@@ -103,7 +104,7 @@ export default async function SeminarDetailPage({
               <div className="text-[13px] text-[color:var(--text-muted)]">
                 <span className="mr-2">신청 마감</span>
                 <span className="tabular-nums text-[color:var(--text)]">
-                  {formatKstDateTime(seminar.application_deadline)}
+                  {formatKstDateTime(seminar.signup_closes_at)}
                 </span>
               </div>
               <div className="text-[13px] text-[color:var(--text-muted)]">
@@ -161,14 +162,6 @@ export default async function SeminarDetailPage({
         </div>
       </section>
 
-      {/* 데이터 출처 안내 */}
-      <div
-        role="note"
-        className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-4 py-2.5 text-[13px] text-[color:var(--text-muted)]"
-      >
-        UI 시연용 목 데이터입니다. 정식 DB·발송·다운로드 연동은 운영자 확정 후 진행됩니다.
-      </div>
-
       {/* 신청 명단 */}
       <section className="space-y-3">
         <div className="flex items-end justify-between">
@@ -179,7 +172,11 @@ export default async function SeminarDetailPage({
             신청 시각 최신순. 취소된 신청은 회색으로 표시됩니다.
           </p>
         </div>
-        <SignupsTable signups={signups} canRevealPhone={canRevealPhone} />
+        <SignupsTable
+          seminarId={seminar.id}
+          signups={signups}
+          canRevealPhone={canRevealPhone}
+        />
       </section>
     </div>
   );

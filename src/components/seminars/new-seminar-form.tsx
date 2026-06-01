@@ -4,12 +4,19 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { BRANCHES, type Branch } from "@/config/branches";
 import { useToast } from "@/components/ui/toast";
+import { createSeminarAction } from "@/app/(features)/seminars/actions";
+import {
+  combineKstDateTime,
+  datetimeLocalToKstIso,
+} from "@/lib/seminars/kst-datetime";
 
 /**
- * 새 설명회 생성 폼 — UI MOCKUP ONLY.
+ * 새 설명회 생성 폼.
  *
- * 저장 시 실제 DB 호출 없이 500ms 대기 → toast → `/seminars` 로 이동.
- * 모든 필드는 클라이언트에서 가벼운 검증만 수행 (이름 필수).
+ * 저장 시 `createSeminarAction` 호출 → 생성된 설명회 상세(`/seminars/[id]`)로 이동.
+ * 학부모 공개 토큰은 상세 페이지에서 확인할 수 있다.
+ *
+ * 클라이언트 단 검증은 최소(이름 필수)만. 서버에서 Zod 재검증.
  */
 interface Props {
   /** master 면 분원 선택 가능. admin/manager 등은 본인 분원 고정. */
@@ -42,11 +49,45 @@ export function NewSeminarForm({ canPickBranch, defaultBranch }: Props) {
       return;
     }
     setNameError(null);
+
+    const heldAt = combineKstDateTime(seminarDate, startTime);
+    const signupClosesAt = datetimeLocalToKstIso(deadline);
+    const capacityValue = capacity.trim()
+      ? Number.parseInt(capacity.trim(), 10)
+      : null;
+    const capacityFinal =
+      capacityValue !== null && !Number.isNaN(capacityValue)
+        ? capacityValue
+        : null;
+
     startTransition(async () => {
-      // 목 처리 — 실제 저장 없음
-      await new Promise((r) => setTimeout(r, 500));
-      showToast("success", "설명회가 생성되었습니다");
-      router.push("/seminars");
+      const result = await createSeminarAction({
+        name: trimmed,
+        branch,
+        held_at: heldAt,
+        venue: venue.trim() || null,
+        capacity: capacityFinal,
+        signup_opens_at: null,
+        signup_closes_at: signupClosesAt,
+        description: description.trim() || null,
+      });
+
+      switch (result.status) {
+        case "success":
+          showToast("success", "설명회가 생성되었습니다");
+          router.push(`/seminars/${result.id}`);
+          break;
+        case "dev_seed_mode":
+          showToast(
+            "success",
+            "개발 시드 모드입니다. 실제 저장은 일어나지 않았습니다",
+          );
+          router.push("/seminars");
+          break;
+        case "failed":
+          showToast("error", result.reason ?? "저장에 실패했습니다");
+          break;
+      }
     });
   };
 
@@ -136,7 +177,7 @@ export function NewSeminarForm({ canPickBranch, defaultBranch }: Props) {
             onChange={(e) => setVenue(e.target.value)}
             placeholder="예: 대치 본원 3층 대강의실"
             className={inputClass}
-            maxLength={120}
+            maxLength={80}
           />
         </Field>
 
@@ -161,12 +202,12 @@ export function NewSeminarForm({ canPickBranch, defaultBranch }: Props) {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={5}
-          maxLength={1000}
+          maxLength={2000}
           className={`${inputClass} h-auto py-2 resize-y leading-relaxed`}
           placeholder="안내문을 입력해 주세요."
         />
         <div className="mt-1 text-right text-[12px] text-[color:var(--text-dim)]">
-          {description.length} / 1000
+          {description.length} / 2000
         </div>
       </Field>
 

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
-import { findMockSeminarByToken } from "@/lib/seminars/dev-seed";
-import type { MockSeminar } from "@/lib/seminars/dev-seed";
+import { lookupSeminarByToken } from "@/lib/seminars/lookup-seminar-by-token";
+import type { LookupSeminarByTokenResult } from "@/types/database";
 import { ParentSignupFlow } from "@/components/seminars/parent-signup-flow";
 import { formatKstDateTime } from "@/lib/datetime";
 import { AlertCircle, Calendar, MapPin } from "lucide-react";
@@ -13,41 +13,28 @@ export const metadata: Metadata = {
 /**
  * 학부모 공개 설명회 신청 페이지 — `/s/[token]`
  *
- * ⚠️ UI MOCKUP ONLY. 백엔드/DB 일체 미연동.
- *
  * - **인증 없음**. middleware.ts 의 matcher 에서 `/s/*` 가 이미 제외돼 있음.
  * - **모바일 우선**. 단일 컬럼, 최대 480px, 터치 영역 48px+.
- * - 상태 분기는 `?state=closed|ended|duplicate|notfound` 쿼리로 시연 강제 가능.
- *   실제 운영에서는 seminar.status / 신청 마감 / 중복 신청 여부 등으로 결정됨.
- * - 학원 BI 없음 — 텍스트 로고만 (요구사항).
+ * - 데이터: `lookupSeminarByToken(token)` (capacity / 신청수는 비공개).
+ * - 상태 분기는 seminar.status + signup_opens_at/closes_at 으로 결정.
+ *   ParentSignupFlow 내부에서 RPC 가 'closed'/'ended'/'cancelled' 를 반환하면
+ *   다시 forced state 로 전환된다.
  */
 type Search = Record<string, string | string[] | undefined>;
-type ForcedState = "closed" | "ended" | "duplicate" | "notfound" | null;
 
 const INQUIRY_PHONE = "02-501-0000"; // 데모용 — 향후 분원별 문의번호로 교체
 
 export default async function PublicSeminarPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ token: string }>;
   searchParams: Promise<Search>;
 }) {
   const { token } = await params;
-  const raw = await searchParams;
-  const stateParam = (Array.isArray(raw.state) ? raw.state[0] : raw.state) ?? null;
-  const forced: ForcedState =
-    stateParam === "closed" ||
-    stateParam === "ended" ||
-    stateParam === "duplicate" ||
-    stateParam === "notfound"
-      ? stateParam
-      : null;
 
-  const seminar = findMockSeminarByToken(token);
+  const seminar = await lookupSeminarByToken(token);
 
-  // 강제 notfound 또는 진짜 없는 토큰
-  if (forced === "notfound" || !seminar) {
+  if (!seminar) {
     return (
       <PublicShell>
         <StatusCard
@@ -59,16 +46,20 @@ export default async function PublicSeminarPage({
     );
   }
 
-  // 실제 상태(open/closed/ended/cancelled) → 학부모용 카드 매핑
-  const effectiveState: "open" | "closed" | "ended" | "cancelled" =
-    forced === "closed"
-      ? "closed"
-      : forced === "ended"
-        ? "ended"
-        : seminar.status;
+  // 실제 상태 → 학부모용 카드 매핑.
+  // 신청 창(window) 밖이면 ended 로 분류해 안내.
+  const now = Date.now();
+  const opensAt = seminar.signup_opens_at
+    ? new Date(seminar.signup_opens_at).getTime()
+    : null;
+  const closesAt = seminar.signup_closes_at
+    ? new Date(seminar.signup_closes_at).getTime()
+    : null;
 
-  // 상태 분기 — 폼 노출 여부 결정
-  if (effectiveState === "closed") {
+  const beforeOpens = opensAt !== null && now < opensAt;
+  const afterCloses = closesAt !== null && now > closesAt;
+
+  if (seminar.status === "closed") {
     return (
       <PublicShell>
         <SeminarHeader seminar={seminar} />
@@ -81,7 +72,7 @@ export default async function PublicSeminarPage({
     );
   }
 
-  if (effectiveState === "ended") {
+  if (seminar.status === "ended" || afterCloses) {
     return (
       <PublicShell>
         <SeminarHeader seminar={seminar} />
@@ -94,7 +85,7 @@ export default async function PublicSeminarPage({
     );
   }
 
-  if (effectiveState === "cancelled") {
+  if (seminar.status === "cancelled") {
     return (
       <PublicShell>
         <SeminarHeader seminar={seminar} />
@@ -107,14 +98,13 @@ export default async function PublicSeminarPage({
     );
   }
 
-  // 강제 duplicate (이미 신청한 경우 시뮬레이션)
-  if (forced === "duplicate") {
+  if (beforeOpens) {
     return (
       <PublicShell>
         <SeminarHeader seminar={seminar} />
         <StatusCard
-          title="이미 신청하셨습니다"
-          message="이 번호로 이미 신청이 완료되어 있습니다. 안내 문자를 확인해 주세요. 신청 내용 변경은 학원에 문의 부탁드립니다."
+          title="신청 시작 전입니다"
+          message={`신청은 ${formatKstDateTime(seminar.signup_opens_at)} 부터 가능합니다. 시간 맞춰 다시 접속해 주세요.`}
           inquiryPhone={INQUIRY_PHONE}
         />
       </PublicShell>
@@ -136,7 +126,11 @@ export default async function PublicSeminarPage({
 
       <hr className="border-[color:var(--border-strong)]" />
 
-      <ParentSignupFlow seminar={seminar} inquiryPhone={INQUIRY_PHONE} />
+      <ParentSignupFlow
+        token={token}
+        seminar={seminar}
+        inquiryPhone={INQUIRY_PHONE}
+      />
     </PublicShell>
   );
 }
@@ -164,7 +158,11 @@ function PublicShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SeminarHeader({ seminar }: { seminar: MockSeminar }) {
+function SeminarHeader({
+  seminar,
+}: {
+  seminar: LookupSeminarByTokenResult;
+}) {
   return (
     <section className="space-y-3">
       <h1 className="text-[22px] font-semibold leading-snug text-[color:var(--text)]">
@@ -172,7 +170,7 @@ function SeminarHeader({ seminar }: { seminar: MockSeminar }) {
       </h1>
 
       <div className="space-y-1.5 text-[14px]">
-        {seminar.starts_at && (
+        {seminar.held_at && (
           <div className="flex items-start gap-2 text-[color:var(--text-muted)]">
             <Calendar
               className="mt-0.5 size-4 shrink-0 text-[color:var(--text-dim)]"
@@ -180,7 +178,7 @@ function SeminarHeader({ seminar }: { seminar: MockSeminar }) {
               aria-hidden
             />
             <span className="text-[color:var(--text)]">
-              {formatKstDateTime(seminar.starts_at)}
+              {formatKstDateTime(seminar.held_at)}
             </span>
           </div>
         )}

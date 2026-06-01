@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import { ChevronLeft } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
@@ -6,6 +7,9 @@ import { listGroups } from "@/lib/groups/list-groups";
 import { listTemplates } from "@/lib/templates/list-templates";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { ComposeWizard } from "@/components/compose/compose-wizard";
+import { getSeminar } from "@/lib/seminars/get-seminar";
+import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
+import { formatKstDateTime } from "@/lib/datetime";
 import type { GroupListItem, TemplateRow } from "@/types/database";
 
 /**
@@ -33,7 +37,8 @@ export default async function ComposePage({
   const pick = (v: string | string[] | undefined): string | undefined =>
     Array.isArray(v) ? v[0] : v;
   const initialGroupId = pick(raw.groupId) ?? null;
-  const initialTemplateId = pick(raw.templateId) ?? null;
+  const initialTemplateIdParam = pick(raw.templateId) ?? null;
+  const initialSeminarId = pick(raw.seminarId) ?? null;
 
   const currentUser = await getCurrentUser();
   const devMode = isDevSeedMode();
@@ -93,7 +98,70 @@ export default async function ComposePage({
   ]);
 
   const groups: GroupListItem[] = groupsResult.items;
-  const templates: TemplateRow[] = templatesResult.items;
+  let templates: TemplateRow[] = templatesResult.items;
+
+  // ?seminarId=<uuid> prefill 처리.
+  //
+  // 설명회 상세 페이지의 "발송하기" 버튼이 새 발송 화면으로 넘어올 때 본문을
+  // 미리 채워준다. ComposeWizard 자체에 prop 을 추가하지 않고도 동작하도록
+  // 가상 in-memory TemplateRow 를 templates 앞에 prepend + initialTemplateId
+  // 를 그 가상 ID 로 지정한다 (frontend 컴포넌트 변경 불필요).
+  //
+  // 본문 포맷:
+  //   [설명회 안내]
+  //   <name>
+  //   <KST 한글 일시>, <venue>
+  //
+  //   신청하기: <origin>/s/<link_token>
+  let initialTemplateId: string | null = initialTemplateIdParam;
+  if (initialSeminarId) {
+    const seminar = await getSeminar(initialSeminarId);
+    if (seminar) {
+      const hdrs = await headers();
+      const proto = hdrs.get("x-forwarded-proto") ?? "https";
+      const host = hdrs.get("host") ?? "";
+      const origin = host ? `${proto}://${host}` : "";
+
+      const venuePart = seminar.venue ? `, ${seminar.venue}` : "";
+      const when = seminar.held_at
+        ? formatKstDateTime(seminar.held_at)
+        : "일정 미정";
+      const linkLine = origin
+        ? `신청하기: ${origin}/s/${seminar.link_token}`
+        : `신청하기: /s/${seminar.link_token}`;
+      const body = [
+        "[설명회 안내]",
+        seminar.name,
+        `${when}${venuePart}`,
+        "",
+        linkLine,
+      ].join("\n");
+
+      const bytes = countEucKrBytes(body);
+      // LMS 가 안전한 기본값(설명회 안내는 일반적으로 SMS 90바이트 초과).
+      const prefillTemplateId = `seminar-prefill-${seminar.id}`;
+      const prefillTemplate: TemplateRow = {
+        id: prefillTemplateId,
+        name: `설명회 안내 · ${seminar.name}`,
+        subject: "설명회 안내",
+        body,
+        type: "LMS",
+        auto_captured: false,
+        is_ad: false,
+        byte_count: bytes,
+        branch: seminar.branch,
+        created_by: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      templates = [prefillTemplate, ...templates];
+      // 기존 ?templateId 가 명시되어 있지 않으면 prefill 을 선택 상태로.
+      // 명시되어 있다면 사용자의 명시적 선택을 우선.
+      if (!initialTemplateId) {
+        initialTemplateId = prefillTemplateId;
+      }
+    }
+  }
 
   return (
     <div className="max-w-6xl space-y-6">

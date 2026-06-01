@@ -1,5 +1,4 @@
-import type { SeminarStatus } from "@/lib/seminars/dev-seed";
-import { seminarStatusLabel } from "@/lib/seminars/dev-seed";
+import type { SeminarStatus } from "@/types/database";
 
 /**
  * 설명회 상태 칩.
@@ -15,6 +14,19 @@ export function SeminarStatusBadge({ status }: { status: SeminarStatus }) {
       {seminarStatusLabel(status)}
     </span>
   );
+}
+
+function seminarStatusLabel(s: SeminarStatus): string {
+  switch (s) {
+    case "open":
+      return "모집중";
+    case "closed":
+      return "마감";
+    case "ended":
+      return "종료";
+    case "cancelled":
+      return "취소";
+  }
 }
 
 const TONE: Record<SeminarStatus, { backgroundColor: string; color: string }> =

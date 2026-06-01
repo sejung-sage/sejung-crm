@@ -1,18 +1,19 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import { Pencil, Lock, Ban } from "lucide-react";
+import { Lock, Ban } from "lucide-react";
 import { useToast } from "@/components/ui/toast";
-import type { SeminarStatus } from "@/lib/seminars/dev-seed";
+import type { SeminarStatus } from "@/types/database";
+import { changeSeminarStatusAction } from "@/app/(features)/seminars/actions";
 
 /**
- * 설명회 상세 화면 우측 보조 액션 — UI MOCKUP ONLY.
+ * 설명회 상세 화면 우측 보조 액션.
  *
- * - "수정": placeholder. 향후 `/seminars/[id]/edit` 라우트.
- * - "수동 마감": 모집중 상태일 때만. 확인 다이얼로그 + toast.
- * - "취소": cancelled 가 아닐 때만. 확인 다이얼로그 + toast.
+ * - "수동 마감" → status='closed' (open 상태일 때만).
+ * - "취소"     → status='cancelled' (이미 취소/종료 아닐 때만).
  *
- * 모든 동작은 실제 DB 호출 없이 setTimeout 으로 시뮬레이션.
+ * 둘 다 confirm 다이얼로그 + Server Action + revalidate + toast.
  */
 export function SeminarDetailActions({
   seminarId,
@@ -21,45 +22,51 @@ export function SeminarDetailActions({
   seminarId: string;
   status: SeminarStatus;
 }) {
+  const router = useRouter();
   const { show: showToast } = useToast();
   const [isPending, startTransition] = useTransition();
-  void seminarId; // 시연용 — 실제 mutation 시 사용 예정
 
-  const handleEdit = () => {
-    showToast("success", "수정 화면은 운영자 확정 후 연동 예정입니다 (시연용)");
-  };
-
-  const handleClose = () => {
-    if (!confirm("이 설명회의 신청을 마감할까요? 학부모는 더 이상 신청할 수 없게 됩니다.")) return;
+  const handleChangeStatus = (
+    next: SeminarStatus,
+    confirmMessage: string,
+    successMessage: string,
+  ) => {
+    if (!confirm(confirmMessage)) return;
     startTransition(async () => {
-      await new Promise((r) => setTimeout(r, 400));
-      showToast("success", "설명회 신청을 마감했습니다 (시연용)");
-    });
-  };
-
-  const handleCancel = () => {
-    if (!confirm("이 설명회를 취소할까요? 기존 신청 내역은 보존되지만 학부모 페이지에서 안내가 변경됩니다.")) return;
-    startTransition(async () => {
-      await new Promise((r) => setTimeout(r, 400));
-      showToast("success", "설명회를 취소했습니다 (시연용)");
+      const result = await changeSeminarStatusAction({
+        seminar_id: seminarId,
+        status: next,
+      });
+      switch (result.status) {
+        case "success":
+          showToast("success", successMessage);
+          router.refresh();
+          break;
+        case "dev_seed_mode":
+          showToast(
+            "success",
+            "개발 시드 모드입니다. 실제 변경은 일어나지 않았습니다",
+          );
+          break;
+        case "failed":
+          showToast("error", result.reason ?? "상태 변경에 실패했습니다");
+          break;
+      }
     });
   };
 
   return (
     <div className="flex items-center gap-2 flex-wrap">
-      <button
-        type="button"
-        onClick={handleEdit}
-        disabled={isPending}
-        className={btnClass}
-      >
-        <Pencil className="size-4" strokeWidth={1.75} aria-hidden />
-        수정
-      </button>
       {status === "open" && (
         <button
           type="button"
-          onClick={handleClose}
+          onClick={() =>
+            handleChangeStatus(
+              "closed",
+              "이 설명회의 신청을 마감할까요? 학부모는 더 이상 신청할 수 없게 됩니다.",
+              "설명회 신청을 마감했습니다",
+            )
+          }
           disabled={isPending}
           className={btnClass}
         >
@@ -70,7 +77,13 @@ export function SeminarDetailActions({
       {status !== "cancelled" && status !== "ended" && (
         <button
           type="button"
-          onClick={handleCancel}
+          onClick={() =>
+            handleChangeStatus(
+              "cancelled",
+              "이 설명회를 취소할까요? 기존 신청 내역은 보존되지만 학부모 페이지에서 안내가 변경됩니다.",
+              "설명회를 취소했습니다",
+            )
+          }
           disabled={isPending}
           className={`${btnClass} hover:text-[color:var(--danger)] hover:border-[color:var(--danger)]`}
         >

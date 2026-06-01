@@ -4,7 +4,7 @@ import { Plus, Calendar } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
 import type { Branch } from "@/config/branches";
-import { listMockSeminars } from "@/lib/seminars/dev-seed";
+import { listSeminars } from "@/lib/seminars/list-seminars";
 import { BranchBadge } from "@/components/groups/branch-badge";
 import { SeminarStatusBadge } from "@/components/seminars/seminar-status-badge";
 import { formatKstDateTime } from "@/lib/datetime";
@@ -12,11 +12,11 @@ import { formatKstDateTime } from "@/lib/datetime";
 /**
  * 설명회 리스트 (어드민) — `/seminars`
  *
- * ⚠️ UI MOCKUP ONLY. 백엔드/DB 일체 미연동.
- *
  * 권한: master / admin 만 노출. 그 외는 / 로 리다이렉트.
  * 분원 컨텍스트: master 는 사이드바 분원 선택을 따르고(전체일 때는 전체),
  *               admin 은 본인 분원 자동 고정.
+ *
+ * 데이터: `listSeminars({ branch })` (Server Component). dev-seed 폴백은 로더 안에서.
  */
 export default async function SeminarsPage() {
   const currentUser = await getCurrentUser();
@@ -27,15 +27,19 @@ export default async function SeminarsPage() {
 
   const selectedBranch = await getSelectedBranch();
 
-  // master + 사이드바 "전체" 면 branch = undefined (전체 분원),
+  // master + 사이드바 "전체" 면 branch = "" (전체 분원),
   // master + 특정 분원 선택 시 그 분원,
   // admin/manager/viewer 는 본인 분원 강제.
-  const branchFilter: Branch | undefined =
+  const branchFilter: Branch | "" =
     currentUser.role === "master"
-      ? ((selectedBranch as Branch | null) ?? undefined)
+      ? ((selectedBranch as Branch | null) ?? "")
       : (currentUser.branch as Branch);
 
-  const rows = listMockSeminars(branchFilter);
+  const { items: rows } = await listSeminars({
+    branch: branchFilter,
+    status: "",
+    q: "",
+  });
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -62,15 +66,6 @@ export default async function SeminarsPage() {
           <Plus className="size-4" strokeWidth={2} aria-hidden />새 설명회
         </Link>
       </header>
-
-      {/* 데이터 출처 안내 */}
-      <div
-        role="note"
-        className="rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-4 py-2.5 text-[13px] text-[color:var(--text-muted)]"
-      >
-        UI 시연용 목 데이터입니다. 정식 DB·발송·다운로드 연동은 운영자 확정 후
-        진행됩니다.
-      </div>
 
       <p className="text-[13px] text-[color:var(--text-muted)]">
         총 <strong className="text-[color:var(--text)]">{rows.length}</strong>건
@@ -102,7 +97,6 @@ export default async function SeminarsPage() {
                 <Th className="w-20 text-right">정원</Th>
                 <Th className="w-24 text-right">신청</Th>
                 <Th className="w-24">상태</Th>
-                <Th className="w-28">작성자</Th>
                 <Th className="w-32">작성일</Th>
               </tr>
             </thead>
@@ -126,10 +120,10 @@ export default async function SeminarsPage() {
                     )}
                   </Td>
                   <Td>
-                    <BranchBadge branch={r.branch} />
+                    <BranchBadge branch={r.branch as Branch} />
                   </Td>
                   <Td className="text-[14px] text-[color:var(--text-muted)] tabular-nums">
-                    {formatKstDateTime(r.starts_at)}
+                    {formatKstDateTime(r.held_at)}
                   </Td>
                   <Td className="text-right tabular-nums text-[color:var(--text-muted)]">
                     {r.capacity ? `${r.capacity}명` : "무제한"}
@@ -139,9 +133,6 @@ export default async function SeminarsPage() {
                   </Td>
                   <Td>
                     <SeminarStatusBadge status={r.status} />
-                  </Td>
-                  <Td className="text-[color:var(--text-muted)]">
-                    {r.created_by_name}
                   </Td>
                   <Td className="text-[color:var(--text-muted)] tabular-nums text-[13px]">
                     {formatKstDateTime(r.created_at)}

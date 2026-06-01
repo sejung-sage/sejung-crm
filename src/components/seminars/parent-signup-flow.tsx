@@ -2,29 +2,39 @@
 
 import { useState, useTransition } from "react";
 import { CheckCircle2, ChevronDown, AlertCircle } from "lucide-react";
-import type { MockSeminar } from "@/lib/seminars/dev-seed";
+import type { LookupSeminarByTokenResult } from "@/types/database";
 import { formatKstDateTime } from "@/lib/datetime";
+import { submitSignupAction } from "@/app/(features)/seminars/actions";
 
 /**
- * 학부모 공개 신청 페이지 본체 — UI MOCKUP ONLY.
+ * 학부모 공개 신청 페이지 본체.
  *
  * 상태:
- *  - "form"     : 입력 폼
- *  - "submitting": 800ms 대기 (제출 중)
- *  - "done"     : 신청 완료 화면
+ *  - "form"       : 입력 폼
+ *  - "submitting" : Server Action 대기
+ *  - "done"       : 신청 완료 (signed 또는 duplicate)
+ *  - "closed"     : 정원 마감 (RPC 가 'closed' 반환)
+ *  - "ended"      : 신청 기간 종료 (RPC 가 'ended'/'out_of_window' 반환)
+ *  - "cancelled"  : 설명회 취소됨
+ *  - "notfound"   : 토큰 무효/취소된 신청 등 — 다시 시도 불가
  *
- * 클라이언트 단 검증:
- *  - 이름: 1자 이상
- *  - 전화: 010~019 시작 + 끝 4자리 포함, 총 10~11자리 숫자
- *  - 동의: 필수 체크
+ * IP/UA 는 Server Action 안에서 headers() 로 추출. 클라이언트는 token/이름/전화/동의만.
  */
 interface Props {
-  seminar: MockSeminar;
+  token: string;
+  seminar: LookupSeminarByTokenResult;
   /** 분원 문의 번호 — 데모용 고정값 */
   inquiryPhone: string;
 }
 
-type ViewState = "form" | "submitting" | "done";
+type ViewState =
+  | "form"
+  | "submitting"
+  | "done"
+  | "closed"
+  | "ended"
+  | "cancelled"
+  | "notfound";
 
 interface FormState {
   studentName: string;
@@ -35,11 +45,13 @@ interface FormState {
 interface SubmittedInfo {
   studentName: string;
   parentPhone: string;
+  duplicate: boolean;
 }
 
-export function ParentSignupFlow({ seminar, inquiryPhone }: Props) {
+export function ParentSignupFlow({ token, seminar, inquiryPhone }: Props) {
   const [view, setView] = useState<ViewState>("form");
   const [submitted, setSubmitted] = useState<SubmittedInfo | null>(null);
+  const [reasonMessage, setReasonMessage] = useState<string | null>(null);
 
   if (view === "done" && submitted) {
     return (
@@ -55,18 +67,117 @@ export function ParentSignupFlow({ seminar, inquiryPhone }: Props) {
     );
   }
 
+  if (view === "closed") {
+    return (
+      <BlockedCard
+        title="정원이 마감되었습니다"
+        message={
+          reasonMessage ??
+          "이미 신청 정원이 모두 찼습니다. 추가 신청 가능 여부는 학원에 문의해 주세요."
+        }
+        inquiryPhone={inquiryPhone}
+      />
+    );
+  }
+  if (view === "ended") {
+    return (
+      <BlockedCard
+        title="신청 기간이 종료되었습니다"
+        message={
+          reasonMessage ??
+          "이 설명회의 신청 기간이 끝났습니다. 다음 설명회 일정은 학원에 문의해 주세요."
+        }
+        inquiryPhone={inquiryPhone}
+      />
+    );
+  }
+  if (view === "cancelled") {
+    return (
+      <BlockedCard
+        title="설명회가 취소되었습니다"
+        message={
+          reasonMessage ??
+          "사정에 의해 이 설명회가 취소되었습니다. 자세한 사항은 학원에 문의해 주세요."
+        }
+        inquiryPhone={inquiryPhone}
+      />
+    );
+  }
+  if (view === "notfound") {
+    return (
+      <BlockedCard
+        title="유효하지 않은 링크입니다"
+        message={
+          reasonMessage ??
+          "링크가 만료되었거나 잘못 입력되었을 수 있습니다. 학원에 문의해 주세요."
+        }
+        inquiryPhone={inquiryPhone}
+      />
+    );
+  }
+
   return (
     <SignupForm
       submitting={view === "submitting"}
       onSubmit={async (data) => {
         setView("submitting");
-        // 목 처리 — 실제 저장 없음
-        await new Promise((r) => setTimeout(r, 800));
-        setSubmitted({
-          studentName: data.studentName,
-          parentPhone: data.parentPhone,
+        const result = await submitSignupAction({
+          token,
+          student_name: data.studentName,
+          parent_phone: data.parentPhone,
+          consent: data.agreed as true,
         });
-        setView("done");
+
+        switch (result.status) {
+          case "dev_seed_mode":
+            setSubmitted({
+              studentName: data.studentName,
+              parentPhone: data.parentPhone,
+              duplicate: false,
+            });
+            setView("done");
+            break;
+          case "failed":
+            setReasonMessage(result.reason);
+            setView("notfound");
+            break;
+          case "signed":
+            setSubmitted({
+              studentName: data.studentName,
+              parentPhone: data.parentPhone,
+              duplicate: false,
+            });
+            setView("done");
+            break;
+          case "duplicate":
+            setSubmitted({
+              studentName: data.studentName,
+              parentPhone: data.parentPhone,
+              duplicate: true,
+            });
+            setView("done");
+            break;
+          case "closed":
+            setReasonMessage(result.reason);
+            setView("closed");
+            break;
+          case "ended":
+          case "out_of_window":
+            setReasonMessage(result.reason);
+            setView("ended");
+            break;
+          case "cancelled":
+            setReasonMessage(result.reason);
+            setView("cancelled");
+            break;
+          case "invalid":
+            setReasonMessage(
+              result.reason ??
+                "입력하신 정보를 다시 확인해 주세요. 문제가 계속되면 학원에 문의 부탁드립니다.",
+            );
+            setView("notfound");
+            break;
+        }
       }}
     />
   );
@@ -278,10 +389,6 @@ function SignupForm({
               <strong className="text-[color:var(--text)]">보유 기간</strong>{" "}
               · 설명회 종료 후 1년 (이후 즉시 파기)
             </p>
-            <p className="pt-1 text-[12px] text-[color:var(--text-dim)]">
-              ※ 본 동의 문구는 시연용 임시 안내이며, 정식 운영 시 학원 측 확정
-              문구로 교체됩니다.
-            </p>
           </div>
         )}
 
@@ -335,7 +442,7 @@ function DoneView({
   inquiryPhone,
   onReset,
 }: {
-  seminar: MockSeminar;
+  seminar: LookupSeminarByTokenResult;
   submitted: SubmittedInfo;
   inquiryPhone: string;
   onReset: () => void;
@@ -351,27 +458,36 @@ function DoneView({
           />
         </div>
         <h1 className="text-[22px] font-semibold text-[color:var(--text)]">
-          신청이 완료되었습니다
+          {submitted.duplicate
+            ? "이미 신청이 완료되어 있어요"
+            : "신청이 완료되었습니다"}
         </h1>
         <p className="text-[14px] text-[color:var(--text-muted)]">
-          행사 전 별도 안내 문자를 보내드립니다.
+          {submitted.duplicate
+            ? "이 번호로 동일한 자녀의 신청이 이미 접수되어 있습니다. 안내 문자를 확인해 주세요."
+            : "행사 전 별도 안내 문자를 보내드립니다."}
         </p>
       </div>
 
       <dl className="text-left rounded-xl border border-[color:var(--border-strong)] bg-bg-card divide-y divide-[color:var(--border-strong)]">
         <Row label="설명회">
-          <span className="font-medium text-[color:var(--text)]">{seminar.name}</span>
+          <span className="font-medium text-[color:var(--text)]">
+            {seminar.name}
+          </span>
         </Row>
         <Row label="자녀">{submitted.studentName}</Row>
         <Row label="연락처">{submitted.parentPhone}</Row>
-        {seminar.starts_at && (
-          <Row label="일시">{formatKstDateTime(seminar.starts_at)}</Row>
+        {seminar.held_at && (
+          <Row label="일시">{formatKstDateTime(seminar.held_at)}</Row>
         )}
         {seminar.venue && <Row label="장소">{seminar.venue}</Row>}
       </dl>
 
       <p className="text-[14px] text-[color:var(--text-muted)]">
-        문의: <span className="text-[color:var(--text)] font-medium">{inquiryPhone}</span>
+        문의:{" "}
+        <span className="text-[color:var(--text)] font-medium">
+          {inquiryPhone}
+        </span>
       </p>
 
       <button
@@ -392,7 +508,53 @@ function DoneView({
   );
 }
 
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function BlockedCard({
+  title,
+  message,
+  inquiryPhone,
+}: {
+  title: string;
+  message: string;
+  inquiryPhone: string;
+}) {
+  return (
+    <section
+      role="alert"
+      className="rounded-2xl border border-[color:var(--border-strong)] bg-bg-card p-6 text-center space-y-4"
+    >
+      <div className="inline-flex items-center justify-center size-12 rounded-full bg-[color:var(--bg-muted)]">
+        <AlertCircle
+          className="size-7 text-[color:var(--text-muted)]"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+      </div>
+      <h2 className="text-[18px] font-semibold text-[color:var(--text)]">
+        {title}
+      </h2>
+      <p className="text-[14px] leading-relaxed text-[color:var(--text-muted)]">
+        {message}
+      </p>
+      <p className="pt-2 text-[14px] text-[color:var(--text-muted)]">
+        문의:{" "}
+        <a
+          href={`tel:${inquiryPhone.replace(/-/g, "")}`}
+          className="text-[color:var(--text)] font-medium hover:underline"
+        >
+          {inquiryPhone}
+        </a>
+      </p>
+    </section>
+  );
+}
+
+function Row({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
   return (
     <div className="flex items-start gap-3 px-4 py-3">
       <dt className="w-16 shrink-0 text-[13px] text-[color:var(--text-muted)]">

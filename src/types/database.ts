@@ -652,6 +652,128 @@ export interface ClassDetail {
   >[];
 }
 
+// ─── 설명회 신청 시스템 (0080) ─────────────────────────────
+
+/**
+ * 설명회 상태 enum (4종).
+ *  - open      : 모집 중
+ *  - closed    : 정원 도달(자동 전이) 또는 운영자 수동 마감
+ *  - ended     : 행사 종료 (운영자 수동)
+ *  - cancelled : 행사 취소
+ */
+export type SeminarStatus = "open" | "closed" | "ended" | "cancelled";
+
+/**
+ * 신청 상태 enum (2종).
+ *  - signed    : 접수 완료(활성)
+ *  - cancelled : 운영자가 취소(soft delete)
+ *
+ * 학부모 셀프 취소는 Phase 1 범위 밖. 대기명단은 Phase 2.
+ */
+export type SignupStatus = "signed" | "cancelled";
+
+/**
+ * 설명회 마스터 1행 — crm_seminars 와 1:1.
+ * 학부모 공개 페이지(/s/<link_token>) 와 운영자 페이지(/seminars) 공용.
+ */
+export interface SeminarRow {
+  id: string;
+  /** 분원 (대치/송도/반포/방배). RLS 격리 기준. */
+  branch: string;
+  /** 설명회 제목. */
+  name: string;
+  /** 안내문/상세 설명 (학부모 페이지에 그대로 노출). */
+  description: string | null;
+  /** 진행 일시(시작 시각). 하루 행사 가정 — 종료 시각은 별도 저장 안 함. */
+  held_at: string | null;
+  /** 장소. */
+  venue: string | null;
+  /** 정원. NULL = 무제한. 도달 시 자동 status='closed'. */
+  capacity: number | null;
+  /** 신청 시작 일시. NULL = 즉시 가능. */
+  signup_opens_at: string | null;
+  /** 신청 마감 일시. NULL = 별도 마감 없음(정원 도달까지). */
+  signup_closes_at: string | null;
+  status: SeminarStatus;
+  /** 학부모 공개 URL 토큰 (nanoid 12). 외부 노출용 식별자. */
+  link_token: string;
+  /** 작성자(auth.users.id reference, FK 없음). NULL 허용. */
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * 신청 명단 1행 — crm_seminar_signups 와 1:1.
+ *
+ * INSERT 는 signup_for_seminar RPC 만 가능. UPDATE 는 운영자(취소)만.
+ * 학부모 셀프 취소 경로 없음.
+ */
+export interface SeminarSignupRow {
+  id: string;
+  seminar_id: string;
+  /** 자녀 이름 (학부모 입력). */
+  student_name: string;
+  /** 학부모 전화 — 숫자만 정규화 저장(예: "01012345678"). */
+  parent_phone: string;
+  status: SignupStatus;
+  /** 신청자 IP (감사용). */
+  client_ip: string | null;
+  /** 신청자 User-Agent (감사용). */
+  user_agent: string | null;
+  created_at: string;
+  /** 취소 시각. status='cancelled' 면 NOT NULL. */
+  cancelled_at: string | null;
+  /** 취소한 운영자(auth.users.id reference). NULL 허용. */
+  cancelled_by: string | null;
+}
+
+/**
+ * 운영자 리스트 행 (`/seminars`) — SeminarRow + 활성 신청수.
+ * signup_count 는 status='signed' 만 카운트(취소 제외).
+ */
+export type SeminarListItem = SeminarRow & {
+  signup_count: number;
+};
+
+/**
+ * signup_for_seminar RPC 반환 1행.
+ *  - status: 'signed'(접수) / 'duplicate'(중복) / 'closed'(정원마감) /
+ *    'ended'(행사종료) / 'cancelled'(설명회 취소) / 'invalid'(유효하지 않은 링크/입력) /
+ *    'out_of_window'(신청 창 밖)
+ *  - signup_id: 신청 PK. duplicate 일 땐 기존 row id. 그 외 실패는 null.
+ *  - reason: 사용자에게 보일 한글 사유. 성공 시 null.
+ */
+export type SignupForSeminarResult = {
+  status:
+    | "signed"
+    | "duplicate"
+    | "closed"
+    | "ended"
+    | "cancelled"
+    | "invalid"
+    | "out_of_window";
+  signup_id: string | null;
+  reason: string | null;
+};
+
+/**
+ * lookup_seminar_by_token RPC 반환 1행 (학부모 공개 페이지용).
+ * capacity 와 신청 수는 비공개 — 반환 컬럼에 없다.
+ */
+export type LookupSeminarByTokenResult = Pick<
+  SeminarRow,
+  | "id"
+  | "name"
+  | "description"
+  | "held_at"
+  | "venue"
+  | "status"
+  | "signup_opens_at"
+  | "signup_closes_at"
+  | "branch"
+>;
+
 // ─── ETL 동기화 이력 (0079) ─────────────────────────────────
 
 /** ETL 동기화 실행 결과. */
@@ -758,13 +880,40 @@ export interface Database {
         Insert: { status: EtlSyncStatus; finished_at?: string; error_message?: string | null };
         Update: Partial<Omit<EtlSyncRunRow, "id">>;
       };
+      // ── 설명회 신청 시스템 (0080) ────────────────────────
+      crm_seminars: {
+        Row: SeminarRow;
+        Insert: Omit<SeminarRow, "id" | "created_at" | "updated_at"> & { id?: string };
+        Update: Partial<Omit<SeminarRow, "id">>;
+      };
+      crm_seminar_signups: {
+        Row: SeminarSignupRow;
+        Insert: Omit<SeminarSignupRow, "id" | "created_at"> & { id?: string };
+        Update: Partial<Omit<SeminarSignupRow, "id">>;
+      };
     };
     Views: {
       student_profiles: {
         Row: StudentProfileRow;
       };
     };
-    Functions: Record<string, never>;
+    Functions: {
+      // ── 설명회 신청 RPC (0080) ───────────────────────────
+      lookup_seminar_by_token: {
+        Args: { p_token: string };
+        Returns: LookupSeminarByTokenResult[];
+      };
+      signup_for_seminar: {
+        Args: {
+          p_token: string;
+          p_student_name: string;
+          p_parent_phone: string;
+          p_client_ip?: string | null;
+          p_user_agent?: string | null;
+        };
+        Returns: SignupForSeminarResult[];
+      };
+    };
     Enums: Record<string, never>;
   };
 }
