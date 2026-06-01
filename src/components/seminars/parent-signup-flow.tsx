@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { CheckCircle2, ChevronDown, AlertCircle } from "lucide-react";
 import type { LookupSeminarByTokenResult } from "@/types/database";
 import { formatKstDateTime } from "@/lib/datetime";
@@ -48,10 +48,45 @@ interface SubmittedInfo {
   duplicate: boolean;
 }
 
+/**
+ * localStorage 키 — 같은 기기에서 한 번 신청한 학부모가 동일 링크에 재접속하면
+ * 폼 대신 "이미 신청이 완료된 설명회입니다" 화면을 바로 보여주기 위한 기억.
+ * 다른 기기/시크릿모드에선 사라지지만 서버 RPC 의 duplicate 검증이 최종 가드.
+ */
+const SIGNUP_LOCAL_KEY = (token: string) => `seminar_signup:${token}`;
+
 export function ParentSignupFlow({ token, seminar, inquiryPhone }: Props) {
   const [view, setView] = useState<ViewState>("form");
   const [submitted, setSubmitted] = useState<SubmittedInfo | null>(null);
   const [reasonMessage, setReasonMessage] = useState<string | null>(null);
+
+  // 페이지 마운트 시 localStorage 확인 — 이미 신청한 학부모는 폼 대신 완료 화면.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(SIGNUP_LOCAL_KEY(token));
+      if (!raw) return;
+      const stored = JSON.parse(raw) as {
+        studentName?: unknown;
+        parentPhone?: unknown;
+      };
+      if (
+        typeof stored.studentName === "string" &&
+        typeof stored.parentPhone === "string" &&
+        stored.studentName.length > 0 &&
+        stored.parentPhone.length > 0
+      ) {
+        setSubmitted({
+          studentName: stored.studentName,
+          parentPhone: stored.parentPhone,
+          duplicate: true,
+        });
+        setView("done");
+      }
+    } catch {
+      // 손상된 localStorage 항목 — 무시하고 폼 노출.
+    }
+  }, [token]);
 
   if (view === "done" && submitted) {
     return (
@@ -60,6 +95,12 @@ export function ParentSignupFlow({ token, seminar, inquiryPhone }: Props) {
         submitted={submitted}
         inquiryPhone={inquiryPhone}
         onReset={() => {
+          // 다시 신청(다른 자녀 등) — 기억 지움.
+          try {
+            window.localStorage.removeItem(SIGNUP_LOCAL_KEY(token));
+          } catch {
+            /* no-op */
+          }
           setView("form");
           setSubmitted(null);
         }}
@@ -128,8 +169,26 @@ export function ParentSignupFlow({ token, seminar, inquiryPhone }: Props) {
           consent: data.agreed as true,
         });
 
+        // 신청 성공/중복 시 localStorage 에 기록 — 다음 재방문 시 폼 대신 완료 화면.
+        const rememberLocal = (duplicate: boolean) => {
+          try {
+            window.localStorage.setItem(
+              SIGNUP_LOCAL_KEY(token),
+              JSON.stringify({
+                studentName: data.studentName,
+                parentPhone: data.parentPhone,
+                signedAt: new Date().toISOString(),
+                duplicate,
+              }),
+            );
+          } catch {
+            /* localStorage 비활성 — 무시 */
+          }
+        };
+
         switch (result.status) {
           case "dev_seed_mode":
+            rememberLocal(false);
             setSubmitted({
               studentName: data.studentName,
               parentPhone: data.parentPhone,
@@ -142,6 +201,7 @@ export function ParentSignupFlow({ token, seminar, inquiryPhone }: Props) {
             setView("notfound");
             break;
           case "signed":
+            rememberLocal(false);
             setSubmitted({
               studentName: data.studentName,
               parentPhone: data.parentPhone,
@@ -150,6 +210,7 @@ export function ParentSignupFlow({ token, seminar, inquiryPhone }: Props) {
             setView("done");
             break;
           case "duplicate":
+            rememberLocal(true);
             setSubmitted({
               studentName: data.studentName,
               parentPhone: data.parentPhone,
