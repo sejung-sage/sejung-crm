@@ -64,29 +64,46 @@ function mockToPublicResult(m: MockSeminar): LookupSeminarByTokenResult {
 async function lookupFromSupabase(
   token: string,
 ): Promise<LookupSeminarByTokenResult | null> {
-  const supabase = await createSupabaseServerClient();
+  // 학부모 공개 페이지에서 호출되므로 RPC 에러가 그대로 throw 되면 error.tsx
+  // (generic "일시적인 오류") 가 잡아 학부모에게 불친절한 화면이 노출된다.
+  // 호출부(page) 는 null 을 "유효하지 않은 링크" 로 안내하므로, 여기서는
+  // 에러를 console.error 로 Vercel 함수 로그에만 남기고 null 을 반환한다.
+  try {
+    const supabase = await createSupabaseServerClient();
 
-  // RPC 는 SETOF 반환 — TypeScript 시그니처는 array.
-  // Supabase v2 의 RPC 타입 추론이 우리 Database 정의와 잘 안 붙어 좁은 cast 사용.
-  const rpcFn = supabase.rpc as unknown as (
-    fn: "lookup_seminar_by_token",
-    params: { p_token: string },
-  ) => Promise<{
-    data: LookupSeminarByTokenResult[] | null;
-    error: { message: string } | null;
-  }>;
-  const { data, error } = await rpcFn("lookup_seminar_by_token", {
-    p_token: token,
-  });
+    // RPC 는 SETOF 반환 — TypeScript 시그니처는 array.
+    // Supabase v2 의 RPC 타입 추론이 우리 Database 정의와 잘 안 붙어 좁은 cast 사용.
+    const rpcFn = supabase.rpc as unknown as (
+      fn: "lookup_seminar_by_token",
+      params: { p_token: string },
+    ) => Promise<{
+      data: LookupSeminarByTokenResult[] | null;
+      error: { message: string; code?: string; details?: string } | null;
+    }>;
+    const { data, error } = await rpcFn("lookup_seminar_by_token", {
+      p_token: token,
+    });
 
-  if (error) {
-    throw new Error(`설명회 조회에 실패했습니다: ${error.message}`);
+    if (error) {
+      console.error(
+        `[lookup-seminar-by-token] RPC 실패 token=${token.slice(0, 4)}... code=${error.code ?? "?"} msg=${error.message} details=${error.details ?? "-"}`,
+      );
+      return null;
+    }
+    const row = data && data.length > 0 ? data[0] : null;
+    if (!row) return null;
+    // PostgreSQL → JSON 직렬화 시 status 는 plain string 이라 타입 좁힘.
+    return {
+      ...row,
+      status: row.status as SeminarStatus,
+    };
+  } catch (e) {
+    // env 누락 / 네트워크 / cookies() 실패 등 예기치 못한 예외도 학부모에게는
+    // "유효하지 않은 링크" 로 graceful 안내. 실제 원인은 Vercel 함수 로그에서 추적.
+    console.error(
+      `[lookup-seminar-by-token] 예기치 못한 예외 token=${token.slice(0, 4)}...`,
+      e,
+    );
+    return null;
   }
-  const row = data && data.length > 0 ? data[0] : null;
-  if (!row) return null;
-  // PostgreSQL → JSON 직렬화 시 status 는 plain string 이라 타입 좁힘.
-  return {
-    ...row,
-    status: row.status as SeminarStatus,
-  };
 }
