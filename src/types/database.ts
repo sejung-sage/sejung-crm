@@ -652,7 +652,17 @@ export interface ClassDetail {
   >[];
 }
 
-// ─── 설명회 신청 시스템 (0080) ─────────────────────────────
+// ─── 설명회 신청 시스템 (0080 → 0082 재설계) ─────────────────
+//
+// 흐름 모델:
+//  - 0082 ~ 현행: invitation 기반. 운영자가 (설명회 × 학생) 매트릭스를
+//    만들어 학생당 토큰 1개로 발송. 학부모는 폼 입력 없이 카드 클릭 1회.
+//    `crm_seminar_invitations` + `crm_seminar_invitation_items` 두 테이블.
+//    RPC: `lookup_invitation_by_token`, `claim_invitation_item`.
+//  - 0080·0081 (폐기): 폼 기반 학부모 입력. `crm_seminars.link_token`
+//    컬럼과 `lookup_seminar_by_token` / `signup_for_seminar` RPC 는
+//    0082 에서 DROP. `crm_seminar_signups` 테이블만 과거 데이터 보존을
+//    위해 유지 — 신규 INSERT/UPDATE 없음.
 
 /**
  * 설명회 상태 enum (4종).
@@ -664,17 +674,17 @@ export interface ClassDetail {
 export type SeminarStatus = "open" | "closed" | "ended" | "cancelled";
 
 /**
- * 신청 상태 enum (2종).
- *  - signed    : 접수 완료(활성)
- *  - cancelled : 운영자가 취소(soft delete)
- *
- * 학부모 셀프 취소는 Phase 1 범위 밖. 대기명단은 Phase 2.
+ * @deprecated 0080 폼 기반 신청 상태. 새 invitation 모델은
+ * `InvitationItemStatus` 사용. crm_seminar_signups 테이블은 보존됨.
  */
 export type SignupStatus = "signed" | "cancelled";
 
 /**
  * 설명회 마스터 1행 — crm_seminars 와 1:1.
- * 학부모 공개 페이지(/s/<link_token>) 와 운영자 페이지(/seminars) 공용.
+ * 학부모 공개 페이지(/s/<token>) 는 invitation 단위 토큰을 거쳐 도달한다.
+ *
+ * 변경(0082): `link_token` 컬럼 DROP. 학생 페이지 토큰은
+ * `SeminarInvitationRow.link_token` 으로 이동.
  */
 export interface SeminarRow {
   id: string;
@@ -695,8 +705,6 @@ export interface SeminarRow {
   /** 신청 마감 일시. NULL = 별도 마감 없음(정원 도달까지). */
   signup_closes_at: string | null;
   status: SeminarStatus;
-  /** 학부모 공개 URL 토큰 (nanoid 12). 외부 노출용 식별자. */
-  link_token: string;
   /** 작성자(auth.users.id reference, FK 없음). NULL 허용. */
   created_by: string | null;
   created_at: string;
@@ -704,10 +712,8 @@ export interface SeminarRow {
 }
 
 /**
- * 신청 명단 1행 — crm_seminar_signups 와 1:1.
- *
- * INSERT 는 signup_for_seminar RPC 만 가능. UPDATE 는 운영자(취소)만.
- * 학부모 셀프 취소 경로 없음.
+ * @deprecated 0080 폼 기반 신청 명단 1행. 테이블은 보존되지만 새 흐름에선
+ * INSERT/UPDATE 없음. 신규 신청 데이터는 `SeminarInvitationItemRow` 로 이동.
  */
 export interface SeminarSignupRow {
   id: string;
@@ -730,19 +736,15 @@ export interface SeminarSignupRow {
 
 /**
  * 운영자 리스트 행 (`/seminars`) — SeminarRow + 활성 신청수.
- * signup_count 는 status='signed' 만 카운트(취소 제외).
+ * signup_count 는 invitation_items 의 status='signed' 카운트.
  */
 export type SeminarListItem = SeminarRow & {
   signup_count: number;
 };
 
 /**
- * signup_for_seminar RPC 반환 1행.
- *  - status: 'signed'(접수) / 'duplicate'(중복) / 'closed'(정원마감) /
- *    'ended'(행사종료) / 'cancelled'(설명회 취소) / 'invalid'(유효하지 않은 링크/입력) /
- *    'out_of_window'(신청 창 밖)
- *  - signup_id: 신청 PK. duplicate 일 땐 기존 row id. 그 외 실패는 null.
- *  - reason: 사용자에게 보일 한글 사유. 성공 시 null.
+ * @deprecated 0080 폼 모델 RPC 반환 — 새 흐름 미사용.
+ * invitation 모델은 `ClaimInvitationItemResult` 사용.
  */
 export type SignupForSeminarResult = {
   status:
@@ -758,8 +760,11 @@ export type SignupForSeminarResult = {
 };
 
 /**
- * lookup_seminar_by_token RPC 반환 1행 (학부모 공개 페이지용).
- * capacity 와 신청 수는 비공개 — 반환 컬럼에 없다.
+ * @deprecated 0080 폼 모델 RPC 반환 — 새 흐름 미사용.
+ * invitation 모델은 `LookupInvitationByTokenResult` 사용.
+ *
+ * 호환을 위해 시그니처를 유지하지만 link_token 컬럼이 폐기되어 실제 RPC 가
+ * 더 이상 존재하지 않는다. 호출처는 invitation 모델로 옮겨야 한다.
  */
 export type LookupSeminarByTokenResult = Pick<
   SeminarRow,
@@ -773,6 +778,115 @@ export type LookupSeminarByTokenResult = Pick<
   | "signup_closes_at"
   | "branch"
 >;
+
+// ─── invitation 모델 (0082) ─────────────────────────────────
+
+/**
+ * invitation 카드 상태 enum.
+ *  - pending   : 미신청(기본)
+ *  - signed    : 학부모가 [신청하기] 클릭
+ *  - cancelled : 운영자 취소(soft delete)
+ */
+export type InvitationItemStatus = "pending" | "signed" | "cancelled";
+
+/**
+ * claim_invitation_item RPC 반환 status enum.
+ *  - signed         : 정상 접수
+ *  - already_signed : 멱등 (재클릭 무해)
+ *  - closed         : 정원 마감
+ *  - ended          : 행사 종료
+ *  - cancelled      : 설명회·카드 취소
+ *  - invalid        : 토큰 또는 매핑 오류
+ *  - out_of_window  : 신청 창 밖
+ */
+export type ClaimInvitationStatus =
+  | "signed"
+  | "already_signed"
+  | "closed"
+  | "ended"
+  | "cancelled"
+  | "invalid"
+  | "out_of_window";
+
+/**
+ * crm_seminar_invitations 1행 — 학생 단위 페이지 토큰.
+ * 같은 학생에게 재발송하면 새 invitation 행이 추가된다.
+ */
+export interface SeminarInvitationRow {
+  id: string;
+  /** 분원 (대치/송도/반포/방배). 학생의 분원과 동일하게 채워야 한다. */
+  branch: string;
+  /** 학생 FK (crm_students.id). 학생 삭제 시 CASCADE. */
+  student_id: string;
+  /** 학부모 공개 URL 토큰 (nanoid 12). UNIQUE. */
+  link_token: string;
+  /** 이 invitation 을 만들어 발송한 캠페인 id. FK 없음(캠페인 삭제 시 invitation 살림). */
+  campaign_id: string | null;
+  /** 생성자(auth.users.id reference, FK 없음). NULL 허용. */
+  created_by: string | null;
+  created_at: string;
+}
+
+/**
+ * crm_seminar_invitation_items 1행 — invitation × seminar 매트릭스.
+ * 학생 페이지에서 각 행 = 카드 1개.
+ */
+export interface SeminarInvitationItemRow {
+  id: string;
+  invitation_id: string;
+  seminar_id: string;
+  status: InvitationItemStatus;
+  /** 학부모가 [신청하기] 누른 시각. status=signed 이면 NOT NULL. */
+  signed_at: string | null;
+  /** 운영자 취소 시각. status=cancelled 이면 NOT NULL. */
+  cancelled_at: string | null;
+  /** 취소한 운영자(auth.users.id reference). NULL 허용. */
+  cancelled_by: string | null;
+}
+
+/**
+ * lookup_invitation_by_token RPC 가 반환하는 items jsonb 배열의 원소 1개.
+ * 학부모 페이지에서 카드 1개에 표시할 메타·상태 묶음.
+ */
+export interface LookupInvitationItem {
+  item_id: string;
+  seminar_id: string;
+  name: string;
+  description: string | null;
+  /** ISO 일시 또는 NULL. */
+  held_at: string | null;
+  venue: string | null;
+  status: InvitationItemStatus;
+  signed_at: string | null;
+}
+
+/**
+ * lookup_invitation_by_token RPC 반환 1행 (학부모 공개 페이지용).
+ * 학생 메타(이름·전화·분원) + items 배열(카드 N개).
+ *
+ * 학부모 본인 화면이므로 parent_phone 은 마스킹 안 함. 토큰 보유가 학부모임을
+ * 가정. 운영 측 페이지에서는 사용 금지.
+ */
+export interface LookupInvitationByTokenResult {
+  invitation_id: string;
+  student_id: string;
+  student_name: string;
+  parent_phone: string | null;
+  branch: string;
+  items: LookupInvitationItem[];
+}
+
+/**
+ * claim_invitation_item RPC 반환 1행.
+ *  - status  : ClaimInvitationStatus enum
+ *  - item_id : invitation_items.id. status='invalid' 면 null.
+ *  - reason  : 사용자 안내 메시지(한글). 정상 접수 시 null.
+ */
+export interface ClaimInvitationItemResult {
+  status: ClaimInvitationStatus;
+  item_id: string | null;
+  reason: string | null;
+}
 
 // ─── ETL 동기화 이력 (0079) ─────────────────────────────────
 
@@ -880,16 +994,32 @@ export interface Database {
         Insert: { status: EtlSyncStatus; finished_at?: string; error_message?: string | null };
         Update: Partial<Omit<EtlSyncRunRow, "id">>;
       };
-      // ── 설명회 신청 시스템 (0080) ────────────────────────
+      // ── 설명회 신청 시스템 (0080 → 0082 재설계) ──────────
       crm_seminars: {
         Row: SeminarRow;
         Insert: Omit<SeminarRow, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<SeminarRow, "id">>;
       };
+      // 0080 폼 모델 — 보존만, 신규 INSERT/UPDATE 없음.
       crm_seminar_signups: {
         Row: SeminarSignupRow;
         Insert: Omit<SeminarSignupRow, "id" | "created_at"> & { id?: string };
         Update: Partial<Omit<SeminarSignupRow, "id">>;
+      };
+      // 0082 invitation 모델 — 학생 단위 페이지 토큰.
+      crm_seminar_invitations: {
+        Row: SeminarInvitationRow;
+        Insert: Omit<SeminarInvitationRow, "id" | "created_at"> & {
+          id?: string;
+          created_at?: string;
+        };
+        Update: Partial<Omit<SeminarInvitationRow, "id">>;
+      };
+      // 0082 invitation × seminar 카드 매트릭스.
+      crm_seminar_invitation_items: {
+        Row: SeminarInvitationItemRow;
+        Insert: Omit<SeminarInvitationItemRow, "id"> & { id?: string };
+        Update: Partial<Omit<SeminarInvitationItemRow, "id">>;
       };
     };
     Views: {
@@ -898,20 +1028,14 @@ export interface Database {
       };
     };
     Functions: {
-      // ── 설명회 신청 RPC (0080) ───────────────────────────
-      lookup_seminar_by_token: {
+      // ── 설명회 invitation RPC (0082) ─────────────────────
+      lookup_invitation_by_token: {
         Args: { p_token: string };
-        Returns: LookupSeminarByTokenResult[];
+        Returns: LookupInvitationByTokenResult[];
       };
-      signup_for_seminar: {
-        Args: {
-          p_token: string;
-          p_student_name: string;
-          p_parent_phone: string;
-          p_client_ip?: string | null;
-          p_user_agent?: string | null;
-        };
-        Returns: SignupForSeminarResult[];
+      claim_invitation_item: {
+        Args: { p_token: string; p_seminar_id: string };
+        Returns: ClaimInvitationItemResult[];
       };
     };
     Enums: Record<string, never>;

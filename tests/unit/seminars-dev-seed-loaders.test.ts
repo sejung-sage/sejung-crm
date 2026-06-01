@@ -20,7 +20,9 @@ import { lookupSeminarByToken } from "@/lib/seminars/lookup-seminar-by-token";
  */
 
 const SEMINAR_STATUSES = new Set(["open", "closed", "ended", "cancelled"]);
-const SIGNUP_STATUSES = new Set(["signed", "cancelled"]);
+// 0082 invitation_items.status enum (pending / signed / cancelled). listSignups 는
+// signed 만 반환하므로 테스트도 signed 검증으로 좁힌다.
+const INVITATION_ITEM_STATUSES = new Set(["pending", "signed", "cancelled"]);
 
 describe("seminar 데이터 로더 · dev-seed 폴백", () => {
   beforeEach(() => {
@@ -42,16 +44,19 @@ describe("seminar 데이터 로더 · dev-seed 폴백", () => {
       expect(r.items.every((s) => s.branch === "대치")).toBe(true);
     });
 
-    it("각 row 가 0080 정식 컬럼명을 가진다 (link_token / held_at / signup_closes_at / signup_count)", async () => {
+    it("각 row 가 정식 컬럼명을 가진다 (held_at / signup_closes_at / signup_count) — 0082 에서 link_token 폐기", async () => {
       const r = await listSeminars({ branch: "대치", status: "", q: "" });
       expect(r.items.length).toBeGreaterThan(0);
       for (const row of r.items) {
         // 정식 컬럼명 존재 확인.
-        expect(row).toHaveProperty("link_token");
         expect(row).toHaveProperty("held_at");
         expect(row).toHaveProperty("signup_opens_at");
         expect(row).toHaveProperty("signup_closes_at");
         expect(row).toHaveProperty("signup_count");
+        // 0082: crm_seminars.link_token 컬럼 DROP — 어댑터에서도 노출 안 한다.
+        expect(
+          (row as unknown as Record<string, unknown>).link_token,
+        ).toBeUndefined();
         // mock 의 옛 필드명은 새지 않아야 한다.
         expect((row as unknown as Record<string, unknown>).token).toBeUndefined();
         expect((row as unknown as Record<string, unknown>).starts_at).toBeUndefined();
@@ -93,14 +98,17 @@ describe("seminar 데이터 로더 · dev-seed 폴백", () => {
 
   // ─── getSeminar ──────────────────────────────────────────
   describe("getSeminar", () => {
-    it("실재 mock id (sem_001) 면 정식 SeminarListItem 반환", async () => {
+    it("실재 mock id (sem_001) 면 정식 SeminarListItem 반환 (0082: link_token 컬럼 폐기)", async () => {
       const row = await getSeminar("sem_001");
       expect(row).not.toBeNull();
       if (!row) return;
       expect(row.id).toBe("sem_001");
-      expect(row).toHaveProperty("link_token");
       expect(row).toHaveProperty("held_at");
       expect(row).toHaveProperty("signup_closes_at");
+      // 0082: link_token 컬럼 DROP — 어댑터에서도 노출 안 한다.
+      expect(
+        (row as unknown as Record<string, unknown>).link_token,
+      ).toBeUndefined();
       expect(SEMINAR_STATUSES.has(row.status)).toBe(true);
       // signup_count 는 number 타입.
       expect(typeof row.signup_count).toBe("number");
@@ -148,35 +156,51 @@ describe("seminar 데이터 로더 · dev-seed 폴백", () => {
     });
   });
 
-  // ─── listSignups ─────────────────────────────────────────
+  // ─── listSignups (0082 invitation 모델) ──────────────────
+  // 0080 폼 모델(SeminarSignupRow) → 0082 invitation_items.status='signed'
+  // 명단(InvitationSignupRow) 으로 재작성. dev-seed 어댑터는 active mock 만
+  // signed 로 매핑(취소 mock 은 명단에서 제외).
   describe("listSignups", () => {
-    it("실재 mock seminar id 면 SeminarSignupRow[] 반환", async () => {
+    it("실재 mock seminar id 면 InvitationSignupRow[] 반환 (status='signed' 만)", async () => {
       const rows = await listSignups("sem_001");
       expect(rows.length).toBeGreaterThan(0);
       for (const r of rows) {
-        // 정식 DB enum 으로 매핑되어야 한다.
-        expect(SIGNUP_STATUSES.has(r.status)).toBe(true);
-        // 필수 컬럼.
-        expect(typeof r.id).toBe("string");
-        expect(r.seminar_id).toBe("sem_001");
+        // invitation 모델 status enum.
+        expect(INVITATION_ITEM_STATUSES.has(r.status)).toBe(true);
+        // 명단은 signed 만.
+        expect(r.status).toBe("signed");
+        // 새 필수 컬럼.
+        expect(typeof r.item_id).toBe("string");
+        expect(typeof r.invitation_id).toBe("string");
+        expect(typeof r.student_id).toBe("string");
         expect(typeof r.student_name).toBe("string");
         expect(typeof r.parent_phone).toBe("string");
-        expect(typeof r.created_at).toBe("string");
+        // signed 이므로 signed_at NOT NULL.
+        expect(r.signed_at).not.toBeNull();
         // 옛 필드명은 새지 않아야 한다.
+        expect(
+          (r as unknown as Record<string, unknown>).id,
+        ).toBeUndefined();
+        expect(
+          (r as unknown as Record<string, unknown>).seminar_id,
+        ).toBeUndefined();
+        expect(
+          (r as unknown as Record<string, unknown>).created_at,
+        ).toBeUndefined();
+        expect(
+          (r as unknown as Record<string, unknown>).cancelled_at,
+        ).toBeUndefined();
         expect(
           (r as unknown as Record<string, unknown>).signed_up_at,
         ).toBeUndefined();
       }
     });
 
-    it("cancelled 신청 row 는 cancelled_at NOT NULL, signed 는 NULL", async () => {
+    it("취소된 mock 신청은 명단에서 제외 (sem_001 active 6 + cancelled 1 → 6건)", async () => {
       const rows = await listSignups("sem_001");
-      const cancelled = rows.filter((r) => r.status === "cancelled");
-      const signed = rows.filter((r) => r.status === "signed");
-      expect(cancelled.length).toBeGreaterThan(0);
-      expect(signed.length).toBeGreaterThan(0);
-      for (const r of cancelled) expect(r.cancelled_at).not.toBeNull();
-      for (const r of signed) expect(r.cancelled_at).toBeNull();
+      // mock SIGNUPS: sem_001 active=6, cancelled=1. signed 만 노출.
+      expect(rows.length).toBe(6);
+      expect(rows.every((r) => r.status === "signed")).toBe(true);
     });
 
     it("미존재 seminar id 면 빈 배열", async () => {

@@ -107,28 +107,31 @@ export default async function ComposePage({
   // 가상 in-memory TemplateRow 를 templates 앞에 prepend + initialTemplateId
   // 를 그 가상 ID 로 지정한다 (frontend 컴포넌트 변경 불필요).
   //
+  // 0082 재설계: 더 이상 seminar 단위 공개 토큰이 없다(link_token 컬럼 DROP).
+  // 학생별 invitation 발송 흐름으로 이동했으므로 본 prefill 은 안내 텍스트만
+  // 채우고 학생별 링크는 발송 단계(서버) 에서 학생당 토큰으로 치환된다.
+  // 본문 끝의 `{초대링크}` 변수는 backend-dev 가 sendon batch 직전에 학생별
+  // /s/<invitation.link_token> 으로 치환할 예정.
+  //
   // 본문 포맷:
   //   [설명회 안내]
   //   <name>
   //   <KST 한글 일시>, <venue>
   //
-  //   신청하기: <origin>/s/<link_token>
+  //   신청하기: {초대링크}
   let initialTemplateId: string | null = initialTemplateIdParam;
   if (initialSeminarId) {
     const seminar = await getSeminar(initialSeminarId);
     if (seminar) {
-      const hdrs = await headers();
-      const proto = hdrs.get("x-forwarded-proto") ?? "https";
-      const host = hdrs.get("host") ?? "";
-      const origin = host ? `${proto}://${host}` : "";
+      // headers() 호출은 invitation 토큰 치환을 백엔드로 옮긴 뒤에는 불필요
+      // 해질 수 있으나, 향후 origin 표시가 필요할 수 있어 일단 유지.
+      await headers();
 
       const venuePart = seminar.venue ? `, ${seminar.venue}` : "";
       const when = seminar.held_at
         ? formatKstDateTime(seminar.held_at)
         : "일정 미정";
-      const linkLine = origin
-        ? `신청하기: ${origin}/s/${seminar.link_token}`
-        : `신청하기: /s/${seminar.link_token}`;
+      const linkLine = "신청하기: {초대링크}";
       const body = [
         "[설명회 안내]",
         seminar.name,

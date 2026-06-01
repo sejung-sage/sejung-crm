@@ -76,10 +76,11 @@ function listFromDevSeed(query: SeminarListQuery): ListSeminarsResult {
 }
 
 /**
- * MockSeminar 의 필드를 0080 컬럼명으로 어댑팅.
+ * MockSeminar 의 필드를 SeminarListItem(0082 컬럼명)으로 어댑팅.
  * - starts_at → held_at
  * - application_deadline → signup_closes_at
- * - token → link_token
+ * - 0082 에서 crm_seminars.link_token 폐기 → SeminarRow 에서 사라짐.
+ *   학생 페이지 토큰은 invitation 단위로 이동했으므로 본 어댑터에서 노출 안 함.
  * - signup_opens_at, created_by, updated_at 는 mock 에 없어 합리적 default.
  */
 function mockToSeminarListItem(
@@ -97,7 +98,6 @@ function mockToSeminarListItem(
     signup_opens_at: null,
     signup_closes_at: m.application_deadline,
     status: m.status,
-    link_token: m.token,
     created_by: null,
     created_at: m.created_at,
     updated_at: m.created_at,
@@ -148,11 +148,12 @@ async function listFromSupabase(
     return { items: [], total: 0 };
   }
 
-  // 각 설명회별 활성 신청수 집계. PostgREST 는 group by 가 제한적이므로
-  // signed 상태만 carbon-row 조회 후 in-memory 집계 (보통 분원당 ~수십 건이라 안전).
+  // 각 설명회별 신청수(=invitation_items.status='signed') 집계.
+  // PostgREST 는 group by 가 제한적이라 단일 SELECT 후 in-memory 카운트.
+  // (옛 crm_seminar_signups 는 0082 이후 신규 INSERT 없어 신뢰 불가.)
   const seminarIds = rows.map((r) => r.id);
   const { data: signupRows, error: signupError } = (await supabase
-    .from("crm_seminar_signups")
+    .from("crm_seminar_invitation_items")
     .select("seminar_id")
     .eq("status", "signed")
     .in("seminar_id", seminarIds)) as unknown as {

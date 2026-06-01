@@ -49,6 +49,7 @@ function mockToSeminarListItem(
   m: MockSeminar,
   signupCount: number,
 ): SeminarListItem {
+  // 0082: crm_seminars.link_token 폐기 — invitation 단위로 토큰 이동.
   return {
     id: m.id,
     branch: m.branch,
@@ -60,7 +61,6 @@ function mockToSeminarListItem(
     signup_opens_at: null,
     signup_closes_at: m.application_deadline,
     status: m.status,
-    link_token: m.token,
     created_by: null,
     created_at: m.created_at,
     updated_at: m.created_at,
@@ -84,9 +84,10 @@ async function getFromSupabase(id: string): Promise<SeminarListItem | null> {
   }
   if (!data) return null;
 
-  // 신청수 (signed only).
+  // 신청수 — 0082 invitation_items.status='signed' 카운트.
+  // (옛 crm_seminar_signups 는 신규 INSERT 없으므로 신뢰할 수 없음.)
   const { count, error: countError } = (await supabase
-    .from("crm_seminar_signups")
+    .from("crm_seminar_invitation_items")
     .select("id", { count: "exact", head: true })
     .eq("seminar_id", id)
     .eq("status", "signed")) as unknown as {

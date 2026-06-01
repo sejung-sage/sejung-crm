@@ -3,11 +3,11 @@ import { notFound, redirect } from "next/navigation";
 import { ChevronLeft, Send, Calendar, MapPin, Users } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSeminar } from "@/lib/seminars/get-seminar";
+// 0082 invitation 모델: backend-dev 가 listSignups 를 invitation_items JOIN 으로
+// 재작성. 반환 행은 InvitationSignupListItem 모양(item_id 기준).
 import { listSignups } from "@/lib/seminars/list-signups";
 import { BranchBadge } from "@/components/groups/branch-badge";
 import { SeminarStatusBadge } from "@/components/seminars/seminar-status-badge";
-import { CopyLinkButton } from "@/components/seminars/copy-link-button";
-import { PublicLinkInput } from "@/components/seminars/public-link-input";
 import { SignupsTable } from "@/components/seminars/signups-table";
 import { SeminarDetailActions } from "@/components/seminars/seminar-detail-actions";
 import { formatKstDateTime } from "@/lib/datetime";
@@ -19,6 +19,12 @@ import type { Branch } from "@/config/branches";
  * 권한: master / admin.
  * - 학부모 전화 평문 노출은 master 만.
  * - admin 도 본인 분원이 아니면 접근 불가(RLS 가 1차 차단; 여기서도 확인).
+ *
+ * 0082 변경:
+ *  - 설명회 단위 공개 토큰 폐기 → "발송 링크 복사" / "공개 신청 링크" 카드 제거.
+ *  - "이 설명회로 발송" 버튼은 `/seminars/compose?seminar=<id>` 로 이동
+ *    (설명회 사전 선택된 invitation 위저드 진입).
+ *  - 신청 명단은 invitation_items JOIN 기반 (item_id 기준 취소).
  */
 export default async function SeminarDetailPage({
   params,
@@ -46,7 +52,7 @@ export default async function SeminarDetailPage({
 
   const signups = await listSignups(seminar.id);
   const activeCount = signups.filter((s) => s.status === "signed").length;
-  const publicPath = `/s/${seminar.link_token}`;
+  const totalSent = signups.length;
   const canRevealPhone = currentUser.role === "master";
 
   return (
@@ -102,6 +108,12 @@ export default async function SeminarDetailPage({
                 </span>
               </div>
               <div className="text-[13px] text-[color:var(--text-muted)]">
+                <span className="mr-2">발송 초대</span>
+                <span className="tabular-nums text-[color:var(--text)]">
+                  {totalSent}건
+                </span>
+              </div>
+              <div className="text-[13px] text-[color:var(--text-muted)]">
                 <span className="mr-2">신청 마감</span>
                 <span className="tabular-nums text-[color:var(--text)]">
                   {formatKstDateTime(seminar.signup_closes_at)}
@@ -116,17 +128,16 @@ export default async function SeminarDetailPage({
             </div>
           </div>
 
-          {/* 상단 우측 — 주요 액션 묶음 */}
+          {/* 상단 우측 — 주요 액션. 0082: 발송 링크 복사 제거, 설명회 위저드 진입 버튼. */}
           <div className="shrink-0 flex flex-col gap-2 items-stretch min-w-[200px]">
-            <CopyLinkButton path={publicPath} variant="primary" label="발송 링크 복사" />
             <Link
-              href={`/compose?seminarId=${seminar.id}`}
+              href={`/seminars/compose?seminar=${seminar.id}`}
               className="
                 inline-flex items-center justify-center gap-1.5
                 h-10 px-4 rounded-lg
-                border border-[color:var(--border-strong)] bg-bg-card
-                text-[14px] text-[color:var(--text)]
-                hover:bg-[color:var(--bg-hover)]
+                bg-[color:var(--action)] text-[color:var(--action-text)]
+                text-[14px] font-medium
+                hover:bg-[color:var(--action-hover)]
                 transition-colors
               "
             >
@@ -150,12 +161,11 @@ export default async function SeminarDetailPage({
         <div className="mt-5 pt-5 border-t border-[color:var(--border-strong)] flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div className="flex-1 max-w-2xl">
             <div className="text-[12px] font-medium uppercase tracking-wider text-[color:var(--text-dim)] mb-2">
-              공개 신청 링크
+              발송 방식 안내
             </div>
-            <PublicLinkInput path={publicPath} />
-            <p className="mt-2 text-[12px] text-[color:var(--text-muted)]">
-              이 링크는 별도 로그인 없이 학부모가 접속할 수 있습니다.
-              문자/카톡으로 보내주세요.
+            <p className="text-[13px] leading-relaxed text-[color:var(--text-muted)]">
+              학생별로 전용 신청 페이지가 발급됩니다. 학부모는 폼 입력 없이
+              카드 1회 클릭으로 신청할 수 있습니다.
             </p>
           </div>
           <SeminarDetailActions seminarId={seminar.id} status={seminar.status} />
@@ -169,7 +179,7 @@ export default async function SeminarDetailPage({
             신청 명단
           </h2>
           <p className="text-[12px] text-[color:var(--text-dim)]">
-            신청 시각 최신순. 취소된 신청은 회색으로 표시됩니다.
+            발송 초대 기준. 신청 시각 최신순. 취소된 신청은 회색으로 표시됩니다.
           </p>
         </div>
         <SignupsTable

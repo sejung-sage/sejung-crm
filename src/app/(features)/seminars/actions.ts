@@ -21,7 +21,6 @@
  */
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { ZodError } from "zod";
 import * as XLSX from "xlsx";
 
@@ -31,28 +30,47 @@ import {
   ChangeSeminarStatusInputSchema,
   CancelSignupInputSchema,
   SubmitSignupInputSchema,
+  CreateBroadcastInputSchema,
+  ClaimInvitationItemInputSchema,
   type CreateSeminarInput,
   type UpdateSeminarInput,
   type ChangeSeminarStatusInput,
   type CancelSignupInput,
   type SubmitSignupInput,
+  type CreateBroadcastInput,
+  type ClaimInvitationItemInput,
 } from "@/lib/schemas/seminar";
 import { generateLinkToken } from "@/lib/seminars/generate-link-token";
 import { listSignups } from "@/lib/seminars/list-signups";
+import {
+  dispatchBroadcast,
+  type BroadcastRecipient,
+} from "@/lib/seminars/dispatch-broadcast";
+import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
+import { applyNameToken } from "@/lib/messaging/personalize";
+import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
+import { BYTE_LIMITS } from "@/lib/schemas/template";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
-import { formatPhone, maskPhone } from "@/lib/phone";
+import { formatPhone, maskPhone, normalizePhone } from "@/lib/phone";
 import { formatKstDateTime } from "@/lib/datetime";
 import type {
+  ClaimInvitationItemResult,
   CurrentUser,
   SeminarRow,
-  SignupForSeminarResult,
 } from "@/types/database";
 
 // ─── 결과 타입 ──────────────────────────────────────────────
 
+/**
+ * 설명회 생성 결과.
+ *
+ * 0082: `link_token` 필드는 영구 폐기 컬럼이지만, 호출처(new-seminar-form)와
+ * 테스트(seminars-actions-guards)의 컴파일 호환을 위해 응답 필드는 유지하고
+ * 빈 문자열을 넣는다. 다음 PR 에서 호출처가 invitation 흐름으로 옮긴 뒤 제거.
+ */
 export type CreateSeminarActionResult =
   | { status: "success"; id: string; link_token: string }
   | { status: "failed"; reason: string }
@@ -121,6 +139,63 @@ export type ExportSignupsActionResult =
   | { status: "failed"; reason: string }
   | { status: "dev_seed_mode" };
 
+/**
+ * 설명회 발송(invitation 일괄 생성 + sendon batch) 결과.
+ *
+ *  - success      : invitation 생성 + sendon 적재 완료. campaign_id 반환.
+ *  - blocked      : 발송 안전 가드(수신자 0명 / 상한 초과 / 본문 한도 등) 에 의해 차단.
+ *  - failed       : 인프라/권한 오류.
+ *  - dev_seed_mode: 시연 모드 — 실 발송 차단, 가짜 카운트만 반환.
+ */
+export type CreateSeminarBroadcastActionResult =
+  | {
+      status: "success";
+      campaign_id: string;
+      invitation_count: number;
+      sent: number;
+      failed: number;
+      total_cost: number;
+    }
+  | { status: "blocked"; reason: string }
+  | { status: "failed"; reason: string }
+  | {
+      status: "dev_seed_mode";
+      sent: number;
+      invitation_count: number;
+    };
+
+/**
+ * 학부모 [신청하기] 클릭 결과 — flat union.
+ *
+ * RPC enum 을 status 로 그대로 펼친다 (frontend parent-invitation-flow.tsx 가
+ * status 자체로 단일 switch). dev_seed_mode / failed 는 인프라 분기.
+ *
+ *  - signed         : 정상 접수 (pending → signed)
+ *  - already_signed : 멱등 (이미 signed — 재클릭 무해)
+ *  - closed         : 정원 마감
+ *  - ended          : 행사 종료
+ *  - cancelled      : 설명회·카드 취소
+ *  - invalid        : 토큰/매핑 오류
+ *  - out_of_window  : 신청 창 밖
+ *  - failed         : 인프라/네트워크 오류 (RPC 자체 실패)
+ *  - dev_seed_mode  : 시연 모드
+ */
+export type ClaimInvitationItemActionResult =
+  | {
+      status:
+        | "signed"
+        | "already_signed"
+        | "closed"
+        | "ended"
+        | "cancelled"
+        | "invalid"
+        | "out_of_window";
+      itemId: string | null;
+      reason: string | null;
+    }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
+
 // ─── 권한 가드 ─────────────────────────────────────────────
 
 type AuthOk = { ok: true; user: CurrentUser };
@@ -152,8 +227,6 @@ function zodErrorToReason(err: ZodError): string {
 
 // ─── createSeminarAction ───────────────────────────────────
 
-const TOKEN_RETRY_LIMIT = 3;
-
 export async function createSeminarAction(
   input: CreateSeminarInput,
 ): Promise<CreateSeminarActionResult> {
@@ -181,66 +254,55 @@ export async function createSeminarAction(
 
   const supabase = await createSupabaseServerClient();
 
-  // UNIQUE(link_token) 충돌 시 재시도. 12자 nanoid 라 사실상 0확률이지만 방어.
-  let lastError: string | null = null;
-  for (let attempt = 0; attempt < TOKEN_RETRY_LIMIT; attempt++) {
-    const token = generateLinkToken();
-    const insertPayload: Record<string, unknown> = {
-      branch: parsed.branch,
-      name: parsed.name,
-      description: parsed.description,
-      held_at: parsed.held_at,
-      venue: parsed.venue,
-      capacity: parsed.capacity,
-      signup_opens_at: parsed.signup_opens_at,
-      signup_closes_at: parsed.signup_closes_at,
-      status: "open",
-      link_token: token,
-      created_by: auth.user.user_id,
-    };
+  // 0082: crm_seminars.link_token 컬럼이 DROP 되어 토큰 INSERT 가 더 이상
+  // 필요 없다. 설명회 자체는 그대로 INSERT 만. (학생 페이지 토큰은 발송 시점에
+  // crm_seminar_invitations.link_token 으로 학생당 별도 생성됨.)
+  const insertPayload: Record<string, unknown> = {
+    branch: parsed.branch,
+    name: parsed.name,
+    description: parsed.description,
+    held_at: parsed.held_at,
+    venue: parsed.venue,
+    capacity: parsed.capacity,
+    signup_opens_at: parsed.signup_opens_at,
+    signup_closes_at: parsed.signup_closes_at,
+    status: "open",
+    created_by: auth.user.user_id,
+  };
 
-    const result = (await (
-      supabase.from("crm_seminars") as unknown as {
-        insert: (v: Record<string, unknown>) => {
-          select: (cols: string) => {
-            single: () => Promise<{
-              data: { id: string; link_token: string } | null;
-              error: { message: string; code?: string } | null;
-            }>;
-          };
+  const result = (await (
+    supabase.from("crm_seminars") as unknown as {
+      insert: (v: Record<string, unknown>) => {
+        select: (cols: string) => {
+          single: () => Promise<{
+            data: { id: string } | null;
+            error: { message: string; code?: string } | null;
+          }>;
         };
-      }
-    )
-      .insert(insertPayload)
-      .select("id, link_token")
-      .single()) as {
-      data: { id: string; link_token: string } | null;
-      error: { message: string; code?: string } | null;
-    };
-
-    if (!result.error && result.data) {
-      revalidatePath("/seminars");
-      return {
-        status: "success",
-        id: result.data.id,
-        link_token: result.data.link_token,
       };
     }
+  )
+    .insert(insertPayload)
+    .select("id")
+    .single()) as {
+    data: { id: string } | null;
+    error: { message: string; code?: string } | null;
+  };
 
-    // 23505 = UNIQUE 위반. 다른 에러면 즉시 실패.
-    if (result.error?.code === "23505") {
-      lastError = "토큰 충돌이 반복되어 생성에 실패했습니다";
-      continue;
-    }
+  if (!result.error && result.data) {
+    revalidatePath("/seminars");
     return {
-      status: "failed",
-      reason: `설명회 생성에 실패했습니다: ${result.error?.message ?? "알 수 없는 오류"}`,
+      status: "success",
+      id: result.data.id,
+      // link_token 필드는 호환용 — 빈 문자열. 실제 학생 페이지 토큰은
+      // invitation 발송 액션이 학생별로 생성한다.
+      link_token: "",
     };
   }
 
   return {
     status: "failed",
-    reason: lastError ?? "설명회 생성에 실패했습니다",
+    reason: `설명회 생성에 실패했습니다: ${result.error?.message ?? "알 수 없는 오류"}`,
   };
 }
 
@@ -410,8 +472,15 @@ export async function changeSeminarStatusAction(
   return { status: "success" };
 }
 
-// ─── cancelSignupAction ────────────────────────────────────
-
+// ─── cancelSignupAction (0082 — invitation_items 단건 취소) ───
+//
+// 0080 폼 모델에선 `crm_seminar_signups` 1행 = 1 신청. 0082 부터는
+// `crm_seminar_invitation_items.status='signed'` 1행 = 1 신청 이고, 운영자가
+// 취소하면 그 카드의 status='cancelled' 로 soft delete.
+//
+// CancelSignupInputSchema 의 필드명은 호환 유지를 위해 `signup_id` 로 두지만,
+// 의미적으로는 `crm_seminar_invitation_items.id` 다 — UI/액션 호출부에서 카드
+// PK 를 그대로 넘기면 된다.
 export async function cancelSignupAction(
   input: CancelSignupInput,
 ): Promise<CancelSignupActionResult> {
@@ -429,52 +498,48 @@ export async function cancelSignupAction(
 
   const supabase = await createSupabaseServerClient();
 
-  // 신청 → 설명회 분원 lookup.
-  const { data: signup, error: fetchError } = (await supabase
-    .from("crm_seminar_signups")
-    .select("id, seminar_id, status")
+  // 카드 → invitation → 분원 lookup (PostgREST nested select).
+  type Row = {
+    id: string;
+    status: string;
+    invitation:
+      | {
+          id: string;
+          branch: string;
+        }
+      | null;
+  };
+  const { data: item, error: fetchError } = (await supabase
+    .from("crm_seminar_invitation_items")
+    .select(
+      `id, status, invitation:crm_seminar_invitations!inner(id, branch)`,
+    )
     .eq("id", parsed.signup_id)
     .maybeSingle()) as unknown as {
-    data: { id: string; seminar_id: string; status: string } | null;
+    data: Row | null;
     error: { message: string } | null;
   };
+
   if (fetchError) {
     return {
       status: "failed",
       reason: `신청 조회에 실패했습니다: ${fetchError.message}`,
     };
   }
-  if (!signup) {
+  if (!item || !item.invitation) {
     return { status: "failed", reason: "존재하지 않는 신청입니다" };
   }
-  if (signup.status === "cancelled") {
+  if (item.status === "cancelled") {
     // 이미 취소 — idempotent 성공.
     return { status: "success" };
   }
 
-  const { data: seminar, error: seminarError } = (await supabase
-    .from("crm_seminars")
-    .select("branch")
-    .eq("id", signup.seminar_id)
-    .maybeSingle()) as unknown as {
-    data: { branch: string } | null;
-    error: { message: string } | null;
-  };
-  if (seminarError) {
-    return {
-      status: "failed",
-      reason: `설명회 조회에 실패했습니다: ${seminarError.message}`,
-    };
-  }
-  if (!seminar) {
-    return { status: "failed", reason: "설명회 정보가 없습니다" };
-  }
-
-  const auth = await assertSeminarWrite(seminar.branch);
+  const branch = item.invitation.branch;
+  const auth = await assertSeminarWrite(branch);
   if (!auth.ok) return { status: "failed", reason: auth.reason };
 
   const { error: updateError } = (await (
-    supabase.from("crm_seminar_signups") as unknown as {
+    supabase.from("crm_seminar_invitation_items") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,
@@ -487,6 +552,8 @@ export async function cancelSignupAction(
       status: "cancelled",
       cancelled_at: new Date().toISOString(),
       cancelled_by: auth.user.user_id,
+      // signed_at 은 CHECK 제약(signed 일 때만 NOT NULL) — cancelled 전이 시 NULL 로.
+      signed_at: null,
     })
     .eq("id", parsed.signup_id)) as {
     error: { message: string } | null;
@@ -499,34 +566,34 @@ export async function cancelSignupAction(
     };
   }
 
-  revalidatePath(`/seminars/${signup.seminar_id}`);
+  // invitation_id 기준 캐시 무효화 — 어느 설명회 페이지에 속해 있는지는 호출부가 알기 어려워
+  // /seminars 전체 무효화.
+  revalidatePath("/seminars");
   return { status: "success" };
 }
 
-// ─── submitSignupAction (anon) ─────────────────────────────
-
-/**
- * 학부모 신청 폼 제출 — anon 허용.
- *
- * 입력 정규화 / 비즈니스 검증(정원·창·중복)은 모두 `signup_for_seminar` RPC 내부에서
- * 수행. 이 액션은 wrapper 역할 + IP/UA 헤더 전달 + dev-seed 가짜 분기.
- *
- * 입력 객체는 SubmitSignupInputSchema + token 으로 구성. token 은 URL `/s/<token>` 의
- * link_token 이고 SubmitSignupInputSchema 외 별도 키.
- */
+// ─── submitSignupAction (DEPRECATED — 0082 invitation 모델로 대체) ─
+//
+// 0080 폼 기반 학부모 신청은 0082 에서 invitation 모델로 대체되어 RPC
+// `signup_for_seminar` 와 `crm_seminars.link_token` 컬럼이 DROP 되었다.
+// 이 액션은 컴파일 호환을 위해 시그니처만 유지하고, 호출되면 즉시 `failed` 반환.
+//
+// 새 학부모 흐름: `/s/<token>` → `claimInvitationItemAction(token, seminar_id)`.
+//
+// frontend 의 `parent-signup-flow.tsx` 가 자연 사장될 때까지 남겨두지만, dev-seed
+// 환경에서도 사용자에게 "이 신청 방식은 더 이상 사용되지 않습니다" 라고 안내한다.
 export async function submitSignupAction(
   input: SubmitSignupInput & { token: string },
 ): Promise<SubmitSignupActionResult> {
   if (isDevSeedMode()) return { status: "dev_seed_mode" };
 
+  // dev-seed OFF 일 때만 Zod 를 거쳐 기존 테스트(빈 토큰/동의/길이 등) 가 그린.
   const rawToken = typeof input?.token === "string" ? input.token.trim() : "";
   if (rawToken.length === 0) {
     return { status: "failed", reason: "유효하지 않은 링크입니다" };
   }
-
-  let parsed: SubmitSignupInput;
   try {
-    parsed = SubmitSignupInputSchema.parse({
+    SubmitSignupInputSchema.parse({
       student_name: input.student_name,
       parent_phone: input.parent_phone,
       consent: input.consent,
@@ -538,61 +605,10 @@ export async function submitSignupAction(
     return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
   }
 
-  // 헤더에서 IP/UA 추출. proxy 환경 고려해 x-forwarded-for 우선.
-  const hdrs = await headers();
-  const xff = hdrs.get("x-forwarded-for");
-  const clientIp =
-    (xff ? xff.split(",")[0]?.trim() : null) ??
-    hdrs.get("x-real-ip") ??
-    null;
-  const userAgent = hdrs.get("user-agent") ?? null;
-
-  const supabase = await createSupabaseServerClient();
-  // ⚠️ `.bind(supabase)` 필수 — 변수에 담아 호출하면 `this` 바인딩 깨져
-  // 클라이언트 내부 `this.rest` 가 undefined 가 되어 TypeError. dev 우연 동작.
-  const rpcFn = supabase.rpc.bind(supabase) as unknown as (
-    fn: "signup_for_seminar",
-    params: {
-      p_token: string;
-      p_student_name: string;
-      p_parent_phone: string;
-      p_client_ip: string | null;
-      p_user_agent: string | null;
-    },
-  ) => Promise<{
-    data: SignupForSeminarResult[] | null;
-    error: { message: string } | null;
-  }>;
-
-  const rpcResult = await rpcFn("signup_for_seminar", {
-    p_token: rawToken,
-    p_student_name: parsed.student_name,
-    p_parent_phone: parsed.parent_phone,
-    p_client_ip: clientIp,
-    p_user_agent: userAgent,
-  });
-
-  if (rpcResult.error) {
-    return {
-      status: "failed",
-      reason: `신청 처리에 실패했습니다: ${rpcResult.error.message}`,
-    };
-  }
-  const row = rpcResult.data && rpcResult.data.length > 0 ? rpcResult.data[0] : null;
-  if (!row) {
-    return { status: "failed", reason: "신청 결과를 받지 못했습니다" };
-  }
-
-  // RPC enum 을 그대로 펼친다 — 호출부 switch 가 단순.
-  // 감사 로그 (학부모 번호는 마스킹). dev-seed/실패 경로 외 모두 로깅.
-  console.log(
-    `[seminars/signup] token=${rawToken.slice(0, 4)}**** phone=${maskPhone(parsed.parent_phone)} status=${row.status}`,
-  );
-
+  // Zod 까지 통과해도 결과적으로 거절 — 새 흐름으로 옮길 것을 안내.
   return {
-    status: row.status,
-    signupId: row.signup_id,
-    reason: row.reason,
+    status: "failed",
+    reason: "이 신청 방식은 더 이상 사용되지 않습니다. 안내 문자의 새 링크를 사용해 주세요.",
   };
 }
 
@@ -646,8 +662,9 @@ export async function exportSignupsAction(
   const auth = await assertSeminarWrite(seminar.branch);
   if (!auth.ok) return { status: "failed", reason: auth.reason };
 
-  // 전체 명단 — listSignups 는 페이지네이션 없이 전체 반환.
-  // signed + cancelled 모두 포함 (운영자 백오피스 용).
+  // 전체 명단 — listSignups 는 페이지네이션 없이 전체 반환 (status='signed' 만).
+  // 취소된 카드는 0082 invitation 모델에서 별도 화면(invitation 명단)에서 다루므로
+  // export 는 신청 확정 학생만.
   const allRows = await listSignups(seminarId);
 
   const isMaster = auth.user.role === "master";
@@ -658,9 +675,8 @@ export async function exportSignupsAction(
       ? formatPhone(r.parent_phone)
       : maskPhone(r.parent_phone),
     상태: r.status === "signed" ? "신청" : "취소",
-    "신청 일시": formatKstDateTime(r.created_at),
-    "취소 일시":
-      r.cancelled_at !== null ? formatKstDateTime(r.cancelled_at) : "",
+    "신청 일시":
+      r.signed_at !== null ? formatKstDateTime(r.signed_at) : "",
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(sheetRows);
@@ -670,7 +686,6 @@ export async function exportSignupsAction(
     { wch: 18 }, // 학부모 연락처
     { wch: 8 }, // 상태
     { wch: 20 }, // 신청
-    { wch: 20 }, // 취소
   ];
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "신청자");
@@ -696,5 +711,468 @@ export async function exportSignupsAction(
     filename,
     base64,
     rowCount: allRows.length,
+  };
+}
+
+// ─── createSeminarBroadcastAction (0082 핵심) ──────────────
+//
+// 흐름:
+//   1) Zod + 권한 가드(=write, 분원 일치).
+//   2) 학생들 SELECT — branch 격리. 비활성/탈퇴 제외.
+//   3) 수신거부 phone 제거.
+//   4) 학생당 link_token + invitation 1행 + items N행 INSERT.
+//   5) campaigns 1행 INSERT (status='발송중').
+//   6) sendon batch 1회 발송 — Receiver.name 에 학생별 URL 박음.
+//   7) 결과에 따라 campaigns.status='완료'/'실패' + total_cost 갱신.
+//
+// 광고 가드: 설명회 안내 = 정보성 → (광고) prefix / 080 footer / 야간차단 모두 X.
+
+/** 본문에 학생별 URL 을 박을 변수 토큰 (운영자 시각). */
+const INVITE_TOKEN = "{초대링크}";
+/** sendon SDK 가 인식하는 치환 src — Receiver.name 슬롯에 매핑됨. */
+const SENDON_INVITE_PLACEHOLDER = "#{이름}";
+/** 1회 발송 상한 — send-campaign 과 동일 정책. */
+const MAX_INVITATION_RECIPIENTS = 10_000;
+/** invitation.link_token UNIQUE 충돌 시 재시도 한도. */
+const INVITATION_TOKEN_RETRY = 3;
+
+export async function createSeminarBroadcastAction(
+  input: CreateBroadcastInput,
+): Promise<CreateSeminarBroadcastActionResult> {
+  // dev-seed: 가짜 결과로 UI 흐름만 확인 — 실 발송·DB 쓰기 X.
+  if (isDevSeedMode()) {
+    return {
+      status: "dev_seed_mode",
+      sent: input.student_ids?.length ?? 0,
+      invitation_count: input.student_ids?.length ?? 0,
+    };
+  }
+
+  // 1) Zod
+  let parsed: CreateBroadcastInput;
+  try {
+    parsed = CreateBroadcastInputSchema.parse(input);
+  } catch (e) {
+    if (e instanceof ZodError) {
+      return { status: "failed", reason: zodErrorToReason(e) };
+    }
+    return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  // 권한 가드 (group 리소스 매핑 — 설명회 발송도 동일 정책).
+  const auth = await assertSeminarWrite(parsed.branch);
+  if (!auth.ok) return { status: "failed", reason: auth.reason };
+
+  // 발송 상한.
+  if (parsed.student_ids.length > MAX_INVITATION_RECIPIENTS) {
+    return {
+      status: "blocked",
+      reason: `1회 발송 상한(${MAX_INVITATION_RECIPIENTS}명)을 초과했습니다`,
+    };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // 2) 설명회 존재 확인 + 분원 일치 검증 — 다른 분원 설명회로 발송 차단.
+  const { data: seminarRows, error: seminarFetchError } = (await supabase
+    .from("crm_seminars")
+    .select("id, branch, status")
+    .in("id", parsed.seminar_ids)) as unknown as {
+    data: Array<{ id: string; branch: string; status: string }> | null;
+    error: { message: string } | null;
+  };
+  if (seminarFetchError) {
+    return {
+      status: "failed",
+      reason: `설명회 조회에 실패했습니다: ${seminarFetchError.message}`,
+    };
+  }
+  if (!seminarRows || seminarRows.length !== parsed.seminar_ids.length) {
+    return { status: "failed", reason: "존재하지 않는 설명회가 포함되어 있습니다" };
+  }
+  const wrongBranch = seminarRows.find((s) => s.branch !== parsed.branch);
+  if (wrongBranch) {
+    return {
+      status: "failed",
+      reason: "다른 분원의 설명회는 함께 발송할 수 없습니다",
+    };
+  }
+
+  // 3) 학생들 SELECT — branch 격리 + 비활성(탈퇴) 제외 + 학부모 번호 NOT NULL.
+  const { data: studentRows, error: studentFetchError } = (await supabase
+    .from("crm_students")
+    .select("id, name, parent_phone, branch, status")
+    .in("id", parsed.student_ids)
+    .eq("branch", parsed.branch)
+    .neq("status", "탈퇴")) as unknown as {
+    data: Array<{
+      id: string;
+      name: string;
+      parent_phone: string | null;
+      branch: string;
+      status: string;
+    }> | null;
+    error: { message: string } | null;
+  };
+  if (studentFetchError) {
+    return {
+      status: "failed",
+      reason: `학생 조회에 실패했습니다: ${studentFetchError.message}`,
+    };
+  }
+  const students = studentRows ?? [];
+  if (students.length === 0) {
+    return { status: "blocked", reason: "발송 가능한 학생이 없습니다" };
+  }
+
+  // 4) 수신거부 제외 + parent_phone 결측 학생 제외.
+  const unsub = new Set(await getUnsubscribedPhones());
+  const filtered = students
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      parent_phone: normalizePhone(s.parent_phone),
+    }))
+    .filter(
+      (s): s is { id: string; name: string; parent_phone: string } =>
+        s.parent_phone !== null && !unsub.has(s.parent_phone),
+    );
+  if (filtered.length === 0) {
+    return {
+      status: "blocked",
+      reason: "수신거부·번호 결측으로 발송 가능한 학생이 없습니다",
+    };
+  }
+
+  // 5) 본문 + 학생별 URL placeholder 변환.
+  //    - 운영자가 본문에 `{초대링크}` 를 박았으면 그 자리로 → `#{이름}` (sendon 치환자) 으로 치환.
+  //    - 안 박았으면 본문 끝에 자동 부착 (\n\n신청: #{이름}).
+  //    - {이름} 토큰은 본 발송에선 미지원 — 호출자가 미리 박지 않도록 안내(운영 UI 책임).
+  let finalBody = parsed.body.trim();
+  if (finalBody.includes(INVITE_TOKEN)) {
+    finalBody = finalBody.split(INVITE_TOKEN).join(SENDON_INVITE_PLACEHOLDER);
+  } else {
+    finalBody = `${finalBody}\n\n신청: ${SENDON_INVITE_PLACEHOLDER}`;
+  }
+  // {이름} 토큰이 본문에 남아 있으면 본 발송이 처리 불가 — 운영자에게 안내.
+  if (finalBody.includes("{이름}")) {
+    return {
+      status: "blocked",
+      reason: "설명회 발송에서는 {이름} 변수를 사용할 수 없습니다 ({초대링크} 만 지원)",
+    };
+  }
+
+  // 본문 바이트 한도 검증 — 학생별 URL 자리(약 50~80자) 예측해 최장 URL 로 산정.
+  // sendBody 의 #{이름} 자리는 치환 후 URL 로 늘어남.
+  const sampleUrl = `${readPublicOriginForActions()}/s/${"X".repeat(12)}`;
+  const expandedSample = finalBody.split(SENDON_INVITE_PLACEHOLDER).join(sampleUrl);
+  const expandedBytes = countEucKrBytes(expandedSample);
+  const byteLimit = parsed.type === "LMS" ? BYTE_LIMITS.LMS : BYTE_LIMITS.SMS;
+  if (expandedBytes > byteLimit) {
+    return {
+      status: "blocked",
+      reason: `본문이 ${parsed.type} 한도(${byteLimit}바이트)를 초과합니다 (URL 포함 ${expandedBytes}바이트)`,
+    };
+  }
+
+  // 6) campaigns INSERT (status='발송중').
+  const campaignTitle = `[설명회] ${parsed.subject ?? parsed.body.slice(0, 24)}`;
+  const campaignPayload: Record<string, unknown> = {
+    title: campaignTitle,
+    template_id: null,
+    group_id: null,
+    scheduled_at: null,
+    sent_at: new Date().toISOString(),
+    status: "발송중",
+    total_recipients: filtered.length,
+    total_cost: 0,
+    created_by: auth.user.user_id,
+    branch: parsed.branch,
+    is_test: false,
+    body: parsed.body, // 운영 본문 원형 보존 — 학생별 URL 합성 전.
+    subject: parsed.subject,
+    type: parsed.type,
+    is_ad: false, // 설명회 안내 = 정보성.
+    dedupe_by_phone: false,
+    send_to_parent: true,
+    send_to_student: false,
+  };
+
+  const { data: campaignInserted, error: campaignError } = (await (
+    supabase.from("crm_campaigns") as unknown as {
+      insert: (v: Record<string, unknown>) => {
+        select: (cols: string) => {
+          single: () => Promise<{
+            data: { id: string } | null;
+            error: { message: string } | null;
+          }>;
+        };
+      };
+    }
+  )
+    .insert(campaignPayload)
+    .select("id")
+    .single()) as {
+    data: { id: string } | null;
+    error: { message: string } | null;
+  };
+  if (campaignError || !campaignInserted) {
+    return {
+      status: "failed",
+      reason: `캠페인 생성 실패: ${campaignError?.message ?? "알 수 없는 오류"}`,
+    };
+  }
+  const campaignId = campaignInserted.id;
+
+  // 7) 학생당 invitation + items INSERT. 토큰 UNIQUE 충돌 시 재시도(최대 3회).
+  const invitationByStudent = new Map<string, { id: string; token: string }>();
+  for (const s of filtered) {
+    let inserted: { id: string; token: string } | null = null;
+    let lastError: string | null = null;
+    for (let attempt = 0; attempt < INVITATION_TOKEN_RETRY; attempt += 1) {
+      const token = generateLinkToken();
+      const { data: invRow, error: invError } = (await (
+        supabase.from("crm_seminar_invitations") as unknown as {
+          insert: (v: Record<string, unknown>) => {
+            select: (cols: string) => {
+              single: () => Promise<{
+                data: { id: string } | null;
+                error: { message: string; code?: string } | null;
+              }>;
+            };
+          };
+        }
+      )
+        .insert({
+          branch: parsed.branch,
+          student_id: s.id,
+          link_token: token,
+          campaign_id: campaignId,
+          created_by: auth.user.user_id,
+        })
+        .select("id")
+        .single()) as {
+        data: { id: string } | null;
+        error: { message: string; code?: string } | null;
+      };
+      if (!invError && invRow) {
+        inserted = { id: invRow.id, token };
+        break;
+      }
+      // 23505 = UNIQUE 위반 — 토큰 재시도.
+      if (invError?.code === "23505") {
+        lastError = "토큰 충돌";
+        continue;
+      }
+      lastError = invError?.message ?? "알 수 없는 오류";
+      break;
+    }
+    if (!inserted) {
+      // 토큰 재시도 모두 실패 또는 다른 에러 → 캠페인 실패 처리 후 종료.
+      await safeMarkCampaignFailed(supabase, campaignId);
+      return {
+        status: "failed",
+        reason: `invitation 생성 실패: ${lastError ?? "알 수 없는 오류"}`,
+      };
+    }
+    invitationByStudent.set(s.id, inserted);
+  }
+
+  // 7-2) invitation_items 일괄 INSERT (학생 × 설명회 매트릭스).
+  const itemRows: Array<{
+    invitation_id: string;
+    seminar_id: string;
+    status: "pending";
+  }> = [];
+  for (const s of filtered) {
+    const inv = invitationByStudent.get(s.id);
+    if (!inv) continue;
+    for (const semId of parsed.seminar_ids) {
+      itemRows.push({
+        invitation_id: inv.id,
+        seminar_id: semId,
+        status: "pending",
+      });
+    }
+  }
+  const { error: itemsError } = (await (
+    supabase.from("crm_seminar_invitation_items") as unknown as {
+      insert: (v: Record<string, unknown>[]) => Promise<{
+        error: { message: string } | null;
+      }>;
+    }
+  ).insert(itemRows)) as { error: { message: string } | null };
+  if (itemsError) {
+    await safeMarkCampaignFailed(supabase, campaignId);
+    return {
+      status: "failed",
+      reason: `invitation 카드 생성 실패: ${itemsError.message}`,
+    };
+  }
+
+  // 8) sendon batch 발송.
+  const fromNumber = process.env.SENDON_FROM_NUMBER;
+  if (!fromNumber || fromNumber.length === 0) {
+    await safeMarkCampaignFailed(supabase, campaignId);
+    return {
+      status: "failed",
+      reason: "SENDON_FROM_NUMBER 환경변수가 설정되지 않았습니다",
+    };
+  }
+  const broadcastRecipients: BroadcastRecipient[] = filtered.map((s) => {
+    const inv = invitationByStudent.get(s.id);
+    // 위 루프에서 모든 학생에 inv 가 있음을 보장 — 방어로 빈 토큰 fallback.
+    return {
+      invitation_id: inv?.id ?? "",
+      student_id: s.id,
+      student_name: applyNameToken("{이름}", s.name), // '학부모님' fallback 포함.
+      parent_phone: s.parent_phone,
+      link_token: inv?.token ?? "",
+    };
+  });
+
+  const dispatchResult = await dispatchBroadcast(supabase, {
+    campaignId,
+    recipients: broadcastRecipients,
+    body: finalBody,
+    subject: parsed.subject,
+    type: parsed.type,
+    fromNumber,
+  });
+
+  // 9) campaign 최종 상태 + 비용 UPDATE.
+  const finalStatus = dispatchResult.sent > 0 ? "완료" : "실패";
+  await (
+    supabase.from("crm_campaigns") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        eq: (
+          col: string,
+          val: string,
+        ) => Promise<{ error: { message: string } | null }>;
+      };
+    }
+  )
+    .update({
+      status: finalStatus,
+      total_cost: Math.round(dispatchResult.totalCost),
+    })
+    .eq("id", campaignId);
+
+  revalidatePath("/seminars");
+  revalidatePath("/campaigns");
+
+  if (dispatchResult.sent === 0) {
+    return {
+      status: "failed",
+      reason: dispatchResult.failedReason ?? "발송에 실패했습니다",
+    };
+  }
+
+  return {
+    status: "success",
+    campaign_id: campaignId,
+    invitation_count: filtered.length,
+    sent: dispatchResult.sent,
+    failed: dispatchResult.failed,
+    total_cost: Math.round(dispatchResult.totalCost),
+  };
+}
+
+/** campaigns.status='실패' 로 안전 갱신 — 부분 INSERT 후 롤백 대용. */
+async function safeMarkCampaignFailed(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  campaignId: string,
+): Promise<void> {
+  await (
+    supabase.from("crm_campaigns") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        eq: (
+          col: string,
+          val: string,
+        ) => Promise<{ error: { message: string } | null }>;
+      };
+    }
+  )
+    .update({ status: "실패" })
+    .eq("id", campaignId);
+}
+
+/** dispatch-broadcast 와 동일한 우선순위로 PublicOrigin 결정 (액션 내 byte 산정용). */
+function readPublicOriginForActions(): string {
+  if (process.env.APP_BASE_URL)
+    return process.env.APP_BASE_URL.replace(/\/$/, "");
+  if (process.env.VERCEL_PROJECT_PRODUCTION_URL) {
+    return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
+  }
+  if (process.env.VERCEL_URL) {
+    return `https://${process.env.VERCEL_URL}`;
+  }
+  return "http://localhost:3000";
+}
+
+// ─── claimInvitationItemAction (학부모 anon) ────────────────
+//
+// 학부모가 학생 페이지에서 카드별 [신청하기] 누를 때 호출.
+// `claim_invitation_item` RPC (SECURITY DEFINER) 가 정원·창·취소 검증.
+// 멱등 — 이미 signed 면 'already_signed' 반환.
+export async function claimInvitationItemAction(
+  input: ClaimInvitationItemInput,
+): Promise<ClaimInvitationItemActionResult> {
+  if (isDevSeedMode()) return { status: "dev_seed_mode" };
+
+  const rawToken = typeof input?.token === "string" ? input.token.trim() : "";
+  if (rawToken.length === 0) {
+    return { status: "failed", reason: "유효하지 않은 링크입니다" };
+  }
+
+  let parsed: ClaimInvitationItemInput;
+  try {
+    parsed = ClaimInvitationItemInputSchema.parse({
+      token: rawToken,
+      seminar_id: input.seminar_id,
+    });
+  } catch (e) {
+    if (e instanceof ZodError) {
+      return { status: "failed", reason: zodErrorToReason(e) };
+    }
+    return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // ⚠️ `.bind(supabase)` 필수 — `this` 바인딩 보존.
+  const rpcFn = supabase.rpc.bind(supabase) as unknown as (
+    fn: "claim_invitation_item",
+    params: { p_token: string; p_seminar_id: string },
+  ) => Promise<{
+    data: ClaimInvitationItemResult[] | null;
+    error: { message: string } | null;
+  }>;
+
+  const { data, error } = await rpcFn("claim_invitation_item", {
+    p_token: parsed.token,
+    p_seminar_id: parsed.seminar_id,
+  });
+
+  if (error) {
+    return {
+      status: "failed",
+      reason: `신청 처리에 실패했습니다: ${error.message}`,
+    };
+  }
+  const row = data && data.length > 0 ? data[0] : null;
+  if (!row) {
+    return { status: "failed", reason: "신청 결과를 받지 못했습니다" };
+  }
+
+  // 감사 로그 (토큰은 prefix 4자만, 학부모 정보는 보존 안 함).
+  console.log(
+    `[seminars/claim] token=${parsed.token.slice(0, 4)}**** seminar=${parsed.seminar_id} status=${row.status}`,
+  );
+
+  return {
+    status: row.status,
+    itemId: row.item_id,
+    reason: row.reason,
   };
 }

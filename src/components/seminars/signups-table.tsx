@@ -3,7 +3,8 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search, X, Trash2, Download } from "lucide-react";
-import type { SeminarSignupRow } from "@/types/database";
+import type { InvitationItemStatus } from "@/types/database";
+import type { InvitationSignupRow } from "@/lib/seminars/list-signups";
 import { useToast } from "@/components/ui/toast";
 import { formatKstDateTime } from "@/lib/datetime";
 import { maskPhone, formatPhone } from "@/lib/phone";
@@ -13,16 +14,27 @@ import {
 } from "@/app/(features)/seminars/actions";
 
 /**
- * 설명회 신청 명단 테이블.
+ * 설명회 신청 명단 테이블 (invitation 모델, 0082).
+ *
+ * 백엔드 변경:
+ *  - `listSignups(seminarId)` 가 invitation_items JOIN 으로 재작성.
+ *    한 행 = invitation_item 1개. invitation_id 포함.
+ *  - cancelSignupAction 의 입력 키가 `signup_id` → `item_id` 로 변경.
+ *  - exportSignupsAction 은 동일 시그니처(seminarId).
+ *
+ * 행 모양 (backend export):
+ *  { item_id, invitation_id, student_id, student_name, parent_phone,
+ *    status: InvitationItemStatus, signed_at, created_at? }
  *
  * - 검색(이름/전화)은 클라이언트에서 in-memory 필터(현재 페이지 한정).
- * - 신청 취소: confirm → cancelSignupAction → revalidate.
+ * - 카드 취소: confirm → cancelSignupAction({ item_id }) → revalidate.
  * - 엑셀 다운로드: exportSignupsAction (서버에서 권한별 마스킹 처리).
- * - 정렬: 신청시각 역순(최신 위) — 서버에서 정렬된 상태로 옴.
+ * - 정렬: 신청 시각 역순(최신 위) — 서버 정렬 가정.
  */
+
 interface Props {
   seminarId: string;
-  signups: SeminarSignupRow[];
+  signups: InvitationSignupRow[];
   /** master 만 평문 전화 노출. 그 외(admin)는 마스킹. */
   canRevealPhone: boolean;
 }
@@ -51,11 +63,13 @@ export function SignupsTable({ seminarId, signups, canRevealPhone }: Props) {
     });
   }, [query, signups]);
 
-  const handleCancel = (id: string, name: string) => {
+  const handleCancel = (item_id: string, name: string) => {
     if (!confirm(`${name} 학생의 신청을 취소할까요?`)) return;
-    setPendingId(id);
+    setPendingId(item_id);
     startTransition(async () => {
-      const result = await cancelSignupAction({ signup_id: id });
+      // backend(0082): CancelSignupInputSchema 의 `signup_id` 필드는 호환 유지용
+      // 이름이고 실제로는 `crm_seminar_invitation_items.id`(=item_id) 를 받는다.
+      const result = await cancelSignupAction({ signup_id: item_id });
       setPendingId(null);
       switch (result.status) {
         case "success":
@@ -92,8 +106,6 @@ export function SignupsTable({ seminarId, signups, canRevealPhone }: Props) {
         return;
       }
       // result.status === "success"
-      // base64 → Uint8Array → Blob → URL → 다운로드.
-      // xlsx 고정 MIME — Excel 표준 OOXML SpreadsheetML.
       const binary = atob(result.base64);
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i += 1) {
@@ -123,10 +135,10 @@ export function SignupsTable({ seminarId, signups, canRevealPhone }: Props) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-14 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
-          아직 신청자가 없습니다.
+          아직 발송된 초대가 없습니다.
         </p>
         <p className="mt-2 text-[13px] text-[color:var(--text-dim)]">
-          학부모에게 발송 링크를 보내 신청을 받아보세요.
+          좌측 메뉴 &lsquo;설명회 문자&rsquo; 에서 이 설명회로 발송해 보세요.
         </p>
       </div>
     );
@@ -214,17 +226,19 @@ export function SignupsTable({ seminarId, signups, canRevealPhone }: Props) {
               </tr>
             ) : (
               filtered.map((s) => {
-                const isCancelled = s.status === "cancelled";
-                const phoneDisplay = canRevealPhone
-                  ? formatPhone(s.parent_phone)
-                  : maskPhone(s.parent_phone);
+                const phoneRaw = s.parent_phone;
+                const phoneDisplay = phoneRaw
+                  ? canRevealPhone
+                    ? formatPhone(phoneRaw)
+                    : maskPhone(phoneRaw)
+                  : "—";
                 return (
                   <tr
-                    key={s.id}
+                    key={s.item_id}
                     className={`
                       border-b border-[color:var(--border)] last:border-b-0
                       hover:bg-[color:var(--bg-hover)] transition-colors
-                      ${isCancelled ? "opacity-60" : ""}
+                      ${s.status === "cancelled" ? "opacity-60" : ""}
                     `}
                   >
                     <Td>
@@ -236,37 +250,19 @@ export function SignupsTable({ seminarId, signups, canRevealPhone }: Props) {
                       {phoneDisplay}
                     </Td>
                     <Td className="tabular-nums text-[13px] text-[color:var(--text-muted)]">
-                      {formatKstDateTime(s.created_at)}
+                      {s.signed_at
+                        ? formatKstDateTime(s.signed_at)
+                        : "—"}
                     </Td>
                     <Td>
-                      {isCancelled ? (
-                        <span
-                          className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium"
-                          style={{
-                            backgroundColor: "var(--danger-bg)",
-                            color: "var(--danger)",
-                          }}
-                        >
-                          취소됨
-                        </span>
-                      ) : (
-                        <span
-                          className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium"
-                          style={{
-                            backgroundColor: "var(--success-bg)",
-                            color: "var(--success)",
-                          }}
-                        >
-                          신청
-                        </span>
-                      )}
+                      <StatusBadge status={s.status} />
                     </Td>
                     <Td className="text-right">
-                      {!isCancelled && (
+                      {s.status === "signed" && (
                         <button
                           type="button"
-                          onClick={() => handleCancel(s.id, s.student_name)}
-                          disabled={pendingId === s.id}
+                          onClick={() => handleCancel(s.item_id, s.student_name)}
+                          disabled={pendingId === s.item_id}
                           aria-label={`${s.student_name} 신청 취소`}
                           title="신청 취소"
                           className="
@@ -293,6 +289,47 @@ export function SignupsTable({ seminarId, signups, canRevealPhone }: Props) {
         </table>
       </div>
     </div>
+  );
+}
+
+function StatusBadge({ status }: { status: InvitationItemStatus }) {
+  if (status === "signed") {
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium"
+        style={{
+          backgroundColor: "var(--success-bg)",
+          color: "var(--success)",
+        }}
+      >
+        신청
+      </span>
+    );
+  }
+  if (status === "cancelled") {
+    return (
+      <span
+        className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium"
+        style={{
+          backgroundColor: "var(--danger-bg)",
+          color: "var(--danger)",
+        }}
+      >
+        취소됨
+      </span>
+    );
+  }
+  // pending — 발송 완료 / 미신청.
+  return (
+    <span
+      className="inline-flex items-center px-2 py-0.5 rounded-full text-[12px] font-medium"
+      style={{
+        backgroundColor: "var(--bg-muted)",
+        color: "var(--text-muted)",
+      }}
+    >
+      미신청
+    </span>
   );
 }
 

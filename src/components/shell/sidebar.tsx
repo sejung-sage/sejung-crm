@@ -73,7 +73,11 @@ const NAV_ITEMS: NavItem[] = [
     label: "문자 발송",
     icon: MessageSquare,
     children: [
-      { href: "/compose", label: "새 발송 작성" },
+      // 0082 분리: 일반 SMS 와 설명회 발송 위저드를 별도 항목으로.
+      // /compose 는 그룹/템플릿 기반 일반 발송, /seminars/compose 는
+      // invitation 모델(학생 단위 토큰) 기반 설명회 발송.
+      { href: "/compose", label: "일반 SMS 전송" },
+      { href: "/seminars/compose", label: "설명회 문자" },
       { href: "/groups", label: "발송 그룹" },
       { href: "/templates", label: "문자 & 알림톡 템플릿" },
       { href: "/campaigns", label: "문자 발송 내역" },
