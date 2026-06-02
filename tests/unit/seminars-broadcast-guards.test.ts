@@ -3,24 +3,23 @@ import {
   createSeminarBroadcastAction,
   claimInvitationItemAction,
   cancelSignupAction,
-  submitSignupAction,
 } from "@/app/(features)/seminars/actions";
 import type {
   CreateBroadcastInput,
   ClaimInvitationItemInput,
-  SubmitSignupInput,
 } from "@/lib/schemas/seminar";
 
 /**
- * F5 · 설명회 invitation 모델 (0082) · Server Action 가드 단위 테스트.
+ * F5 · 설명회 invitation 모델 (0084/0085) · Server Action 가드 단위 테스트.
  *
  * 다루는 액션:
- *   - createSeminarBroadcastAction (신규 — 일괄 발송 + invitation 카드 생성)
- *   - claimInvitationItemAction    (신규 — 학부모 카드별 [신청하기])
- *   - cancelSignupAction           (갱신 — 0082 에선 invitation_items.id 를 받아 단건 cancel)
- *   - submitSignupAction           (폐기 — 실 모드에선 거절, dev-seed 호환 위해 mode 반환)
+ *   - createSeminarBroadcastAction (강좌 기반 발송 + invitation 카드 생성)
+ *   - claimInvitationItemAction    (학부모 카드별 [신청하기])
+ *   - cancelSignupAction           (운영자 invitation_items 단건 cancel)
  *
- * 정책 (다른 actions-guards 미러):
+ * 폐기된 submitSignupAction 은 Phase 2-B-3 (2026-06-02) 에서 제거됨.
+ *
+ * 정책:
  *   - dev-seed 모드: 모든 쓰기 액션은 DB 도달 전에 dev_seed_mode 조기 반환.
  *   - dev-seed OFF + Zod 실패: failed (한글 reason 노출).
  *   - 발송 가드는 dispatch 이전 단계만 검증 (DB·sendon 호출 없음).
@@ -42,13 +41,6 @@ const validBroadcast: CreateBroadcastInput = {
 const validClaim: ClaimInvitationItemInput = {
   token: "abcdef123456",
   signup_page_id: validUuid,
-};
-
-const validSubmit: SubmitSignupInput & { token: string } = {
-  token: "tok_legacy",
-  student_name: "홍길동",
-  parent_phone: "01012345678",
-  consent: true,
 };
 
 // ─── dev-seed ON ────────────────────────────────────────────
@@ -85,12 +77,6 @@ describe("seminar invitation Server Actions · dev-seed 조기 반환", () => {
     });
   });
 
-  describe("submitSignupAction (DEPRECATED)", () => {
-    it("dev-seed 에서는 호환을 위해 dev_seed_mode 반환 (parent-signup-flow done 매핑)", async () => {
-      const r = await submitSignupAction(validSubmit);
-      expect(r.status).toBe("dev_seed_mode");
-    });
-  });
 });
 
 // ─── dev-seed OFF · Zod / 입력 가드 ─────────────────────────
@@ -240,23 +226,4 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
     });
   });
 
-  describe("submitSignupAction (DEPRECATED · 실 모드)", () => {
-    it("정상 입력이어도 실 모드는 '이 신청 방식은 더 이상...' 안내로 failed", async () => {
-      const r = await submitSignupAction(validSubmit);
-      expect(r.status).toBe("failed");
-      if (r.status === "failed") {
-        expect(r.reason).toContain("이 신청 방식은 더 이상");
-        // 새 링크 안내 문구도 포함.
-        expect(r.reason).toMatch(/새 링크|안내 문자/);
-      }
-    });
-
-    it("token 빈 문자열은 Zod 이전 짧은-회로로 '유효하지 않은 링크' failed", async () => {
-      const r = await submitSignupAction({ ...validSubmit, token: "" });
-      expect(r.status).toBe("failed");
-      if (r.status === "failed") {
-        expect(r.reason).toContain("링크");
-      }
-    });
-  });
 });

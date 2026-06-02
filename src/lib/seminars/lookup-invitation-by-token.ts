@@ -1,30 +1,23 @@
 /**
- * 학부모 학생 페이지 lookup — `/s/<token>` 진입 시 호출 (0082 invitation 모델).
+ * 학부모 학생 페이지 lookup — `/s/<token>` 진입 시 호출 (0085 새 RPC).
  *
  * 흐름:
  *  - 학부모가 SMS 로 받은 학생 고유 URL `/s/<link_token>` 에 접속.
  *  - 페이지(SSR) 가 이 함수를 호출해 학생 메타 + 카드 N개를 가져온다.
- *  - 카드별 [신청하기] 클릭은 별도 `claimInvitationItemAction`.
+ *  - 카드별 [신청하기] 클릭은 별도 `claimInvitationItemAction` (0085 claim_signup_item RPC).
  *
  * 권한:
  *  - 인증 불필요. 토큰 보유 = 학부모 본인 가정.
- *  - RPC `lookup_invitation_by_token` (SECURITY DEFINER) 가 RLS 우회.
+ *  - RPC `lookup_signup_invitation_by_token` (SECURITY DEFINER) 가 RLS 우회.
  *  - 학생 메타(이름·전화)는 학부모 본인 화면 노출 의도 — 마스킹 X.
  *
- * 폴백:
- *  - dev-seed 모드: 가짜 invitation 1개를 합성해 반환 (mock seminar 들로 items 채움).
- *    UI 시연 시 학생 페이지가 빈 카드로 보이지 않도록.
- *  - 실 DB : RPC 에러나 토큰 미존재 → null (page 가 "유효하지 않은 링크" 안내).
+ * dev-seed 폴백은 Phase 2-B-3 (2026-06-02) 에서 제거 — 시연 데이터가 새 모델로
+ * 옮겨오지 않았고, 실 DB 가 없으면 학부모 페이지가 "유효하지 않은 링크" 로
+ * graceful 처리되면 충분하다.
  */
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
-import { listMockSeminars } from "@/lib/seminars/dev-seed";
-import type {
-  InvitationItemStatus,
-  LookupInvitationByTokenResult,
-  LookupInvitationItem,
-} from "@/types/database";
+import type { LookupInvitationByTokenResult } from "@/types/database";
 
 /**
  * 토큰으로 invitation 메타 + 카드 N개를 조회.
@@ -36,70 +29,6 @@ export async function lookupInvitationByToken(
 ): Promise<LookupInvitationByTokenResult | null> {
   if (!token || token.trim().length === 0) return null;
 
-  if (isDevSeedMode()) {
-    return lookupFromDevSeed(token);
-  }
-  return lookupFromSupabase(token);
-}
-
-// ─── dev-seed ─────────────────────────────────────────────────
-
-/**
- * dev-seed 합성 invitation.
- *
- * 운영자 시연 시 `/s/<아무 토큰>` 으로 들어와도 학생 페이지가 빈 화면이 아니라
- * "홍길동 / 010-1234-5678 / 카드 3개" 가 보이도록 가짜 결과를 만든다.
- *
- * - 토큰이 mock SEMINARS 의 옛 토큰(`tok_*`) 과 일치하면 그 설명회 1개만 카드로.
- * - 그 외 토큰은 active 한 상위 3개 mock 설명회를 카드로 보여준다.
- */
-function lookupFromDevSeed(
-  token: string,
-): LookupInvitationByTokenResult | null {
-  // mock 의 모든 설명회 (필터 없음).
-  const all = listMockSeminars();
-  // 옛 토큰 매칭 시 그 설명회만, 아니면 open + closed 상위 3건.
-  const seminarsForToken =
-    all.find((s) => s.token === token) === undefined
-      ? all
-          .filter((s) => s.status === "open" || s.status === "closed")
-          .slice(0, 3)
-      : all.filter((s) => s.token === token);
-
-  if (seminarsForToken.length === 0) return null;
-
-  const items: LookupInvitationItem[] = seminarsForToken.map((s, idx) => ({
-    item_id: `dev-item-${s.id}`,
-    // dev-seed 는 강좌·페이지 분리 데이터가 없어 mock seminar 1행을 페이지 id 로 활용.
-    signup_page_id: s.id,
-    class_id: null,
-    name: s.name,
-    description: s.description,
-    held_at: s.starts_at,
-    venue: s.venue,
-    page_status: "open",
-    // 첫 카드만 'signed' 로 두어 멱등 케이스도 화면 확인 가능.
-    item_status: (idx === 0 ? "signed" : "pending") as InvitationItemStatus,
-    signed_at: idx === 0 ? new Date().toISOString() : null,
-    signup_opens_at: null,
-    signup_closes_at: null,
-  }));
-
-  return {
-    invitation_id: `dev-inv-${token}`,
-    student_id: "dev-student-001",
-    student_name: "홍길동",
-    parent_phone: "01012345678",
-    branch: seminarsForToken[0].branch,
-    items,
-  };
-}
-
-// ─── Supabase ────────────────────────────────────────────────
-
-async function lookupFromSupabase(
-  token: string,
-): Promise<LookupInvitationByTokenResult | null> {
   // 학부모 공개 페이지에서 호출되므로 RPC 에러를 학부모 화면에 노출하지 않는다.
   // page 가 null 을 "유효하지 않은 링크" 로 안내.
   try {

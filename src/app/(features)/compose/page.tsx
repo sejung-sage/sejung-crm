@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { headers } from "next/headers";
+// headers 는 Phase 2-B-3 prefill 제거 후 미사용.
 import { ChevronLeft } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
@@ -7,9 +7,10 @@ import { listGroups } from "@/lib/groups/list-groups";
 import { listTemplates } from "@/lib/templates/list-templates";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { ComposeWizard } from "@/components/compose/compose-wizard";
-import { getSeminar } from "@/lib/seminars/get-seminar";
-import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
-import { formatKstDateTime } from "@/lib/datetime";
+// getSeminar 폐기 (Phase 2-B-3): 설명회 prefill 은 전용 위저드(/seminars/compose)
+// 가 담당. /compose 의 ?seminarId 옵션은 더 이상 사용되지 않는다.
+// countEucKrBytes 는 Phase 2-B-3 prefill 제거 후 본 페이지에서 미사용.
+// formatKstDateTime 는 Phase 2-B-3 prefill 제거 후 미사용.
 import type { GroupListItem, TemplateRow } from "@/types/database";
 
 /**
@@ -38,7 +39,7 @@ export default async function ComposePage({
     Array.isArray(v) ? v[0] : v;
   const initialGroupId = pick(raw.groupId) ?? null;
   const initialTemplateIdParam = pick(raw.templateId) ?? null;
-  const initialSeminarId = pick(raw.seminarId) ?? null;
+  // initialSeminarId 옵션은 Phase 2-B-3 에서 제거됨.
 
   const currentUser = await getCurrentUser();
   const devMode = isDevSeedMode();
@@ -100,71 +101,10 @@ export default async function ComposePage({
   const groups: GroupListItem[] = groupsResult.items;
   let templates: TemplateRow[] = templatesResult.items;
 
-  // ?seminarId=<uuid> prefill 처리.
-  //
-  // 설명회 상세 페이지의 "발송하기" 버튼이 새 발송 화면으로 넘어올 때 본문을
-  // 미리 채워준다. ComposeWizard 자체에 prop 을 추가하지 않고도 동작하도록
-  // 가상 in-memory TemplateRow 를 templates 앞에 prepend + initialTemplateId
-  // 를 그 가상 ID 로 지정한다 (frontend 컴포넌트 변경 불필요).
-  //
-  // 0082 재설계: 더 이상 seminar 단위 공개 토큰이 없다(link_token 컬럼 DROP).
-  // 학생별 invitation 발송 흐름으로 이동했으므로 본 prefill 은 안내 텍스트만
-  // 채우고 학생별 링크는 발송 단계(서버) 에서 학생당 토큰으로 치환된다.
-  // 본문 끝의 `{초대링크}` 변수는 backend-dev 가 sendon batch 직전에 학생별
-  // /s/<invitation.link_token> 으로 치환할 예정.
-  //
-  // 본문 포맷:
-  //   [설명회 안내]
-  //   <name>
-  //   <KST 한글 일시>, <venue>
-  //
-  //   신청하기: {초대링크}
-  let initialTemplateId: string | null = initialTemplateIdParam;
-  if (initialSeminarId) {
-    const seminar = await getSeminar(initialSeminarId);
-    if (seminar) {
-      // headers() 호출은 invitation 토큰 치환을 백엔드로 옮긴 뒤에는 불필요
-      // 해질 수 있으나, 향후 origin 표시가 필요할 수 있어 일단 유지.
-      await headers();
-
-      const venuePart = seminar.venue ? `, ${seminar.venue}` : "";
-      const when = seminar.held_at
-        ? formatKstDateTime(seminar.held_at)
-        : "일정 미정";
-      const linkLine = "신청하기: {초대링크}";
-      const body = [
-        "[설명회 안내]",
-        seminar.name,
-        `${when}${venuePart}`,
-        "",
-        linkLine,
-      ].join("\n");
-
-      const bytes = countEucKrBytes(body);
-      // LMS 가 안전한 기본값(설명회 안내는 일반적으로 SMS 90바이트 초과).
-      const prefillTemplateId = `seminar-prefill-${seminar.id}`;
-      const prefillTemplate: TemplateRow = {
-        id: prefillTemplateId,
-        name: `설명회 안내 · ${seminar.name}`,
-        subject: "설명회 안내",
-        body,
-        type: "LMS",
-        auto_captured: false,
-        is_ad: false,
-        byte_count: bytes,
-        branch: seminar.branch,
-        created_by: null,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      templates = [prefillTemplate, ...templates];
-      // 기존 ?templateId 가 명시되어 있지 않으면 prefill 을 선택 상태로.
-      // 명시되어 있다면 사용자의 명시적 선택을 우선.
-      if (!initialTemplateId) {
-        initialTemplateId = prefillTemplateId;
-      }
-    }
-  }
+  // 옛 ?seminarId prefill 은 Phase 2-B-3 에서 제거됨 — 설명회 발송은 전용
+  // 위저드(/seminars/compose) 가 처리한다. 일반 SMS 발송 화면(/compose)은
+  // 그룹·템플릿 기반으로만 동작.
+  const initialTemplateId: string | null = initialTemplateIdParam;
 
   return (
     <div className="max-w-6xl space-y-6">
