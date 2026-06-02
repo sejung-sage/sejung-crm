@@ -517,9 +517,9 @@ export async function cancelSignupAction(
       | null;
   };
   const { data: item, error: fetchError } = (await supabase
-    .from("crm_seminar_invitation_items")
+    .from("crm_class_signup_items")
     .select(
-      `id, status, invitation:crm_seminar_invitations!inner(id, branch)`,
+      `id, status, invitation:crm_class_signup_invitations!inner(id, branch)`,
     )
     .eq("id", parsed.signup_id)
     .maybeSingle()) as unknown as {
@@ -546,7 +546,7 @@ export async function cancelSignupAction(
   if (!auth.ok) return { status: "failed", reason: auth.reason };
 
   const { error: updateError } = (await (
-    supabase.from("crm_seminar_invitation_items") as unknown as {
+    supabase.from("crm_class_signup_items") as unknown as {
       update: (v: Record<string, unknown>) => {
         eq: (
           col: string,
@@ -783,30 +783,118 @@ export async function createSeminarBroadcastAction(
   // 발송 상한은 group 펼친 결과 길이로 후속 검증 (아래 4단계).
   // (client 가 student_ids 를 보내지 않으므로 사전 검증 불가.)
 
-  // 2) 설명회 존재 확인 + 분원 일치 검증 — 다른 분원 설명회로 발송 차단.
-  const { data: seminarRows, error: seminarFetchError } = (await supabase
-    .from("crm_seminars")
-    .select("id, branch, status")
-    .in("id", parsed.seminar_ids)) as unknown as {
-    data: Array<{ id: string; branch: string; status: string }> | null;
+  // 2) 강좌(=설명회) 검증 + crm_class_signup_pages find-or-create.
+  //    0084/0085 새 모델: 발송 대상은 강좌이고, 학부모 신청은 그 강좌에 부착된
+  //    signup_page 를 통해 처리한다. 페이지가 없으면 발송 시점에 자동 생성
+  //    (status='open' — 학부모가 곧장 신청 가능. 운영자가 강좌 상세에서 후조정 가능).
+  type ClassCheckRow = {
+    id: string;
+    branch: string;
+    subject: string | null;
+    active: boolean;
+  };
+  const { data: classRows, error: classFetchError } = (await supabase
+    .from("crm_classes")
+    .select("id, branch, subject, active")
+    .in("id", parsed.class_ids)) as unknown as {
+    data: ClassCheckRow[] | null;
     error: { message: string } | null;
   };
-  if (seminarFetchError) {
+  if (classFetchError) {
     return {
       status: "failed",
-      reason: `설명회 조회에 실패했습니다: ${seminarFetchError.message}`,
+      reason: `강좌 조회에 실패했습니다: ${classFetchError.message}`,
     };
   }
-  if (!seminarRows || seminarRows.length !== parsed.seminar_ids.length) {
-    return { status: "failed", reason: "존재하지 않는 설명회가 포함되어 있습니다" };
+  if (!classRows || classRows.length !== parsed.class_ids.length) {
+    return {
+      status: "failed",
+      reason: "존재하지 않는 강좌가 포함되어 있습니다",
+    };
   }
-  const wrongBranch = seminarRows.find((s) => s.branch !== parsed.branch);
+  const wrongBranch = classRows.find((c) => c.branch !== parsed.branch);
   if (wrongBranch) {
     return {
       status: "failed",
-      reason: "다른 분원의 설명회는 함께 발송할 수 없습니다",
+      reason: "다른 분원의 강좌는 함께 발송할 수 없습니다",
     };
   }
+  const notSeminar = classRows.find((c) => c.subject !== "설명회");
+  if (notSeminar) {
+    return {
+      status: "failed",
+      reason: "설명회 강좌(subject='설명회')만 발송 대상입니다",
+    };
+  }
+  const inactive = classRows.find((c) => !c.active);
+  if (inactive) {
+    return {
+      status: "failed",
+      reason: "비활성 강좌는 발송 대상이 아닙니다",
+    };
+  }
+
+  // 2-2) 각 강좌의 crm_class_signup_pages find-or-create.
+  //      페이지 1:1 강좌 (UNIQUE class_id). 없으면 자동 생성.
+  const { data: existingPages, error: pageFetchError } = (await supabase
+    .from("crm_class_signup_pages")
+    .select("id, class_id")
+    .in("class_id", parsed.class_ids)) as unknown as {
+    data: Array<{ id: string; class_id: string }> | null;
+    error: { message: string } | null;
+  };
+  if (pageFetchError) {
+    return {
+      status: "failed",
+      reason: `신청 페이지 조회에 실패했습니다: ${pageFetchError.message}`,
+    };
+  }
+  const pageByClass = new Map<string, string>();
+  for (const p of existingPages ?? []) pageByClass.set(p.class_id, p.id);
+
+  const toCreatePages = parsed.class_ids.filter(
+    (cid) => !pageByClass.has(cid),
+  );
+  if (toCreatePages.length > 0) {
+    const newPageRows = toCreatePages.map((cid) => ({
+      class_id: cid,
+      branch: parsed.branch,
+      status: "open",
+      created_by: auth.user.user_id,
+    }));
+    const { data: createdPages, error: createPageError } = (await (
+      supabase.from("crm_class_signup_pages") as unknown as {
+        insert: (v: Record<string, unknown>[]) => {
+          select: (cols: string) => Promise<{
+            data: Array<{ id: string; class_id: string }> | null;
+            error: { message: string } | null;
+          }>;
+        };
+      }
+    )
+      .insert(newPageRows)
+      .select("id, class_id")) as {
+      data: Array<{ id: string; class_id: string }> | null;
+      error: { message: string } | null;
+    };
+    if (createPageError || !createdPages) {
+      return {
+        status: "failed",
+        reason: `신청 페이지 생성 실패: ${createPageError?.message ?? "알 수 없는 오류"}`,
+      };
+    }
+    for (const p of createdPages) pageByClass.set(p.class_id, p.id);
+  }
+
+  // class_ids 순서대로 signup_page_ids 배열 추출 (items INSERT 에 사용).
+  const signupPageIds = parsed.class_ids.map((cid) => {
+    const pid = pageByClass.get(cid);
+    if (!pid) {
+      // 위 find-or-create 이후 누락은 사실상 발생 X — 방어.
+      throw new Error(`signup_page 매핑 누락: class_id=${cid}`);
+    }
+    return pid;
+  });
 
   // 3) 그룹 권한·분원 격리 검증.
   const group = await getGroup(parsed.group_id);
@@ -986,7 +1074,7 @@ export async function createSeminarBroadcastAction(
     for (let attempt = 0; attempt < INVITATION_TOKEN_RETRY; attempt += 1) {
       const token = generateLinkToken();
       const { data: invRow, error: invError } = (await (
-        supabase.from("crm_seminar_invitations") as unknown as {
+        supabase.from("crm_class_signup_invitations") as unknown as {
           insert: (v: Record<string, unknown>) => {
             select: (cols: string) => {
               single: () => Promise<{
@@ -1032,25 +1120,26 @@ export async function createSeminarBroadcastAction(
     invitationByStudent.set(s.id, inserted);
   }
 
-  // 7-2) invitation_items 일괄 INSERT (학생 × 설명회 매트릭스).
+  // 7-2) invitation_items 일괄 INSERT (학생 × signup_page 매트릭스).
+  //      0084: seminar_id 컬럼 → signup_page_id. 페이지는 위 2-2 에서 확보.
   const itemRows: Array<{
     invitation_id: string;
-    seminar_id: string;
+    signup_page_id: string;
     status: "pending";
   }> = [];
   for (const s of filtered) {
     const inv = invitationByStudent.get(s.id);
     if (!inv) continue;
-    for (const semId of parsed.seminar_ids) {
+    for (const pageId of signupPageIds) {
       itemRows.push({
         invitation_id: inv.id,
-        seminar_id: semId,
+        signup_page_id: pageId,
         status: "pending",
       });
     }
   }
   const { error: itemsError } = (await (
-    supabase.from("crm_seminar_invitation_items") as unknown as {
+    supabase.from("crm_class_signup_items") as unknown as {
       insert: (v: Record<string, unknown>[]) => Promise<{
         error: { message: string } | null;
       }>;
@@ -1167,7 +1256,7 @@ function readPublicOriginForActions(): string {
 // ─── claimInvitationItemAction (학부모 anon) ────────────────
 //
 // 학부모가 학생 페이지에서 카드별 [신청하기] 누를 때 호출.
-// `claim_invitation_item` RPC (SECURITY DEFINER) 가 정원·창·취소 검증.
+// 0085 `claim_signup_item` RPC (SECURITY DEFINER) 가 정원·창·취소 검증.
 // 멱등 — 이미 signed 면 'already_signed' 반환.
 export async function claimInvitationItemAction(
   input: ClaimInvitationItemInput,
@@ -1183,7 +1272,7 @@ export async function claimInvitationItemAction(
   try {
     parsed = ClaimInvitationItemInputSchema.parse({
       token: rawToken,
-      seminar_id: input.seminar_id,
+      signup_page_id: input.signup_page_id,
     });
   } catch (e) {
     if (e instanceof ZodError) {
@@ -1196,16 +1285,16 @@ export async function claimInvitationItemAction(
 
   // ⚠️ `.bind(supabase)` 필수 — `this` 바인딩 보존.
   const rpcFn = supabase.rpc.bind(supabase) as unknown as (
-    fn: "claim_invitation_item",
-    params: { p_token: string; p_seminar_id: string },
+    fn: "claim_signup_item",
+    params: { p_token: string; p_signup_page_id: string },
   ) => Promise<{
     data: ClaimInvitationItemResult[] | null;
     error: { message: string } | null;
   }>;
 
-  const { data, error } = await rpcFn("claim_invitation_item", {
+  const { data, error } = await rpcFn("claim_signup_item", {
     p_token: parsed.token,
-    p_seminar_id: parsed.seminar_id,
+    p_signup_page_id: parsed.signup_page_id,
   });
 
   if (error) {
@@ -1221,7 +1310,7 @@ export async function claimInvitationItemAction(
 
   // 감사 로그 (토큰은 prefix 4자만, 학부모 정보는 보존 안 함).
   console.log(
-    `[seminars/claim] token=${parsed.token.slice(0, 4)}**** seminar=${parsed.seminar_id} status=${row.status}`,
+    `[seminars/claim] token=${parsed.token.slice(0, 4)}**** page=${parsed.signup_page_id} status=${row.status}`,
   );
 
   return {

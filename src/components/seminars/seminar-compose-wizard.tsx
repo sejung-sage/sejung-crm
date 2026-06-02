@@ -2,37 +2,32 @@
 
 import { useMemo, useState } from "react";
 import { Check } from "lucide-react";
-import type { SeminarListItem, GroupListItem } from "@/types/database";
+import type { ClassSignupOption, GroupListItem } from "@/types/database";
 import { SeminarComposeStep1Seminars } from "./seminar-compose-step-1-seminars";
 import { SeminarComposeStep2Group } from "./seminar-compose-step-2-group";
 import { SeminarComposeStep3Body } from "./seminar-compose-step-3-body";
 import { SeminarComposeStep4Send } from "./seminar-compose-step-4-send";
 
 /**
- * F5 · 설명회 문자 발송 4단계 위저드 (0082 invitation 모델).
+ * F5 · 설명회 문자 발송 4단계 위저드 (0084/0085 새 모델).
  *
  * 단계:
- *   1. 설명회 선택 (다중)            — selectedSeminarIds
- *   2. 대상 학생 그룹 선택            — selectedGroupId
- *   3. 본문 작성 (SMS/LMS)            — type / subject / body
- *   4. 발송 (확인 다이얼로그)         — createSeminarBroadcastAction
+ *   1. 강좌(설명회) 선택 (다중)        — selectedClassIds
+ *   2. 대상 학생 그룹 선택              — selectedGroupId
+ *   3. 본문 작성 (SMS/LMS)              — type / subject / body
+ *   4. 발송 (확인 다이얼로그)           — createSeminarBroadcastAction
  *
- * 발송 시 invitation 행이 학생당 1개 생성되고, 본문 끝에 `{초대링크}` 가 있으면
- * 학생별 `/s/<token>` URL 로 자동 치환된다. 없으면 자동 부착(서버 책임).
- *
- * 디자인:
- *   - 활성 스텝: 검정 원
- *   - 완료 스텝: 회색 채움 + 체크
- *   - 미진행: 회색 외곽선
- *
- * 일반 compose-wizard 와 별개 컴포넌트로 유지 — invitation 흐름 특유의
- * "설명회 다중 선택" / "초대링크 토큰" 개념이 일반 발송에 섞이는 것을 피한다.
+ * 발송 시 학생당 invitation 1개 + 학생 × 선택 강좌 매트릭스로 items 가 생성된다.
+ * signup_page 가 강좌별로 자동 find-or-create (status='open') — 운영자가 강좌
+ * 상세에서 후조정 가능. 본문 끝에 `{초대링크}` 있으면 학생별 `/s/<token>` URL 로
+ * 자동 치환, 없으면 자동 부착(서버 책임).
  */
 
 export type SmsType = "SMS" | "LMS";
 
 export interface SeminarComposeState {
-  selectedSeminarIds: string[];
+  /** 선택된 강좌(=설명회) id 배열. 0084 새 모델 — 옛 seminar id 아님. */
+  selectedClassIds: string[];
   selectedGroupId: string;
   type: SmsType;
   subject: string | null;
@@ -49,9 +44,9 @@ export interface SeminarComposeState {
 }
 
 interface Props {
-  initialSeminarId: string | null;
+  initialClassId: string | null;
   initialGroupId: string | null;
-  seminars: SeminarListItem[];
+  classes: ClassSignupOption[];
   groups: GroupListItem[];
   /** 분원 — 발송 액션에 전달. master 전체 모드에서는 빈 문자열. */
   branch: string;
@@ -67,9 +62,9 @@ const STEP_LABELS: Array<{ index: 1 | 2 | 3 | 4; label: string }> = [
 ];
 
 export function SeminarComposeWizard({
-  initialSeminarId,
+  initialClassId,
   initialGroupId,
-  seminars,
+  classes,
   groups,
   branch,
   optOutNumber,
@@ -77,12 +72,12 @@ export function SeminarComposeWizard({
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
   const [state, setState] = useState<SeminarComposeState>(() => ({
-    selectedSeminarIds: initialSeminarId ? [initialSeminarId] : [],
+    selectedClassIds: initialClassId ? [initialClassId] : [],
     selectedGroupId: initialGroupId ?? "",
     // 설명회 안내는 보통 본문이 길어 LMS 기본.
     type: "LMS",
     subject: "설명회 안내",
-    body: buildDefaultBody(seminars, initialSeminarId),
+    body: buildDefaultBody(classes, initialClassId),
     // 설명회 안내 = 정보성 기본.
     isAd: false,
   }));
@@ -90,12 +85,12 @@ export function SeminarComposeWizard({
   const goNext = () => setStep((s) => (s < 4 ? ((s + 1) as 1 | 2 | 3 | 4) : s));
   const goPrev = () => setStep((s) => (s > 1 ? ((s - 1) as 1 | 2 | 3 | 4) : s));
 
-  const selectedSeminars = useMemo<SeminarListItem[]>(
+  const selectedClasses = useMemo<ClassSignupOption[]>(
     () =>
-      state.selectedSeminarIds
-        .map((id) => seminars.find((s) => s.id === id))
-        .filter((v): v is SeminarListItem => Boolean(v)),
-    [seminars, state.selectedSeminarIds],
+      state.selectedClassIds
+        .map((id) => classes.find((c) => c.class_id === id))
+        .filter((v): v is ClassSignupOption => Boolean(v)),
+    [classes, state.selectedClassIds],
   );
 
   const selectedGroup = useMemo<GroupListItem | null>(
@@ -159,18 +154,18 @@ export function SeminarComposeWizard({
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-6">
         {step === 1 && (
           <SeminarComposeStep1Seminars
-            seminars={seminars}
-            selectedIds={state.selectedSeminarIds}
+            classes={classes}
+            selectedIds={state.selectedClassIds}
             onChange={(ids) =>
               setState((p) => ({
                 ...p,
-                selectedSeminarIds: ids,
-                // 기본 본문에 첫 설명회 메타 반영.
+                selectedClassIds: ids,
+                // 기본 본문에 첫 강좌 메타 반영.
                 body:
                   p.body.trim().length === 0 ||
-                  p.body === buildDefaultBody(seminars, null) ||
-                  p.body === buildDefaultBody(seminars, p.selectedSeminarIds[0] ?? null)
-                    ? buildDefaultBody(seminars, ids[0] ?? null)
+                  p.body === buildDefaultBody(classes, null) ||
+                  p.body === buildDefaultBody(classes, p.selectedClassIds[0] ?? null)
+                    ? buildDefaultBody(classes, ids[0] ?? null)
                     : p.body,
               }))
             }
@@ -189,15 +184,15 @@ export function SeminarComposeWizard({
           <SeminarComposeStep3Body
             state={state}
             onChange={(patch) => setState((p) => ({ ...p, ...patch }))}
-            selectedSeminars={selectedSeminars}
+            selectedClasses={selectedClasses}
             selectedGroup={selectedGroup}
             optOutNumber={optOutNumber}
           />
         )}
-        {step === 4 && selectedGroup && selectedSeminars.length > 0 && (
+        {step === 4 && selectedGroup && selectedClasses.length > 0 && (
           <SeminarComposeStep4Send
             state={state}
-            selectedSeminars={selectedSeminars}
+            selectedClasses={selectedClasses}
             selectedGroup={selectedGroup}
             branch={branch}
             onBackToBody={() => setStep(3)}
@@ -250,7 +245,7 @@ export function SeminarComposeWizard({
 // ─── 다음 버튼 활성화 ────────────────────────────────────────
 
 function canProceed(step: 1 | 2 | 3 | 4, state: SeminarComposeState): boolean {
-  if (step === 1) return state.selectedSeminarIds.length > 0;
+  if (step === 1) return state.selectedClassIds.length > 0;
   if (step === 2) return state.selectedGroupId.length > 0;
   if (step === 3) {
     if (!state.body.trim()) return false;
@@ -268,20 +263,20 @@ function canProceed(step: 1 | 2 | 3 | 4, state: SeminarComposeState): boolean {
 // ─── 기본 본문 빌더 ──────────────────────────────────────────
 
 /**
- * 선택된 설명회의 일시·장소를 자연어로 펼친 기본 본문.
+ * 선택된 강좌의 일시·장소를 자연어로 펼친 기본 본문.
  * 사용자가 본문을 직접 편집했으면 덮어쓰지 않는다 (위의 onChange 분기 참고).
  */
 function buildDefaultBody(
-  seminars: SeminarListItem[],
+  classes: ClassSignupOption[],
   primaryId: string | null,
 ): string {
   const primary = primaryId
-    ? seminars.find((s) => s.id === primaryId) ?? null
+    ? classes.find((c) => c.class_id === primaryId) ?? null
     : null;
 
   const lines: string[] = ["[설명회 안내]"];
   if (primary) {
-    lines.push(primary.name);
+    lines.push(primary.class_name);
     if (primary.held_at) {
       // KST 표시는 서버에서 정확하지만 위저드 미리보기 용으로 간단 포맷.
       const dt = new Date(primary.held_at);

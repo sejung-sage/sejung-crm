@@ -743,6 +743,26 @@ export type SeminarListItem = SeminarRow & {
 };
 
 /**
+ * 발송 위저드 1단계가 받는 강좌(=설명회) 옵션. 0084 새 모델 기반.
+ * crm_classes(subject='설명회') × crm_class_signup_pages LEFT JOIN 결과 평탄화.
+ *
+ * - signup_page_id === null : 페이지 미생성. 발송 시 자동 생성(status='open') 됨.
+ * - capacity              : page.capacity_override 우선, 없으면 class.capacity, 둘 다 NULL=무제한.
+ * - signup_count          : 해당 페이지의 signed 카운트(페이지 없으면 0).
+ */
+export interface ClassSignupOption {
+  class_id: string;
+  class_name: string;
+  branch: string;
+  signup_page_id: string | null;
+  signup_page_status: "draft" | "open" | "closed" | null;
+  held_at: string | null;
+  venue: string | null;
+  signup_count: number;
+  capacity: number | null;
+}
+
+/**
  * @deprecated 0080 폼 모델 RPC 반환 — 새 흐름 미사용.
  * invitation 모델은 `ClaimInvitationItemResult` 사용.
  */
@@ -845,19 +865,34 @@ export interface SeminarInvitationItemRow {
 }
 
 /**
- * lookup_invitation_by_token RPC 가 반환하는 items jsonb 배열의 원소 1개.
- * 학부모 페이지에서 카드 1개에 표시할 메타·상태 묶음.
+ * lookup_signup_invitation_by_token RPC (0085) 가 반환하는 items jsonb 배열의
+ * 원소 1개. 학부모 페이지에서 카드 1개에 표시할 메타·상태 묶음.
+ *
+ * 0084 새 모델: 카드의 정체성은 (invitation × signup_page). 페이지는
+ * crm_class_signup_pages 이고 그 class_id 가 crm_classes 와 연결.
  */
 export interface LookupInvitationItem {
   item_id: string;
-  seminar_id: string;
+  /** crm_class_signup_pages.id. claim_signup_item RPC 의 p_signup_page_id. */
+  signup_page_id: string;
+  /** crm_classes.id. NULL = CRM-only 페이지(B안 — A안 단계에선 항상 NOT NULL). */
+  class_id: string | null;
+  /** 강좌명 (= 설명회 제목). */
   name: string;
   description: string | null;
-  /** ISO 일시 또는 NULL. */
+  /** ISO 일시 또는 NULL. crm_class_signup_pages.held_at. */
   held_at: string | null;
+  /** crm_classes.classroom. */
   venue: string | null;
-  status: InvitationItemStatus;
+  /** 페이지 상태. draft 면 학부모 화면에서 비활성, closed 면 마감 배지. */
+  page_status: "draft" | "open" | "closed";
+  /** 카드 자체의 상태(pending/signed/cancelled). */
+  item_status: InvitationItemStatus;
   signed_at: string | null;
+  /** 신청 시작 시각(미래면 "시작 전" 배지). NULL 이면 status 만으로 판정. */
+  signup_opens_at: string | null;
+  /** 신청 마감 시각(지났으면 "마감" 배지). NULL 이면 status 만으로 판정. */
+  signup_closes_at: string | null;
 }
 
 /**

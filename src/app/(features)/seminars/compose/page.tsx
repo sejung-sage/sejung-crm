@@ -4,13 +4,18 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { listSeminars } from "@/lib/seminars/list-seminars";
+import { listClassSignupOptions } from "@/lib/seminars/list-class-signup-options";
 import { listGroups } from "@/lib/groups/list-groups";
 import { SeminarComposeWizard } from "@/components/seminars/seminar-compose-wizard";
 import { BranchBadge } from "@/components/groups/branch-badge";
 import { SeminarStatusBadge } from "@/components/seminars/seminar-status-badge";
 import { formatKstDateTime } from "@/lib/datetime";
 import type { Branch } from "@/config/branches";
-import type { SeminarListItem, GroupListItem } from "@/types/database";
+import type {
+  ClassSignupOption,
+  GroupListItem,
+  SeminarListItem,
+} from "@/types/database";
 
 /**
  * F5 · 설명회 문자 (/seminars/compose) — 발송 + 목록 통합 허브.
@@ -49,7 +54,9 @@ export default async function SeminarsHubPage({
   const pick = (v: string | string[] | undefined): string | undefined =>
     Array.isArray(v) ? v[0] : v;
   const tab = parseTab(raw.tab);
-  const initialSeminarId = pick(raw.seminar) ?? null;
+  // 0084 새 모델: 진입 쿼리 ?seminar 또는 ?class 는 모두 강좌(crm_classes.id)로 해석.
+  // 옛 ?seminar=<seminar UUID> 링크는 새 데이터에 매핑이 없어 step1 에서 자동 선택 안 됨 — 무해.
+  const initialClassId = pick(raw.class) ?? pick(raw.seminar) ?? null;
   const initialGroupId = pick(raw.groupId) ?? null;
 
   const currentUser = await getCurrentUser();
@@ -110,12 +117,13 @@ export default async function SeminarsHubPage({
     );
   }
 
-  // 설명회(열림) + 그룹 병렬 로드.
-  const [seminarsResult, groupsResult] = await Promise.all([
-    listSeminars({ branch: branchFilter, status: "open", q: "" }),
+  // 설명회 강좌 옵션 + 그룹 병렬 로드.
+  // 옛 listSeminars (crm_seminars 기반) 는 더 이상 위저드가 사용 X — Phase 1-B 에서 정리.
+  const [classOptions, groupsResult] = await Promise.all([
+    listClassSignupOptions({ branch: branchFilter }),
     listGroups({ q: "", branch: branchFilter, page: 1 }),
   ]);
-  const seminars: SeminarListItem[] = seminarsResult.items;
+  const classes: ClassSignupOption[] = classOptions;
   const groups: GroupListItem[] = groupsResult.items;
 
   return (
@@ -134,9 +142,9 @@ export default async function SeminarsHubPage({
       )}
 
       <SeminarComposeWizard
-        initialSeminarId={initialSeminarId}
+        initialClassId={initialClassId}
         initialGroupId={initialGroupId}
-        seminars={seminars}
+        classes={classes}
         groups={groups}
         branch={branchFilter}
         optOutNumber={process.env.SMS_OPT_OUT_NUMBER ?? "080-123-4567"}

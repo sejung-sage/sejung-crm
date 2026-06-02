@@ -30,7 +30,7 @@ const validUuid = "11111111-1111-4111-8111-111111111111";
 const validUuid2 = "22222222-2222-4222-8222-222222222222";
 
 const validBroadcast: CreateBroadcastInput = {
-  seminar_ids: [validUuid],
+  class_ids: [validUuid],
   group_id: validUuid2, // 그룹 id (414 회피 predicate)
   body: "[설명회 안내] 1차",
   subject: null,
@@ -41,7 +41,7 @@ const validBroadcast: CreateBroadcastInput = {
 
 const validClaim: ClaimInvitationItemInput = {
   token: "abcdef123456",
-  seminar_id: validUuid,
+  signup_page_id: validUuid,
 };
 
 const validSubmit: SubmitSignupInput & { token: string } = {
@@ -106,7 +106,7 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
     it("seminar_ids 빈 배열 → failed (Zod) — '1개 이상 선택'", async () => {
       const r = await createSeminarBroadcastAction({
         ...validBroadcast,
-        seminar_ids: [],
+        class_ids: [],
       });
       expect(r.status).toBe("failed");
       if (r.status === "failed") {
@@ -172,14 +172,15 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
       }
     });
 
-    it("seminar_ids 내 UUID 형식 위반 → failed", async () => {
+    it("class_ids 내 UUID 형식 위반 → failed", async () => {
       const r = await createSeminarBroadcastAction({
         ...validBroadcast,
-        seminar_ids: ["not-a-uuid"],
+        class_ids: ["not-a-uuid"],
       });
       expect(r.status).toBe("failed");
       if (r.status === "failed") {
-        expect(r.reason).toContain("설명회");
+        // 0084 새 모델: "강좌 ID 가 유효하지 않습니다" 메시지.
+        expect(r.reason).toContain("강좌");
       }
     });
   });
@@ -188,7 +189,7 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
     it("token 빈 문자열 → failed('유효하지 않은 링크입니다')", async () => {
       const r = await claimInvitationItemAction({
         token: "",
-        seminar_id: validUuid,
+        signup_page_id: validUuid,
       });
       expect(r.status).toBe("failed");
       if (r.status === "failed") {
@@ -199,7 +200,7 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
     it("token 공백만 → failed (trim 후 빈문자열 차단)", async () => {
       const r = await claimInvitationItemAction({
         token: "   ",
-        seminar_id: validUuid,
+        signup_page_id: validUuid,
       });
       expect(r.status).toBe("failed");
       if (r.status === "failed") {
@@ -207,14 +208,15 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
       }
     });
 
-    it("seminar_id 가 UUID 아님 → failed (Zod)", async () => {
+    it("signup_page_id 가 UUID 아님 → failed (Zod)", async () => {
       const r = await claimInvitationItemAction({
         token: "abcdef123456",
-        seminar_id: "not-a-uuid",
+        signup_page_id: "not-a-uuid",
       });
       expect(r.status).toBe("failed");
       if (r.status === "failed") {
-        expect(r.reason).toContain("설명회 ID");
+        // 0085 새 RPC 기준 메시지: "신청 페이지 ID 가 유효하지 않습니다"
+        expect(r.reason).toContain("신청 페이지");
       }
     });
   });

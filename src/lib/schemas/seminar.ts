@@ -67,9 +67,11 @@ export type ClaimInvitationStatus = z.infer<typeof ClaimInvitationStatusSchema>;
  */
 export const CreateBroadcastInputSchema = z
   .object({
-    seminar_ids: z
-      .array(z.string().uuid("설명회 ID 가 유효하지 않습니다"))
-      .min(1, "설명회를 1개 이상 선택해 주세요"),
+    // 0084 새 모델: 강좌(crm_classes) 를 설명회의 단일 정체성으로 삼는다.
+    // 발송 액션이 각 class_id 에 대해 crm_class_signup_pages 를 find-or-create.
+    class_ids: z
+      .array(z.string().uuid("강좌 ID 가 유효하지 않습니다"))
+      .min(1, "설명회 강좌를 1개 이상 선택해 주세요"),
     /**
      * 발송 그룹 ID — 학생 목록을 client→server 로 왕복 전달하지 않고
      * 그룹만 받아 서버가 `loadAllGroupRecipients` 로 직접 펼친다.
@@ -149,12 +151,13 @@ export const CreateBroadcastInputSchema = z
 export type CreateBroadcastInput = z.infer<typeof CreateBroadcastInputSchema>;
 
 /**
- * claim_invitation_item RPC 입력 (학부모 카드 [신청하기] 클릭).
- * Server Action 이 토큰을 URL 파라미터에서 받고 seminar_id 는 form data 에서.
+ * claim_signup_item RPC 입력 (학부모 카드 [신청하기] 클릭).
+ * 0085 새 RPC — 인자 의미는 동일하나 seminar_id → signup_page_id 로 변경.
+ * Server Action 이 토큰을 URL 파라미터에서 받고 signup_page_id 는 form data 에서.
  */
 export const ClaimInvitationItemInputSchema = z.object({
   token: z.string().trim().min(1, "유효하지 않은 링크입니다"),
-  seminar_id: z.string().uuid("설명회 ID 가 유효하지 않습니다"),
+  signup_page_id: z.string().uuid("신청 페이지 ID 가 유효하지 않습니다"),
 });
 export type ClaimInvitationItemInput = z.infer<
   typeof ClaimInvitationItemInputSchema

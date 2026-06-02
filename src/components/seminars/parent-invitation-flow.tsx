@@ -50,9 +50,9 @@ interface Props {
 }
 
 interface PendingState {
-  /** 클릭 중인 카드의 seminar_id. 버튼 disabled 표시용. */
-  busySeminarId: string | null;
-  /** 카드별 강제 상태 override (낙관적 업데이트). seminar_id → status. */
+  /** 클릭 중인 카드의 signup_page_id. 버튼 disabled 표시용. */
+  busyPageId: string | null;
+  /** 카드별 강제 상태 override (낙관적 업데이트). signup_page_id → status. */
   overrides: Record<string, InvitationItemStatus | "closed" | "ended" | "out_of_window">;
   /** 카드별 안내 메시지(서버에서 받은 reason). */
   reasons: Record<string, string | null>;
@@ -65,20 +65,29 @@ export function ParentInvitationFlow({
 }: Props) {
   const router = useRouter();
   const [pending, setPending] = useState<PendingState>({
-    busySeminarId: null,
+    busyPageId: null,
     overrides: {},
     reasons: {},
   });
   const [, startTransition] = useTransition();
 
   const handleClaim = (item: LookupInvitationItem) => {
-    if (pending.busySeminarId) return;
-    setPending((p) => ({ ...p, busySeminarId: item.seminar_id }));
+    if (pending.busyPageId) return;
+
+    // 신청 전 확인창 — 40~60대 학부모가 실수로 잘못 신청하는 것을 막는다.
+    // "확인" 을 누르면 곧바로 신청 처리, "취소" 면 아무 일도 일어나지 않는다.
+    const when = item.held_at ? `\n일시: ${formatKstDateTime(item.held_at)}` : "";
+    const ok = window.confirm(
+      `아래 설명회를 신청하시겠습니까?\n\n${item.name}${when}`,
+    );
+    if (!ok) return;
+
+    setPending((p) => ({ ...p, busyPageId: item.signup_page_id }));
 
     startTransition(async () => {
       const result = await claimInvitationItemAction({
         token,
-        seminar_id: item.seminar_id,
+        signup_page_id: item.signup_page_id,
       });
 
       const applyState = (
@@ -86,9 +95,9 @@ export function ParentInvitationFlow({
         reason: string | null,
       ) => {
         setPending((p) => ({
-          busySeminarId: null,
-          overrides: { ...p.overrides, [item.seminar_id]: status },
-          reasons: { ...p.reasons, [item.seminar_id]: reason },
+          busyPageId: null,
+          overrides: { ...p.overrides, [item.signup_page_id]: status },
+          reasons: { ...p.reasons, [item.signup_page_id]: reason },
         }));
       };
 
@@ -97,8 +106,13 @@ export function ParentInvitationFlow({
       // 별도 'success' 래퍼가 없으니 status 자체로 분기한다.
       switch (result.status) {
         case "signed":
+          applyState("signed", null);
+          window.alert(`"${item.name}" 신청이 완료되었습니다.`);
+          router.refresh();
+          break;
         case "already_signed":
           applyState("signed", null);
+          window.alert("이미 신청된 설명회입니다.");
           router.refresh();
           break;
         case "closed":
@@ -118,17 +132,18 @@ export function ParentInvitationFlow({
           break;
         case "invalid":
           applyState(
-            item.status,
+            item.item_status,
             result.reason ?? "유효하지 않은 신청입니다",
           );
           break;
         case "dev_seed_mode":
           // 시연 모드: 낙관적으로 신청 완료 처리.
           applyState("signed", null);
+          window.alert(`"${item.name}" 신청이 완료되었습니다.`);
           break;
         case "failed":
           applyState(
-            item.status,
+            item.item_status,
             result.reason ?? "신청 처리에 실패했습니다",
           );
           break;
@@ -190,10 +205,13 @@ export function ParentInvitationFlow({
       ) : (
         <ul className="space-y-3" aria-label="설명회 목록">
           {invitation.items.map((item) => {
-            const override = pending.overrides[item.seminar_id];
-            const effectiveStatus = override ?? item.status;
-            const reason = pending.reasons[item.seminar_id] ?? null;
-            const isBusy = pending.busySeminarId === item.seminar_id;
+            const override = pending.overrides[item.signup_page_id];
+            // 페이지가 closed 면 카드 상태가 'pending' 이어도 신청 막아야 함.
+            const baseStatus: InvitationItemStatus | "closed" =
+              item.page_status === "closed" ? "closed" : item.item_status;
+            const effectiveStatus = override ?? baseStatus;
+            const reason = pending.reasons[item.signup_page_id] ?? null;
+            const isBusy = pending.busyPageId === item.signup_page_id;
             return (
               <li key={item.item_id}>
                 <SeminarCard

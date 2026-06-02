@@ -47,7 +47,7 @@ describe("ClaimInvitationStatusSchema", () => {
 
 describe("CreateBroadcastInputSchema", () => {
   const validBase = {
-    seminar_ids: ["a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"],
+    class_ids: ["a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"],
     group_id: "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     body: "[설명회 안내] 1차",
     subject: null,
@@ -59,13 +59,13 @@ describe("CreateBroadcastInputSchema", () => {
     const r = CreateBroadcastInputSchema.parse(validBase);
     expect(r.type).toBe("SMS");
     expect(r.subject).toBeNull();
-    expect(r.seminar_ids).toHaveLength(1);
+    expect(r.class_ids).toHaveLength(1);
     expect(typeof r.group_id).toBe("string");
   });
 
   it("seminar_ids 가 빈 배열이면 거부", () => {
     expect(() =>
-      CreateBroadcastInputSchema.parse({ ...validBase, seminar_ids: [] }),
+      CreateBroadcastInputSchema.parse({ ...validBase, class_ids: [] }),
     ).toThrow();
   });
 
@@ -79,7 +79,7 @@ describe("CreateBroadcastInputSchema", () => {
     expect(() =>
       CreateBroadcastInputSchema.parse({
         ...validBase,
-        seminar_ids: ["not-a-uuid"],
+        class_ids: ["not-a-uuid"],
       }),
     ).toThrow();
   });
@@ -134,13 +134,13 @@ describe("CreateBroadcastInputSchema", () => {
 });
 
 describe("ClaimInvitationItemInputSchema", () => {
-  it("token + seminar_id(uuid) 정상", () => {
+  it("token + signup_page_id(uuid) 정상", () => {
     const r = ClaimInvitationItemInputSchema.parse({
       token: "abc123def456",
-      seminar_id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+      signup_page_id: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     });
     expect(r.token).toBe("abc123def456");
-    expect(r.seminar_id).toBe("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
+    expect(r.signup_page_id).toBe("a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d");
   });
 
   it("token 빈 문자열 거부 (유효하지 않은 링크)", () => {

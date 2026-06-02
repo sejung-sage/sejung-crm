@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { Send, AlertTriangle, CheckCircle2, Calendar, MapPin } from "lucide-react";
-import type { SeminarListItem, GroupListItem } from "@/types/database";
+import type { ClassSignupOption, GroupListItem } from "@/types/database";
 import { formatKstDateTime } from "@/lib/datetime";
 import { createSeminarBroadcastAction } from "@/app/(features)/seminars/actions";
 import type { SeminarComposeState } from "./seminar-compose-wizard";
@@ -20,7 +20,7 @@ import type { SeminarComposeState } from "./seminar-compose-wizard";
  */
 interface Props {
   state: SeminarComposeState;
-  selectedSeminars: SeminarListItem[];
+  selectedClasses: ClassSignupOption[];
   selectedGroup: GroupListItem;
   branch: string;
   onBackToBody: () => void;
@@ -40,7 +40,7 @@ type SendUiResult =
 
 export function SeminarComposeStep4Send({
   state,
-  selectedSeminars,
+  selectedClasses,
   selectedGroup,
   branch,
   onBackToBody,
@@ -55,7 +55,7 @@ export function SeminarComposeStep4Send({
       // backend `createSeminarBroadcastAction` — group_id 만 전달.
       // 학생 펼침은 서버 내부 `loadAllGroupRecipients` 가 처리 (URL 414 회피).
       const res = await createSeminarBroadcastAction({
-        seminar_ids: state.selectedSeminarIds,
+        class_ids: state.selectedClassIds,
         group_id: selectedGroup.id,
         body: state.body,
         subject: state.type === "LMS" ? state.subject : null,
@@ -115,28 +115,31 @@ export function SeminarComposeStep4Send({
       >
         <SummaryRow label="설명회">
           <ul className="space-y-1.5">
-            {selectedSeminars.map((s) => (
-              <li key={s.id} className="text-[14px] text-[color:var(--text)]">
-                <div className="font-medium">{s.name}</div>
+            {selectedClasses.map((c) => (
+              <li
+                key={c.class_id}
+                className="text-[14px] text-[color:var(--text)]"
+              >
+                <div className="font-medium">{c.class_name}</div>
                 <div className="mt-0.5 flex items-center flex-wrap gap-x-3 gap-y-0.5 text-[12px] text-[color:var(--text-muted)] tabular-nums">
-                  {s.held_at && (
+                  {c.held_at && (
                     <span className="inline-flex items-center gap-1">
                       <Calendar
                         className="size-3 text-[color:var(--text-dim)]"
                         strokeWidth={1.75}
                         aria-hidden
                       />
-                      {formatKstDateTime(s.held_at)}
+                      {formatKstDateTime(c.held_at)}
                     </span>
                   )}
-                  {s.venue && (
+                  {c.venue && (
                     <span className="inline-flex items-center gap-1">
                       <MapPin
                         className="size-3 text-[color:var(--text-dim)]"
                         strokeWidth={1.75}
                         aria-hidden
                       />
-                      {s.venue}
+                      {c.venue}
                     </span>
                   )}
                 </div>
@@ -313,7 +316,7 @@ export function SeminarComposeStep4Send({
           onCancel={() => setConfirmOpen(false)}
           onConfirm={handleSend}
           summary={{
-            seminarCount: selectedSeminars.length,
+            seminarCount: selectedClasses.length,
             recipientCount: selectedGroup.recipient_count,
           }}
         />

@@ -70,14 +70,19 @@ function lookupFromDevSeed(
 
   const items: LookupInvitationItem[] = seminarsForToken.map((s, idx) => ({
     item_id: `dev-item-${s.id}`,
-    seminar_id: s.id,
+    // dev-seed 는 강좌·페이지 분리 데이터가 없어 mock seminar 1행을 페이지 id 로 활용.
+    signup_page_id: s.id,
+    class_id: null,
     name: s.name,
     description: s.description,
     held_at: s.starts_at,
     venue: s.venue,
+    page_status: "open",
     // 첫 카드만 'signed' 로 두어 멱등 케이스도 화면 확인 가능.
-    status: (idx === 0 ? "signed" : "pending") as InvitationItemStatus,
+    item_status: (idx === 0 ? "signed" : "pending") as InvitationItemStatus,
     signed_at: idx === 0 ? new Date().toISOString() : null,
+    signup_opens_at: null,
+    signup_closes_at: null,
   }));
 
   return {
@@ -103,14 +108,14 @@ async function lookupFromSupabase(
     // ⚠️ `.bind(supabase)` 필수 — `supabase.rpc` 를 변수에 담아 호출하면
     // `this` 바인딩이 깨져 클라이언트 내부 `this.rest` 가 undefined 가 되어 TypeError.
     const rpcFn = supabase.rpc.bind(supabase) as unknown as (
-      fn: "lookup_invitation_by_token",
+      fn: "lookup_signup_invitation_by_token",
       params: { p_token: string },
     ) => Promise<{
       data: LookupInvitationByTokenResult[] | null;
       error: { message: string; code?: string; details?: string } | null;
     }>;
 
-    const { data, error } = await rpcFn("lookup_invitation_by_token", {
+    const { data, error } = await rpcFn("lookup_signup_invitation_by_token", {
       p_token: token,
     });
 

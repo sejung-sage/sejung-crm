@@ -2,7 +2,7 @@
 
 import { useMemo, useRef } from "react";
 import { AlertTriangle, Link as LinkIcon, Megaphone } from "lucide-react";
-import type { SeminarListItem, GroupListItem } from "@/types/database";
+import type { ClassSignupOption, GroupListItem } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import {
@@ -42,7 +42,7 @@ import type { SeminarComposeState, SmsType } from "./seminar-compose-wizard";
 interface Props {
   state: SeminarComposeState;
   onChange: (patch: Partial<SeminarComposeState>) => void;
-  selectedSeminars: SeminarListItem[];
+  selectedClasses: ClassSignupOption[];
   selectedGroup: GroupListItem | null;
   /** 환경변수 SMS_OPT_OUT_NUMBER — 광고 footer 미리보기에 표시. */
   optOutNumber: string;
@@ -66,7 +66,7 @@ const TYPE_OPTIONS: Array<{
 export function SeminarComposeStep3Body({
   state,
   onChange,
-  selectedSeminars,
+  selectedClasses,
   selectedGroup,
   optOutNumber,
 }: Props) {
@@ -99,12 +99,12 @@ export function SeminarComposeStep3Body({
 
   const hasInviteVar = state.body.includes("{초대링크}");
 
-  // 첫 설명회 날짜 — sample 말풍선의 `{날짜}` 자리 치환 참고용(선택).
+  // 첫 강좌(설명회) 날짜 — sample 말풍선의 `{날짜}` 자리 치환 참고용(선택).
   const sampleDateLabel = useMemo(() => {
-    const primary = selectedSeminars[0];
+    const primary = selectedClasses[0];
     if (!primary?.held_at) return null;
     return formatKstDateTime(primary.held_at);
-  }, [selectedSeminars]);
+  }, [selectedClasses]);
 
   // 미리보기 sample 본문 — {초대링크} → 예시 URL, {날짜} → 첫 설명회 시간.
   // {초대링크} 가 본문에 없으면 발송 시 자동 부착되는 동작을 시각화.

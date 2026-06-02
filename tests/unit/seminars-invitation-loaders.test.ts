@@ -68,7 +68,7 @@ describe("seminar invitation 데이터 로더 · dev-seed 폴백", () => {
       for (const item of r.items) {
         expect(typeof item.item_id).toBe("string");
         expect(item.item_id.length).toBeGreaterThan(0);
-        expect(typeof item.seminar_id).toBe("string");
+        expect(typeof item.signup_page_id).toBe("string");
         expect(typeof item.name).toBe("string");
         expect(item.name.length).toBeGreaterThan(0);
         // held_at 은 null 가능 (mock 은 starts_at 매핑).
@@ -76,9 +76,9 @@ describe("seminar invitation 데이터 로더 · dev-seed 폴백", () => {
           item.held_at === null || typeof item.held_at === "string",
         ).toBe(true);
         // status enum.
-        expect(INVITATION_ITEM_STATUSES.has(item.status)).toBe(true);
+        expect(INVITATION_ITEM_STATUSES.has(item.item_status)).toBe(true);
         // signed 이면 signed_at NOT NULL.
-        if (item.status === "signed") {
+        if (item.item_status === "signed") {
           expect(item.signed_at).not.toBeNull();
         }
       }
@@ -89,7 +89,7 @@ describe("seminar invitation 데이터 로더 · dev-seed 폴백", () => {
       expect(r).not.toBeNull();
       if (!r) return;
       // mock 어댑터는 idx=0 에 signed 1개 박는다.
-      const signed = r.items.find((i) => i.status === "signed");
+      const signed = r.items.find((i) => i.item_status === "signed");
       expect(signed).toBeDefined();
     });
   });
