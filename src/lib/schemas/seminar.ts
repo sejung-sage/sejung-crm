@@ -163,6 +163,79 @@ export type ClaimInvitationItemInput = z.infer<
   typeof ClaimInvitationItemInputSchema
 >;
 
+/**
+ * 강좌 상세에서 공개 신청 페이지 옵션 저장 (생성 or 갱신).
+ * 0084 새 모델 — 강좌(crm_classes)당 페이지 1개(UNIQUE class_id).
+ * 발송 액션이 자동 find-or-create 하지만, 운영자가 일정·정원·설명을 직접 조정할
+ * 때 본 액션이 호출된다.
+ */
+export const UpsertClassSignupPageInputSchema = z
+  .object({
+    class_id: z.string().uuid("강좌 ID 가 유효하지 않습니다"),
+    branch: z
+      .string()
+      .trim()
+      .min(1, "분원은 필수입니다")
+      .max(20, "분원명은 20자 이내로 입력하세요"),
+    status: z.enum(["draft", "open", "closed"]),
+    held_at: z
+      .union([z.string(), z.null(), z.undefined()])
+      .transform((v) => {
+        if (v === null || v === undefined) return null;
+        const t = v.trim();
+        return t === "" ? null : t;
+      })
+      .pipe(z.string().nullable()),
+    signup_opens_at: z
+      .union([z.string(), z.null(), z.undefined()])
+      .transform((v) => {
+        if (v === null || v === undefined) return null;
+        const t = v.trim();
+        return t === "" ? null : t;
+      })
+      .pipe(z.string().nullable()),
+    signup_closes_at: z
+      .union([z.string(), z.null(), z.undefined()])
+      .transform((v) => {
+        if (v === null || v === undefined) return null;
+        const t = v.trim();
+        return t === "" ? null : t;
+      })
+      .pipe(z.string().nullable()),
+    description: z
+      .union([z.string(), z.null(), z.undefined()])
+      .transform((v) => {
+        if (v === null || v === undefined) return null;
+        const t = v.trim();
+        return t === "" ? null : t;
+      })
+      .pipe(z.string().max(2000, "설명은 2000자 이내").nullable()),
+    capacity_override: z
+      .union([z.number(), z.null(), z.undefined()])
+      .transform((v) => (v === undefined ? null : v))
+      .pipe(
+        z
+          .number()
+          .int("정원은 정수여야 합니다")
+          .positive("정원은 양수여야 합니다")
+          .nullable(),
+      ),
+  })
+  .refine(
+    (v) => {
+      // signup_opens_at <= signup_closes_at (DB CHECK 와 동일).
+      if (!v.signup_opens_at || !v.signup_closes_at) return true;
+      return v.signup_opens_at <= v.signup_closes_at;
+    },
+    {
+      message: "신청 시작 시각이 마감 시각보다 늦을 수 없습니다",
+      path: ["signup_closes_at"],
+    },
+  );
+export type UpsertClassSignupPageInput = z.infer<
+  typeof UpsertClassSignupPageInputSchema
+>;
+
 // ─── 운영자 입력 (설명회 마스터 CRUD — 변경 없음) ─────────────
 
 /**

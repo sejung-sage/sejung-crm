@@ -122,7 +122,11 @@ const GRADE_OPTIONS_ALL: Grade[] = [
   ...GRADE_OPTIONS_MID,
   ...GRADE_OPTIONS_HIGH,
 ];
-const SUBJECT_OPTIONS: Subject[] = [
+// 발송 그룹 필터 UI 가 노출하는 과목 — 7종. DB Subject 는 '설명회' 포함 8종이지만
+// 필터는 정규 과목만 보여준다(설명회 강좌만 듣는 학생은 status='수강이력자'·'수강 x'
+// 정책으로 별도 처리됨, 0058). 좁은 const 튜플로 좁힌 타입을 그대로 GroupFilters
+// subjects 와 일치시킨다.
+const SUBJECT_OPTIONS = [
   "국어",
   "영어",
   "수학",
@@ -130,7 +134,8 @@ const SUBJECT_OPTIONS: Subject[] = [
   "사탐",
   "컨설팅",
   "기타",
-];
+] as const;
+type FilterSubject = (typeof SUBJECT_OPTIONS)[number];
 
 /**
  * 발송 그룹의 재원 상태 옵션 (다중 선택).
@@ -372,8 +377,8 @@ export function GroupBuilder({
       kind,
       grades,
       schools,
-      subjects: subjects.filter((s): s is Subject =>
-        SUBJECT_OPTIONS.includes(s as Subject),
+      subjects: subjects.filter((s): s is FilterSubject =>
+        (SUBJECT_OPTIONS as readonly string[]).includes(s),
       ),
       regions,
       statuses,

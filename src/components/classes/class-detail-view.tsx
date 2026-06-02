@@ -7,6 +7,8 @@ import { ClassKpiCards } from "@/components/classes/class-kpi-cards";
 import { ClassStudentsPanel } from "@/components/classes/class-students-panel";
 import { ClassLapsedPanel } from "@/components/classes/class-lapsed-panel";
 import { ClassAttendanceGrid } from "@/components/classes/class-attendance-grid";
+import { ClassSignupPageSection } from "@/components/seminars/class-signup-page-section";
+import type { ClassSignupPageDetail } from "@/lib/seminars/get-class-signup-page";
 
 interface Props {
   detail: ClassDetail;
@@ -18,6 +20,11 @@ interface Props {
    * false 면 헤더 발송 버튼을 아예 숨긴다.
    */
   canSendToClass?: boolean;
+  /**
+   * 0084 새 모델: subject='설명회' 강좌면 공개 신청 페이지 데이터.
+   * 그 외 강좌면 null — 섹션 자체 미렌더.
+   */
+  signupPageDetail?: ClassSignupPageDetail | null;
 }
 
 /**
@@ -34,6 +41,7 @@ export function ClassDetailView({
   detail,
   canRevealPhone = false,
   canSendToClass = false,
+  signupPageDetail = null,
 }: Props) {
   // 다음 시즌 미등록(이탈) 학생 — 추가 fetch 없이 detail.students 를
   // status 술어(isLapsedStudent: status !== '재원생')로 거른다.
@@ -64,6 +72,18 @@ export function ClassDetailView({
         studentCount={detail.students.length}
         canSend={canSendToClass}
       />
+
+      {/* 설명회 강좌일 때만 공개 신청 페이지 섹션. */}
+      {signupPageDetail && (
+        <ClassSignupPageSection
+          classId={detail.class.id}
+          branch={detail.class.branch}
+          className={detail.class.name}
+          detail={signupPageDetail}
+          canEdit={canSendToClass}
+          canRevealPhone={canRevealPhone}
+        />
+      )}
 
       <ClassKpiCards detail={detail} />
 

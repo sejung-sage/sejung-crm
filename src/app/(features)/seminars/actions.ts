@@ -34,6 +34,7 @@ import {
   SubmitSignupInputSchema,
   CreateBroadcastInputSchema,
   ClaimInvitationItemInputSchema,
+  UpsertClassSignupPageInputSchema,
   type CreateSeminarInput,
   type UpdateSeminarInput,
   type ChangeSeminarStatusInput,
@@ -41,6 +42,7 @@ import {
   type SubmitSignupInput,
   type CreateBroadcastInput,
   type ClaimInvitationItemInput,
+  type UpsertClassSignupPageInput,
 } from "@/lib/schemas/seminar";
 import { generateLinkToken } from "@/lib/seminars/generate-link-token";
 import { listSignups } from "@/lib/seminars/list-signups";
@@ -1318,4 +1320,161 @@ export async function claimInvitationItemAction(
     itemId: row.item_id,
     reason: row.reason,
   };
+}
+
+
+// ─── upsertClassSignupPageAction ─────────────────────────
+//
+// 강좌(=설명회) 별 공개 신청 페이지 옵션 저장 (생성 or 갱신).
+// 0084 새 모델 — class_id UNIQUE 라 1 강좌 1 페이지.
+//
+// 호출 시점:
+//   1) 강좌 상세 페이지의 "공개 신청 페이지" 섹션에서 운영자가 저장.
+//   2) 발송 액션은 별도 경로(createSeminarBroadcastAction)로 자동 find-or-create
+//      하므로 본 액션이 안 불려도 동작에 지장 없음.
+//
+// 권한: assertSeminarWrite(branch) — master 전체 / admin 본 분원만.
+// 동작: ON CONFLICT (class_id) DO UPDATE — DB UNIQUE 제약으로 멱등.
+export type UpsertClassSignupPageActionResult =
+  | { status: "success"; id: string; created: boolean }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
+
+export async function upsertClassSignupPageAction(
+  input: UpsertClassSignupPageInput,
+): Promise<UpsertClassSignupPageActionResult> {
+  if (isDevSeedMode()) return { status: "dev_seed_mode" };
+
+  let parsed: UpsertClassSignupPageInput;
+  try {
+    parsed = UpsertClassSignupPageInputSchema.parse(input);
+  } catch (e) {
+    if (e instanceof ZodError) {
+      return { status: "failed", reason: zodErrorToReason(e) };
+    }
+    return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  const auth = await assertSeminarWrite(parsed.branch);
+  if (!auth.ok) return { status: "failed", reason: auth.reason };
+
+  const supabase = await createSupabaseServerClient();
+
+  // 강좌가 실제로 존재하고 같은 분원이며 subject='설명회' 인지 검증.
+  // (다른 분원·일반 강좌로 페이지 만들 수 없게 가드.)
+  type ClassCheck = {
+    id: string;
+    branch: string;
+    subject: string | null;
+  };
+  const { data: cls, error: classError } = (await supabase
+    .from("crm_classes")
+    .select("id, branch, subject")
+    .eq("id", parsed.class_id)
+    .maybeSingle()) as unknown as {
+    data: ClassCheck | null;
+    error: { message: string } | null;
+  };
+  if (classError) {
+    return {
+      status: "failed",
+      reason: `강좌 조회에 실패했습니다: ${classError.message}`,
+    };
+  }
+  if (!cls) {
+    return { status: "failed", reason: "존재하지 않는 강좌입니다" };
+  }
+  if (cls.branch !== parsed.branch) {
+    return {
+      status: "failed",
+      reason: "다른 분원의 강좌에 신청 페이지를 만들 수 없습니다",
+    };
+  }
+  if (cls.subject !== "설명회") {
+    return {
+      status: "failed",
+      reason: "설명회 강좌(subject='설명회')에만 신청 페이지를 만들 수 있습니다",
+    };
+  }
+
+  // 기존 페이지 lookup → INSERT 또는 UPDATE 분기.
+  const { data: existing, error: lookupError } = (await supabase
+    .from("crm_class_signup_pages")
+    .select("id")
+    .eq("class_id", parsed.class_id)
+    .maybeSingle()) as unknown as {
+    data: { id: string } | null;
+    error: { message: string } | null;
+  };
+  if (lookupError) {
+    return {
+      status: "failed",
+      reason: `신청 페이지 조회에 실패했습니다: ${lookupError.message}`,
+    };
+  }
+
+  const payload = {
+    status: parsed.status,
+    held_at: parsed.held_at,
+    signup_opens_at: parsed.signup_opens_at,
+    signup_closes_at: parsed.signup_closes_at,
+    description: parsed.description,
+    capacity_override: parsed.capacity_override,
+  };
+
+  if (existing) {
+    const { error: updateError } = (await (
+      supabase.from("crm_class_signup_pages") as unknown as {
+        update: (v: Record<string, unknown>) => {
+          eq: (
+            col: string,
+            val: string,
+          ) => Promise<{ error: { message: string } | null }>;
+        };
+      }
+    )
+      .update(payload)
+      .eq("id", existing.id)) as { error: { message: string } | null };
+    if (updateError) {
+      return {
+        status: "failed",
+        reason: `신청 페이지 갱신 실패: ${updateError.message}`,
+      };
+    }
+    revalidatePath(`/classes/${parsed.class_id}`);
+    return { status: "success", id: existing.id, created: false };
+  }
+
+  // 신규 생성. class_id + branch + created_by 추가.
+  const { data: inserted, error: insertError } = (await (
+    supabase.from("crm_class_signup_pages") as unknown as {
+      insert: (v: Record<string, unknown>) => {
+        select: (cols: string) => {
+          single: () => Promise<{
+            data: { id: string } | null;
+            error: { message: string; code?: string } | null;
+          }>;
+        };
+      };
+    }
+  )
+    .insert({
+      ...payload,
+      class_id: parsed.class_id,
+      branch: parsed.branch,
+      created_by: auth.user.user_id,
+    })
+    .select("id")
+    .single()) as {
+    data: { id: string } | null;
+    error: { message: string; code?: string } | null;
+  };
+  if (insertError || !inserted) {
+    return {
+      status: "failed",
+      reason: `신청 페이지 생성 실패: ${insertError?.message ?? "알 수 없는 오류"}`,
+    };
+  }
+  revalidatePath(`/classes/${parsed.class_id}`);
+  return { status: "success", id: inserted.id, created: true };
 }
