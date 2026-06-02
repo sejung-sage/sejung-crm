@@ -10,6 +10,7 @@ import {
   insertUnsubscribeFooter,
 } from "@/lib/messaging/guards";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
+import { TestSendCard } from "@/components/messaging/test-send-card";
 import { formatKstDateTime } from "@/lib/datetime";
 import type { SeminarComposeState, SmsType } from "./seminar-compose-wizard";
 
@@ -410,6 +411,23 @@ export function SeminarComposeStep3Body({
               )}
             </p>
           </div>
+
+          {/* 테스트 발송 — 본인 번호 1건. 본문의 {초대링크} 자리는 샘플 URL 로
+              치환 후 testSendAction 에 raw 본문 + isAd 토글 전달. 광고 prefix·
+              080 footer 는 testSend 내부에서 다시 적용됨(중복 X). */}
+          <TestSendCard
+            type={state.type}
+            subject={state.subject}
+            body={
+              state.body.trim().length === 0
+                ? ""
+                : state.body.includes("{초대링크}")
+                  ? state.body.split("{초대링크}").join(SAMPLE_INVITE_URL)
+                  : `${state.body}\n\n신청: ${SAMPLE_INVITE_URL}`
+            }
+            isAd={state.isAd}
+            disabled={state.body.trim().length === 0 || isOverLimit}
+          />
         </aside>
       </div>
     </div>
