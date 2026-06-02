@@ -23,6 +23,8 @@
 import { revalidatePath } from "next/cache";
 import { ZodError } from "zod";
 import * as XLSX from "xlsx";
+import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
+import { getGroup } from "@/lib/groups/get-group";
 
 import {
   CreateSeminarInputSchema,
@@ -752,11 +754,12 @@ export async function createSeminarBroadcastAction(
   input: CreateBroadcastInput,
 ): Promise<CreateSeminarBroadcastActionResult> {
   // dev-seed: 가짜 결과로 UI 흐름만 확인 — 실 발송·DB 쓰기 X.
+  // (group_id 만 받으니 실제 학생 수는 알 수 없음 — placeholder 1)
   if (isDevSeedMode()) {
     return {
       status: "dev_seed_mode",
-      sent: input.student_ids?.length ?? 0,
-      invitation_count: input.student_ids?.length ?? 0,
+      sent: 1,
+      invitation_count: 1,
     };
   }
 
@@ -775,15 +778,10 @@ export async function createSeminarBroadcastAction(
   const auth = await assertSeminarWrite(parsed.branch);
   if (!auth.ok) return { status: "failed", reason: auth.reason };
 
-  // 발송 상한.
-  if (parsed.student_ids.length > MAX_INVITATION_RECIPIENTS) {
-    return {
-      status: "blocked",
-      reason: `1회 발송 상한(${MAX_INVITATION_RECIPIENTS}명)을 초과했습니다`,
-    };
-  }
-
   const supabase = await createSupabaseServerClient();
+
+  // 발송 상한은 group 펼친 결과 길이로 후속 검증 (아래 4단계).
+  // (client 가 student_ids 를 보내지 않으므로 사전 검증 불가.)
 
   // 2) 설명회 존재 확인 + 분원 일치 검증 — 다른 분원 설명회로 발송 차단.
   const { data: seminarRows, error: seminarFetchError } = (await supabase
@@ -810,32 +808,49 @@ export async function createSeminarBroadcastAction(
     };
   }
 
-  // 3) 학생들 SELECT — branch 격리 + 비활성(탈퇴) 제외 + 학부모 번호 NOT NULL.
-  const { data: studentRows, error: studentFetchError } = (await supabase
-    .from("crm_students")
-    .select("id, name, parent_phone, branch, status")
-    .in("id", parsed.student_ids)
-    .eq("branch", parsed.branch)
-    .neq("status", "탈퇴")) as unknown as {
-    data: Array<{
-      id: string;
-      name: string;
-      parent_phone: string | null;
-      branch: string;
-      status: string;
-    }> | null;
-    error: { message: string } | null;
-  };
-  if (studentFetchError) {
+  // 3) 그룹 권한·분원 격리 검증.
+  const group = await getGroup(parsed.group_id);
+  if (!group) {
+    return { status: "failed", reason: "발송 그룹을 찾을 수 없습니다" };
+  }
+  if (group.branch !== parsed.branch) {
     return {
       status: "failed",
-      reason: `학생 조회에 실패했습니다: ${studentFetchError.message}`,
+      reason: "다른 분원의 발송 그룹은 사용할 수 없습니다",
     };
   }
-  const students = studentRows ?? [];
-  if (students.length === 0) {
+
+  // 4) 그룹 → 학생 펼침. 수신거부·탈퇴·branch 격리는 `loadAllGroupRecipients`
+  //    가 SQL 단에서 모두 처리 (청크/페이지네이션 내장 — URL 한도 안전).
+  //    client→server 로 student_ids 를 왕복 전달하지 않아 Cloudflare 414 회피.
+  const recipients = await loadAllGroupRecipients(
+    supabase,
+    parsed.group_id,
+    MAX_INVITATION_RECIPIENTS,
+  );
+  if (recipients.length === 0) {
     return { status: "blocked", reason: "발송 가능한 학생이 없습니다" };
   }
+  if (recipients.length > MAX_INVITATION_RECIPIENTS) {
+    return {
+      status: "blocked",
+      reason: `1회 발송 상한(${MAX_INVITATION_RECIPIENTS}명)을 초과했습니다`,
+    };
+  }
+  type StudentRow = {
+    id: string;
+    name: string;
+    parent_phone: string | null;
+    branch: string;
+    status: string;
+  };
+  const students: StudentRow[] = recipients.map((r) => ({
+    id: r.id,
+    name: r.name,
+    parent_phone: r.parent_phone,
+    branch: parsed.branch, // 그룹 branch 일치 보장됨(위 가드)
+    status: r.status,
+  }));
 
   // 4) 수신거부 제외 + parent_phone 결측 학생 제외.
   const unsub = new Set(await getUnsubscribedPhones());

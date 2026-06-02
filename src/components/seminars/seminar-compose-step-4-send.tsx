@@ -6,9 +6,6 @@ import { Send, AlertTriangle, CheckCircle2, Calendar, MapPin } from "lucide-reac
 import type { SeminarListItem, GroupListItem } from "@/types/database";
 import { formatKstDateTime } from "@/lib/datetime";
 import { createSeminarBroadcastAction } from "@/app/(features)/seminars/actions";
-// 그룹 → 학생 id 펼침. backend `createSeminarBroadcastAction` 가 student_ids 직접 받기 때문에
-// step 4 가 호출 직전 그룹을 펼쳐 student_ids 배열로 변환한다.
-import { resolveGroupStudentsAction } from "@/app/(features)/seminars/resolve-group-students-action";
 import type { SeminarComposeState } from "./seminar-compose-wizard";
 
 /**
@@ -55,24 +52,11 @@ export function SeminarComposeStep4Send({
   const handleSend = () => {
     setConfirmOpen(false);
     startTransition(async () => {
-      // 1) 그룹 → 학생 id 펼침.
-      const resolved = await resolveGroupStudentsAction(selectedGroup.id);
-      if (resolved.status === "failed") {
-        setResult({ kind: "failed", reason: resolved.reason });
-        return;
-      }
-      if (resolved.student_ids.length === 0) {
-        setResult({
-          kind: "blocked",
-          reason: "대상 학생이 없습니다. 그룹 조건을 확인해 주세요.",
-        });
-        return;
-      }
-
-      // 2) backend `createSeminarBroadcastAction` — student_ids 직접 전달.
+      // backend `createSeminarBroadcastAction` — group_id 만 전달.
+      // 학생 펼침은 서버 내부 `loadAllGroupRecipients` 가 처리 (URL 414 회피).
       const res = await createSeminarBroadcastAction({
         seminar_ids: state.selectedSeminarIds,
-        student_ids: resolved.student_ids,
+        group_id: selectedGroup.id,
         body: state.body,
         subject: state.type === "LMS" ? state.subject : null,
         type: state.type,

@@ -31,7 +31,7 @@ const validUuid2 = "22222222-2222-4222-8222-222222222222";
 
 const validBroadcast: CreateBroadcastInput = {
   seminar_ids: [validUuid],
-  student_ids: [validUuid2],
+  group_id: validUuid2, // 그룹 id (414 회피 predicate)
   body: "[설명회 안내] 1차",
   subject: null,
   type: "SMS",
@@ -60,31 +60,13 @@ describe("seminar invitation Server Actions · dev-seed 조기 반환", () => {
   });
 
   describe("createSeminarBroadcastAction", () => {
-    it("정상 입력이어도 dev-seed 이면 dev_seed_mode + 가짜 카운트 반환", async () => {
+    it("정상 입력이어도 dev-seed 이면 dev_seed_mode placeholder 카운트", async () => {
       const r = await createSeminarBroadcastAction(validBroadcast);
       expect(r.status).toBe("dev_seed_mode");
       if (r.status === "dev_seed_mode") {
-        // student_ids.length 와 동일한 가짜 카운트.
+        // group 만 받는 모델 → dev-seed 에선 실제 학생 수 모름 (placeholder 1)
         expect(r.sent).toBe(1);
         expect(r.invitation_count).toBe(1);
-      }
-    });
-
-    it("student_ids 5건이면 dev-seed sent / invitation_count 도 5", async () => {
-      const r = await createSeminarBroadcastAction({
-        ...validBroadcast,
-        student_ids: [
-          validUuid2,
-          "33333333-3333-4333-8333-333333333333",
-          "44444444-4444-4444-8444-444444444444",
-          "55555555-5555-4555-8555-555555555555",
-          "66666666-6666-4666-8666-666666666666",
-        ],
-      });
-      expect(r.status).toBe("dev_seed_mode");
-      if (r.status === "dev_seed_mode") {
-        expect(r.sent).toBe(5);
-        expect(r.invitation_count).toBe(5);
       }
     });
   });
@@ -132,14 +114,14 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
       }
     });
 
-    it("student_ids 빈 배열 → failed (Zod) — '1명 이상 선택'", async () => {
+    it("group_id 가 잘못된 uuid → failed (Zod)", async () => {
       const r = await createSeminarBroadcastAction({
         ...validBroadcast,
-        student_ids: [],
+        group_id: "not-a-uuid",
       });
       expect(r.status).toBe("failed");
       if (r.status === "failed") {
-        expect(r.reason).toMatch(/학생|1명 이상/);
+        expect(r.reason).toMatch(/그룹|유효하지/);
       }
     });
 

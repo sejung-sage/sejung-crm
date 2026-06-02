@@ -265,6 +265,12 @@ async function markMessagesSent(
     .in("id", ids);
 }
 
+/**
+ * 메시지 UPDATE 시 `.in("id", ids)` 가 100개 넘어가면 PostgREST URL 한도(8KB,
+ * Cloudflare) 초과로 414. 청크로 나눠 N번 호출.
+ */
+const MESSAGE_UPDATE_CHUNK = 100;
+
 async function markMessagesFailed(
   supabase: SupabaseClient,
   ids: string[],
@@ -275,20 +281,23 @@ async function markMessagesFailed(
   // failed_reason 컬럼은 길이 제한이 있을 수 있어 200자 컷 — 벤더 응답 그대로 보존하지만
   // log spam 방지 + DB row 부풀림 방지.
   const safeReason = reason.slice(0, 200);
-  await (
-    supabase.from("crm_messages") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        in: (
-          col: string,
-          vals: string[],
-        ) => Promise<{ error: { message: string } | null }>;
-      };
-    }
-  )
-    .update({
-      status: "실패",
-      failed_reason: safeReason,
-      sent_at: sentAtIso,
-    })
-    .in("id", ids);
+  for (let i = 0; i < ids.length; i += MESSAGE_UPDATE_CHUNK) {
+    const chunk = ids.slice(i, i + MESSAGE_UPDATE_CHUNK);
+    await (
+      supabase.from("crm_messages") as unknown as {
+        update: (v: Record<string, unknown>) => {
+          in: (
+            col: string,
+            vals: string[],
+          ) => Promise<{ error: { message: string } | null }>;
+        };
+      }
+    )
+      .update({
+        status: "실패",
+        failed_reason: safeReason,
+        sent_at: sentAtIso,
+      })
+      .in("id", chunk);
+  }
 }

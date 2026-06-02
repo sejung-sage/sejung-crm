@@ -70,9 +70,13 @@ export const CreateBroadcastInputSchema = z
     seminar_ids: z
       .array(z.string().uuid("설명회 ID 가 유효하지 않습니다"))
       .min(1, "설명회를 1개 이상 선택해 주세요"),
-    student_ids: z
-      .array(z.string().uuid("학생 ID 가 유효하지 않습니다"))
-      .min(1, "발송 대상 학생을 1명 이상 선택해 주세요"),
+    /**
+     * 발송 그룹 ID — 학생 목록을 client→server 로 왕복 전달하지 않고
+     * 그룹만 받아 서버가 `loadAllGroupRecipients` 로 직접 펼친다.
+     * (client 가 풀어서 `student_ids[]` 로 재전송하면 PostgREST `.in()` 의
+     *  URL 길이 폭발로 Cloudflare 414 → predicate 방식으로 우회.)
+     */
+    group_id: z.string().uuid("발송 그룹 ID 가 유효하지 않습니다"),
     body: z.string().trim().min(1, "본문은 필수입니다"),
     subject: z
       .union([z.string(), z.null(), z.undefined()])

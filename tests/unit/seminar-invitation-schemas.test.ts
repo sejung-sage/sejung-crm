@@ -48,7 +48,7 @@ describe("ClaimInvitationStatusSchema", () => {
 describe("CreateBroadcastInputSchema", () => {
   const validBase = {
     seminar_ids: ["a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"],
-    student_ids: ["b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"],
+    group_id: "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
     body: "[설명회 안내] 1차",
     subject: null,
     type: "SMS" as const,
@@ -60,7 +60,7 @@ describe("CreateBroadcastInputSchema", () => {
     expect(r.type).toBe("SMS");
     expect(r.subject).toBeNull();
     expect(r.seminar_ids).toHaveLength(1);
-    expect(r.student_ids).toHaveLength(1);
+    expect(typeof r.group_id).toBe("string");
   });
 
   it("seminar_ids 가 빈 배열이면 거부", () => {
@@ -69,9 +69,9 @@ describe("CreateBroadcastInputSchema", () => {
     ).toThrow();
   });
 
-  it("student_ids 가 빈 배열이면 거부", () => {
+  it("group_id 가 잘못된 UUID 이면 거부", () => {
     expect(() =>
-      CreateBroadcastInputSchema.parse({ ...validBase, student_ids: [] }),
+      CreateBroadcastInputSchema.parse({ ...validBase, group_id: "not-uuid" }),
     ).toThrow();
   });
 
