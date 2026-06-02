@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { listSeminars } from "@/lib/seminars/list-seminars";
 import { getSeminar } from "@/lib/seminars/get-seminar";
 import { listSignups } from "@/lib/seminars/list-signups";
-import { lookupSeminarByToken } from "@/lib/seminars/lookup-seminar-by-token";
+// lookupSeminarByToken (0080 폼 모델) 은 0082 invitation 모델로 폐기됨.
+// 새 lookupInvitationByToken 단위 테스트는 seminars-invitation-loaders.test.ts 참고.
 
 /**
  * F5 · 설명회 데이터 로더 4종 · dev-seed 폴백 단위 테스트.
@@ -129,32 +130,8 @@ describe("seminar 데이터 로더 · dev-seed 폴백", () => {
     });
   });
 
-  // ─── lookupSeminarByToken ────────────────────────────────
-  describe("lookupSeminarByToken", () => {
-    it("실재 mock 토큰이면 공개 결과 반환 (capacity 는 노출 안 됨)", async () => {
-      const row = await lookupSeminarByToken("tok_whimun_g1_2026");
-      expect(row).not.toBeNull();
-      if (!row) return;
-      expect(row.id).toBe("sem_001");
-      expect(row.name).toBe("2026 휘문 1학년 입시설명회");
-      expect(row.branch).toBe("대치");
-      expect(SEMINAR_STATUSES.has(row.status)).toBe(true);
-      // capacity / link_token 은 학부모 공개 결과에 없어야 한다 (의도된 비공개).
-      expect((row as unknown as Record<string, unknown>).capacity).toBeUndefined();
-      expect(
-        (row as unknown as Record<string, unknown>).link_token,
-      ).toBeUndefined();
-    });
-
-    it("빈 토큰 → null (DB 도달 전 차단)", async () => {
-      expect(await lookupSeminarByToken("")).toBeNull();
-      expect(await lookupSeminarByToken("   ")).toBeNull();
-    });
-
-    it("미존재 토큰 → null", async () => {
-      expect(await lookupSeminarByToken("tok_does_not_exist")).toBeNull();
-    });
-  });
+  // lookupSeminarByToken describe 블록은 폐기 — 새 lookupInvitationByToken
+  // 단위 테스트는 seminars-invitation-loaders.test.ts 에서 다룸.
 
   // ─── listSignups (0082 invitation 모델) ──────────────────
   // 0080 폼 모델(SeminarSignupRow) → 0082 invitation_items.status='signed'
