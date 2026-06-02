@@ -511,15 +511,27 @@ export async function createSeminarBroadcastAction(
 
   // 6) 본문 + 학생별 URL placeholder 변환 + 광고 가드 가공.
   //    순서:
-  //      a. {초대링크} → #{이름} (sendon Replace 슬롯) — 없으면 본문 끝에 자동 부착
-  //      b. is_ad=true 면 (광고) prefix 부착 (이미 있으면 스킵)
-  //      c. is_ad=true 면 \n무료수신거부 080-XXXX footer 부착 (이미 있으면 스킵)
-  //      d. {이름} 토큰 잔존 검사 (본 발송 미지원 — name 슬롯을 URL 로 점유)
+  //      a. {이름} 토큰 잔존 검사 (본 발송 미지원 — name 슬롯을 URL 로 점유) — 치환 전 원문 기준
+  //      b. {초대링크} → #{이름} (sendon Replace 슬롯) — 없으면 본문 끝에 자동 부착
+  //      c. is_ad=true 면 (광고) prefix 부착 (이미 있으면 스킵)
+  //      d. is_ad=true 면 \n무료수신거부 080-XXXX footer 부착 (이미 있으면 스킵)
   //      e. URL 최장 합성 후 EUC-KR 바이트 한도 검증
   //
   //    가드 헬퍼(`insertAdTag` / `insertUnsubscribeFooter`)는 isAd=false 면 원문
   //    그대로 반환 → 정보성에선 종전 동작과 동일.
   const trimmed = parsed.body.trim();
+
+  // {이름} 토큰이 원문에 남아 있으면 본 발송이 처리 불가 — name 슬롯을 URL 로 점유.
+  //   반드시 INVITE_TOKEN → `#{이름}` 치환 *전* 원문 기준으로 검사한다.
+  //   (치환 후 finalBody 에는 sendon placeholder `#{이름}` 가 항상 들어가므로
+  //    finalBody 로 검사하면 `#{이름}`.includes("{이름}") 가 true 라 자기 자신을 차단함.)
+  if (trimmed.includes("{이름}")) {
+    return {
+      status: "blocked",
+      reason: "설명회 발송에서는 {이름} 변수를 사용할 수 없습니다 ({초대링크} 만 지원)",
+    };
+  }
+
   let finalBody = trimmed.includes(INVITE_TOKEN)
     ? trimmed.split(INVITE_TOKEN).join(SENDON_INVITE_PLACEHOLDER)
     : `${trimmed}\n\n신청: ${SENDON_INVITE_PLACEHOLDER}`;
@@ -533,14 +545,6 @@ export async function createSeminarBroadcastAction(
     parsed.is_ad,
     parsed.optout_phone ?? undefined,
   );
-
-  // {이름} 토큰이 본문에 남아 있으면 본 발송이 처리 불가 — 운영자에게 안내.
-  if (finalBody.includes("{이름}")) {
-    return {
-      status: "blocked",
-      reason: "설명회 발송에서는 {이름} 변수를 사용할 수 없습니다 ({초대링크} 만 지원)",
-    };
-  }
 
   // 본문 바이트 한도 검증 — 학생별 URL 자리(약 50~80자) 예측해 최장 URL 로 산정.
   // sendBody 의 #{이름} 자리는 치환 후 URL 로 늘어남. 가드 prefix/footer 가 포함된
