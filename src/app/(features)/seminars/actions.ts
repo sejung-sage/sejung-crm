@@ -426,14 +426,20 @@ export async function createSeminarBroadcastAction(
   }
 
   // class_ids 순서대로 signup_page_ids 배열 추출 (items INSERT 에 사용).
-  const signupPageIds = parsed.class_ids.map((cid) => {
+  // dedupe: class_ids 가 같은 값을 두 번 가질 경우(클라이언트 버그·재시도) item
+  // UNIQUE(invitation_id, signup_page_id) 가 깨지지 않도록 한 번 더 안전망.
+  const seenPageIds = new Set<string>();
+  const signupPageIds: string[] = [];
+  for (const cid of parsed.class_ids) {
     const pid = pageByClass.get(cid);
     if (!pid) {
       // 위 find-or-create 이후 누락은 사실상 발생 X — 방어.
       throw new Error(`signup_page 매핑 누락: class_id=${cid}`);
     }
-    return pid;
-  });
+    if (seenPageIds.has(pid)) continue;
+    seenPageIds.add(pid);
+    signupPageIds.push(pid);
+  }
 
   // 3) 그룹 권한·분원 격리 검증.
   const group = await getGroup(parsed.group_id);
@@ -471,13 +477,24 @@ export async function createSeminarBroadcastAction(
     branch: string;
     status: string;
   };
-  const students: StudentRow[] = recipients.map((r) => ({
-    id: r.id,
-    name: r.name,
-    parent_phone: r.parent_phone,
-    branch: parsed.branch, // 그룹 branch 일치 보장됨(위 가드)
-    status: r.status,
-  }));
+  // student.id 기준 dedupe — `loadAllGroupRecipients` 가 JOIN 경로 따라 중복을
+  // 흘릴 수 있다(예: 같은 학생이 그룹 조건의 여러 갈래에서 매칭). 중복이 있으면
+  // invitation 이 학생당 N개 INSERT 되고 invitationByStudent.set 이 마지막만
+  // 보존해, items INSERT 에서 (invitation_id, signup_page_id) UNIQUE 가 깨진다
+  // (`class_signup_items_unique_pair`). 여기서 한 번 잘라낸다.
+  const seenStudentIds = new Set<string>();
+  const students: StudentRow[] = [];
+  for (const r of recipients) {
+    if (!r.id || seenStudentIds.has(r.id)) continue;
+    seenStudentIds.add(r.id);
+    students.push({
+      id: r.id,
+      name: r.name,
+      parent_phone: r.parent_phone,
+      branch: parsed.branch, // 그룹 branch 일치 보장됨(위 가드)
+      status: r.status,
+    });
+  }
 
   // 4) 수신거부 제외 + parent_phone 결측 학생 제외.
   const unsub = new Set(await getUnsubscribedPhones());
