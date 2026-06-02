@@ -8,11 +8,16 @@
 
 매핑 (V_class_list → public.classes):
   반고유_코드      → aca_class_id ("{branch_id}-{반고유_코드}")
+  반형태_코드      → aca_class_type_id ("{branch_id}-{반형태_코드}") · 0083
+                    aca_class_types 와 join 키. 반형태 카테고리가 '설명회/간담회'
+                    면 subject 보강 매칭에 사용 (강좌명 매칭이 못 잡는 케이스 보완).
   반명             → name (REQUIRED · 빈값 skip)
   강사명           → teacher_name
   과목명           → subject_raw (원본 보존)
                   → subject (7종 정확 일치 + 운영 분포 기반 별칭 매핑.
                               매칭 실패 시 NULL — normalize_subject 참조)
+                              + 강좌명에 '설명회/간담회' 포함 시 override (0058)
+                              + 반형태 라벨이 '설명회/간담회' 면 override (0083)
   청구회차         → total_sessions (NUMERIC, NULL 허용)
   회차당금액       → amount_per_session (INT, NULL 허용)
   반수강료         → total_amount (INT, NULL 허용)
@@ -211,6 +216,7 @@ def fetch_classes(db_config: dict) -> list[dict]:
             """
             SELECT
                 반고유_코드,
+                반형태_코드,
                 반명,
                 강사명,
                 과목명,
@@ -233,10 +239,52 @@ def fetch_classes(db_config: dict) -> list[dict]:
         conn.close()
 
 
+# ─── 반형태 보강 매칭 ──────────────────────────────────────
+# 강좌명에 '설명회/간담회' 가 없지만 Aca 행정팀이 반형태 카테고리로 분류한
+# 케이스(예: 대치 "2026 ... 콘서트" 6건, 반형태1='설 명'+반형태2='회') 보완용.
+# Supabase 의 aca_class_types 를 분원당 1회 SELECT 해서 in-memory set 구성.
+# 분원당 11~15 행이라 매우 가벼움. 0083 도입.
+#
+# 대치의 공백 분리('설 명' / '회') 케이스를 위해 concat 후 모든 공백 제거 후 매칭.
+def load_seminar_type_ids(supabase, branch_name: str) -> set[str]:
+    """branch_name 의 aca_class_types 중 type1||type2||type3 concat 후 공백
+    제거한 값이 '설명회' 또는 '간담회' substring 인 aca_class_type_id 집합 반환.
+
+    실패/empty → 빈 set 반환 (이름 매칭만으로 fallback).
+    """
+    try:
+        res = (
+            supabase.table("aca_class_types")
+            .select("aca_class_type_id, type1, type2, type3")
+            .eq("branch", branch_name)
+            .execute()
+        )
+    except Exception:
+        return set()
+    out: set[str] = set()
+    for r in res.data or []:
+        concat = "".join(
+            (r.get("type1") or "", r.get("type2") or "", r.get("type3") or "")
+        ).replace(" ", "")
+        if "설명회" in concat or "간담회" in concat:
+            tid = r.get("aca_class_type_id")
+            if isinstance(tid, str) and tid:
+                out.add(tid)
+    return out
+
+
 # ─── 변환 ─────────────────────────────────────────────────
-def transform(row: dict, branch_id: str, branch_name: str) -> dict | None:
+def transform(
+    row: dict,
+    branch_id: str,
+    branch_name: str,
+    seminar_type_ids: set[str],
+) -> dict | None:
     """V_class_list row → public.classes row.
     name 빈값이면 None 반환 (skip).
+
+    seminar_type_ids: load_seminar_type_ids() 결과. 강좌명 매칭이 실패한 강좌의
+    aca_class_type_id 가 여기에 들어있으면 subject='설명회' 로 보강.
     """
     name = clean_text(row.get("반명"), max_len=200)
     if not name:
@@ -247,19 +295,30 @@ def transform(row: dict, branch_id: str, branch_name: str) -> dict | None:
         return None
     aca_class_id = f"{branch_id}-{class_code}"
 
+    # 반형태_코드 → aca_class_type_id (NULL 허용 — 옛 행이거나 미분류 강좌).
+    type_code = row.get("반형태_코드")
+    aca_class_type_id: str | None = (
+        f"{branch_id}-{type_code}" if type_code is not None else None
+    )
+
     # 미사용반구분: 'Y' 면 비활성. 공백/NULL/그 외 → 활성.
     inactive_flag = clean_text(row.get("미사용반구분"))
     active = not (inactive_flag == "Y")
 
-    # subject 결정: 과목명 → normalize_subject. 단 name 에 '설명회' 또는
-    # '간담회' 가 들어 있으면 무조건 '설명회' override (0058+0062 정책 —
-    # 설명회·간담회 강좌는 재원생 판정·진행중 list 에서 제외).
+    # subject 결정 — 우선순위:
+    #   1) 과목명 → normalize_subject (정확 일치 + 별칭).
+    #   2) 강좌명에 '설명회/간담회' 포함 → '설명회' override (0058+0062 정책).
+    #   3) 반형태 카테고리가 '설명회/간담회' → '설명회' override (0083 보강 매칭).
+    # 설명회·간담회 강좌는 재원생 판정·진행중 list 에서 제외된다 (0058).
     subject = normalize_subject(row.get("과목명"))
     if "설명회" in name or "간담회" in name:
+        subject = "설명회"
+    elif aca_class_type_id and aca_class_type_id in seminar_type_ids:
         subject = "설명회"
 
     return {
         "aca_class_id": aca_class_id,
+        "aca_class_type_id": aca_class_type_id,
         "branch": branch_name,
         "name": name,
         "teacher_name": clean_text(row.get("강사명")),
@@ -317,10 +376,17 @@ def main() -> None:
             continue
         print(f"   raw: {len(rows):,}건")
 
+        # 분원별 설명회 반형태 id 1회 로드 (분원당 11~15행).
+        # migrate_class_types.py 가 본 스크립트보다 먼저 돌아 aca_class_types
+        # 는 항상 최신 상태(run_all.bat 순서). 비어있어도 안전 (빈 set).
+        seminar_type_ids = load_seminar_type_ids(supabase, db["branch_name"])
+        if seminar_type_ids:
+            print(f"   설명회 반형태: {len(seminar_type_ids)}종 매칭 대비")
+
         transformed: list[dict] = []
         skipped = 0
         for r in rows:
-            t = transform(r, db["branch_id"], db["branch_name"])
+            t = transform(r, db["branch_id"], db["branch_name"], seminar_type_ids)
             if t is None:
                 skipped += 1
             else:
