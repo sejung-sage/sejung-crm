@@ -236,6 +236,12 @@ function readPublicOrigin(): string {
 
 // ─── DB IO 헬퍼 (좁은 cast — send-campaign 패턴 미러) ────────
 
+/**
+ * 메시지 UPDATE 시 `.in("id", ids)` 가 100개 넘어가면 PostgREST URL 한도(8KB,
+ * Cloudflare) 초과로 414. 청크로 나눠 N번 호출.
+ */
+const MESSAGE_UPDATE_CHUNK = 100;
+
 async function markMessagesSent(
   supabase: SupabaseClient,
   ids: string[],
@@ -244,32 +250,35 @@ async function markMessagesSent(
   sentAtIso: string,
 ): Promise<void> {
   if (ids.length === 0) return;
-  // 일반 발송과 동일하게 단일 SQL UPDATE 로 끝내고 싶지만, RPC mark_messages_sent
-  // 는 messages 일반 경로용 시그니처. 본 디스패치는 호출 빈도가 낮아 단순 UPDATE 로 충분.
-  await (
-    supabase.from("crm_messages") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        in: (
-          col: string,
-          vals: string[],
-        ) => Promise<{ error: { message: string } | null }>;
-      };
+  // ⚠️ 4,100+ 건 발송에서 `.in("id", ids)` 가 Cloudflare 8KB URL 한도 초과 →
+  // 414 silent fail → messages 가 '대기' 그대로 남는 회귀 fix (2026-06-02).
+  // markMessagesFailed 와 동일 청크 전략 적용.
+  for (let i = 0; i < ids.length; i += MESSAGE_UPDATE_CHUNK) {
+    const chunk = ids.slice(i, i + MESSAGE_UPDATE_CHUNK);
+    const res = (await (
+      supabase.from("crm_messages") as unknown as {
+        update: (v: Record<string, unknown>) => {
+          in: (
+            col: string,
+            vals: string[],
+          ) => Promise<{ error: { message: string } | null }>;
+        };
+      }
+    )
+      .update({
+        status: "발송됨",
+        vendor_message_id: vendorMessageId,
+        cost,
+        sent_at: sentAtIso,
+      })
+      .in("id", chunk)) as { error: { message: string } | null };
+    if (res.error) {
+      console.error(
+        `[seminars/dispatch] markMessagesSent 청크 ${i}~${i + chunk.length} 실패: ${res.error.message}`,
+      );
     }
-  )
-    .update({
-      status: "발송됨",
-      vendor_message_id: vendorMessageId,
-      cost,
-      sent_at: sentAtIso,
-    })
-    .in("id", ids);
+  }
 }
-
-/**
- * 메시지 UPDATE 시 `.in("id", ids)` 가 100개 넘어가면 PostgREST URL 한도(8KB,
- * Cloudflare) 초과로 414. 청크로 나눠 N번 호출.
- */
-const MESSAGE_UPDATE_CHUNK = 100;
 
 async function markMessagesFailed(
   supabase: SupabaseClient,
