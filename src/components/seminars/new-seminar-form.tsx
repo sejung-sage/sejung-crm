@@ -82,7 +82,7 @@ export function NewSeminarForm({ canPickBranch, defaultBranch }: Props) {
             "success",
             "개발 시드 모드입니다. 실제 저장은 일어나지 않았습니다",
           );
-          router.push("/seminars");
+          router.push("/seminars/compose?tab=list");
           break;
         case "failed":
           showToast("error", result.reason ?? "저장에 실패했습니다");
@@ -214,7 +214,7 @@ export function NewSeminarForm({ canPickBranch, defaultBranch }: Props) {
       <div className="flex items-center justify-end gap-2 pt-2 border-t border-[color:var(--border)]">
         <button
           type="button"
-          onClick={() => router.push("/seminars")}
+          onClick={() => router.push("/seminars/compose?tab=list")}
           disabled={isPending}
           className="
             inline-flex items-center h-10 px-4 rounded-lg

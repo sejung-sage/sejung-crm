@@ -297,7 +297,7 @@ export async function createSeminarAction(
   };
 
   if (!result.error && result.data) {
-    revalidatePath("/seminars");
+    revalidatePath("/seminars/compose");
     return {
       status: "success",
       id: result.data.id,
@@ -406,7 +406,7 @@ export async function updateSeminarAction(
     };
   }
 
-  revalidatePath("/seminars");
+  revalidatePath("/seminars/compose");
   revalidatePath(`/seminars/${parsed.id}`);
   return { status: "success" };
 }
@@ -474,7 +474,7 @@ export async function changeSeminarStatusAction(
     };
   }
 
-  revalidatePath("/seminars");
+  revalidatePath("/seminars/compose");
   revalidatePath(`/seminars/${parsed.seminar_id}`);
   return { status: "success" };
 }
@@ -575,7 +575,7 @@ export async function cancelSignupAction(
 
   // invitation_id 기준 캐시 무효화 — 어느 설명회 페이지에 속해 있는지는 호출부가 알기 어려워
   // /seminars 전체 무효화.
-  revalidatePath("/seminars");
+  revalidatePath("/seminars/compose");
   return { status: "success" };
 }
 
@@ -1112,7 +1112,7 @@ export async function createSeminarBroadcastAction(
     })
     .eq("id", campaignId);
 
-  revalidatePath("/seminars");
+  revalidatePath("/seminars/compose");
   revalidatePath("/campaigns");
 
   if (dispatchResult.sent === 0) {

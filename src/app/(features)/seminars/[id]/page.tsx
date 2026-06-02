@@ -47,7 +47,7 @@ export default async function SeminarDetailPage({
     currentUser.role === "admin" &&
     currentUser.branch !== seminar.branch
   ) {
-    redirect("/seminars");
+    redirect("/seminars/compose?tab=list");
   }
 
   const signups = await listSignups(seminar.id);
@@ -59,11 +59,11 @@ export default async function SeminarDetailPage({
     <div className="max-w-7xl space-y-6">
       {/* 브레드크럼 */}
       <Link
-        href="/seminars"
+        href="/seminars/compose?tab=list"
         className="inline-flex items-center gap-1 text-[13px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
       >
         <ChevronLeft className="size-4" strokeWidth={1.75} aria-hidden />
-        설명회
+        설명회 목록
       </Link>
 
       {/* 상단 카드 */}

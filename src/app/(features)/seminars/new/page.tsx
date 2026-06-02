@@ -32,11 +32,11 @@ export default async function NewSeminarPage() {
   return (
     <div className="max-w-3xl space-y-6">
       <Link
-        href="/seminars"
+        href="/seminars/compose?tab=list"
         className="inline-flex items-center gap-1 text-[13px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
       >
         <ChevronLeft className="size-4" strokeWidth={1.75} aria-hidden />
-        설명회
+        설명회 목록
       </Link>
 
       <header>
