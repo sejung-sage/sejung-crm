@@ -176,6 +176,10 @@ async function sendLive(
 
   try {
     const result = await client.sms.send(payload);
+    // 진단 로그 — sendon 응답 코드·groupId 가시화. 발송 실패 추적 시 단서.
+    console.log(
+      `[sendon/send] code=${result.code} groupId=${result.data?.groupId ?? "-"} message=${(result.message ?? "").slice(0, 80)}`,
+    );
     if (result.code === 200 && result.data?.groupId) {
       const cost = SENDON_MOCK_UNIT_COST[req.type];
       return {

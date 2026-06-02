@@ -40,6 +40,16 @@ export function createSmsAdapter(): SmsAdapter {
   const provider = readProvider();
   const mode = readMode();
 
+  // 진단 로그 — Vercel 함수 로그에서 mode/provider 확인용. env 가 production 에
+  // 박혀있어도 redeploy 안 된 함수 인스턴스는 옛 mock 으로 굴 수 있음. 한 줄.
+  console.log(
+    `[sms-adapter] provider=${provider} mode=${mode} ` +
+      `userId=${process.env.SENDON_USER_ID ? "set" : "MISSING"} ` +
+      `apiKey=${process.env.SENDON_API_KEY ? "set" : "MISSING"} ` +
+      `fromNumber=${process.env.SENDON_FROM_NUMBER ? "set" : "MISSING"} ` +
+      `rawModeEnv=${JSON.stringify(process.env.SMS_ADAPTER_MODE ?? null)}`,
+  );
+
   switch (provider) {
     case "sendon":
       return createSendonAdapter({
