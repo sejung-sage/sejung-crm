@@ -37,6 +37,15 @@ export interface SeminarComposeState {
   type: SmsType;
   subject: string | null;
   body: string;
+  /**
+   * 광고성 문자 여부.
+   * true 면 본문 앞에 `(광고)` prefix 와 본문 끝에 `무료수신거부 080-...` footer
+   * 가 자동 삽입되며 21~08시 야간 차단의 대상이 된다.
+   *
+   * 설명회 안내는 일반적으로 정보성이라 기본값은 false. 다만 학원 마케팅 시즌에
+   * "광고 동의 받은 학생에게만" 발송하는 경우를 위해 토글로 노출한다.
+   */
+  isAd: boolean;
 }
 
 interface Props {
@@ -46,6 +55,8 @@ interface Props {
   groups: GroupListItem[];
   /** 분원 — 발송 액션에 전달. master 전체 모드에서는 빈 문자열. */
   branch: string;
+  /** 환경변수 SMS_OPT_OUT_NUMBER — 광고 footer 미리보기에 표시. */
+  optOutNumber: string;
 }
 
 const STEP_LABELS: Array<{ index: 1 | 2 | 3 | 4; label: string }> = [
@@ -61,6 +72,7 @@ export function SeminarComposeWizard({
   seminars,
   groups,
   branch,
+  optOutNumber,
 }: Props) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
 
@@ -71,6 +83,8 @@ export function SeminarComposeWizard({
     type: "LMS",
     subject: "설명회 안내",
     body: buildDefaultBody(seminars, initialSeminarId),
+    // 설명회 안내 = 정보성 기본.
+    isAd: false,
   }));
 
   const goNext = () => setStep((s) => (s < 4 ? ((s + 1) as 1 | 2 | 3 | 4) : s));
@@ -177,6 +191,7 @@ export function SeminarComposeWizard({
             onChange={(patch) => setState((p) => ({ ...p, ...patch }))}
             selectedSeminars={selectedSeminars}
             selectedGroup={selectedGroup}
+            optOutNumber={optOutNumber}
           />
         )}
         {step === 4 && selectedGroup && selectedSeminars.length > 0 && (

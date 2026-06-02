@@ -143,6 +143,7 @@ export default async function SeminarComposePage({
         seminars={seminars}
         groups={groups}
         branch={branchFilter}
+        optOutNumber={process.env.SMS_OPT_OUT_NUMBER ?? "080-123-4567"}
       />
     </Shell>
   );

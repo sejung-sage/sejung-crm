@@ -50,6 +50,11 @@ import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
 import { applyNameToken } from "@/lib/messaging/personalize";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS } from "@/lib/schemas/template";
+import {
+  insertAdTag,
+  insertUnsubscribeFooter,
+  checkQuietHours,
+} from "@/lib/messaging/guards";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
@@ -725,7 +730,14 @@ export async function exportSignupsAction(
 //   6) sendon batch 1회 발송 — Receiver.name 에 학생별 URL 박음.
 //   7) 결과에 따라 campaigns.status='완료'/'실패' + total_cost 갱신.
 //
-// 광고 가드: 설명회 안내 = 정보성 → (광고) prefix / 080 footer / 야간차단 모두 X.
+// 광고 가드 (2026-06):
+//   - 입력 `is_ad=true` 면 일반 /compose 와 동일한 3종 가드 적용.
+//     1) `(광고)` prefix (이미 본문 선두에 있으면 스킵)
+//     2) `\n무료수신거부 080-XXXX` footer (이미 본문에 "무료수신거부" 가 있으면 스킵)
+//     3) 21:00~08:00 KST 발송 차단 (정보성이면 무관)
+//   - 가드는 어댑터 호출(dispatchBroadcast) 직전에 본문에 박힌다 — 학생별 URL 합성
+//     전 finalBody 단계에서 처리해 EUC-KR 바이트 검증이 가공 후 본문 기준이 되도록.
+//   - `is_ad=false` (기본) 면 종전과 동일 — 정보성 안내로 가공 없음.
 
 /** 본문에 학생별 URL 을 박을 변수 토큰 (운영자 시각). */
 const INVITE_TOKEN = "{초대링크}";
@@ -844,16 +856,42 @@ export async function createSeminarBroadcastAction(
     };
   }
 
-  // 5) 본문 + 학생별 URL placeholder 변환.
-  //    - 운영자가 본문에 `{초대링크}` 를 박았으면 그 자리로 → `#{이름}` (sendon 치환자) 으로 치환.
-  //    - 안 박았으면 본문 끝에 자동 부착 (\n\n신청: #{이름}).
-  //    - {이름} 토큰은 본 발송에선 미지원 — 호출자가 미리 박지 않도록 안내(운영 UI 책임).
-  let finalBody = parsed.body.trim();
-  if (finalBody.includes(INVITE_TOKEN)) {
-    finalBody = finalBody.split(INVITE_TOKEN).join(SENDON_INVITE_PLACEHOLDER);
-  } else {
-    finalBody = `${finalBody}\n\n신청: ${SENDON_INVITE_PLACEHOLDER}`;
+  // 5) 광고 야간 차단 (정보성이면 무관, allowed=true).
+  //    여기서 즉시 차단하면 학생/캠페인 INSERT 비용 자체를 절약.
+  const quiet = checkQuietHours(new Date(), parsed.is_ad);
+  if (!quiet.allowed) {
+    return {
+      status: "blocked",
+      reason:
+        "야간 광고 차단 시간대입니다 (21:00~08:00). 다른 시간에 발송해 주세요.",
+    };
   }
+
+  // 6) 본문 + 학생별 URL placeholder 변환 + 광고 가드 가공.
+  //    순서:
+  //      a. {초대링크} → #{이름} (sendon Replace 슬롯) — 없으면 본문 끝에 자동 부착
+  //      b. is_ad=true 면 (광고) prefix 부착 (이미 있으면 스킵)
+  //      c. is_ad=true 면 \n무료수신거부 080-XXXX footer 부착 (이미 있으면 스킵)
+  //      d. {이름} 토큰 잔존 검사 (본 발송 미지원 — name 슬롯을 URL 로 점유)
+  //      e. URL 최장 합성 후 EUC-KR 바이트 한도 검증
+  //
+  //    가드 헬퍼(`insertAdTag` / `insertUnsubscribeFooter`)는 isAd=false 면 원문
+  //    그대로 반환 → 정보성에선 종전 동작과 동일.
+  const trimmed = parsed.body.trim();
+  let finalBody = trimmed.includes(INVITE_TOKEN)
+    ? trimmed.split(INVITE_TOKEN).join(SENDON_INVITE_PLACEHOLDER)
+    : `${trimmed}\n\n신청: ${SENDON_INVITE_PLACEHOLDER}`;
+
+  // 광고 prefix / footer (헬퍼가 isAd=false 면 no-op).
+  finalBody = insertAdTag(finalBody, parsed.is_ad);
+  // optout 우선순위: 입력 > env (`SMS_OPT_OUT_NUMBER`) > 헬퍼 기본값.
+  //   parsed.optout_phone 는 null 일 수 있어 undefined 로 정규화 (헬퍼가 env 폴백).
+  finalBody = insertUnsubscribeFooter(
+    finalBody,
+    parsed.is_ad,
+    parsed.optout_phone ?? undefined,
+  );
+
   // {이름} 토큰이 본문에 남아 있으면 본 발송이 처리 불가 — 운영자에게 안내.
   if (finalBody.includes("{이름}")) {
     return {
@@ -863,7 +901,8 @@ export async function createSeminarBroadcastAction(
   }
 
   // 본문 바이트 한도 검증 — 학생별 URL 자리(약 50~80자) 예측해 최장 URL 로 산정.
-  // sendBody 의 #{이름} 자리는 치환 후 URL 로 늘어남.
+  // sendBody 의 #{이름} 자리는 치환 후 URL 로 늘어남. 가드 prefix/footer 가 포함된
+  // finalBody 기준이라 광고 토글 시 자동으로 한도 빡빡해진다.
   const sampleUrl = `${readPublicOriginForActions()}/s/${"X".repeat(12)}`;
   const expandedSample = finalBody.split(SENDON_INVITE_PLACEHOLDER).join(sampleUrl);
   const expandedBytes = countEucKrBytes(expandedSample);
@@ -892,7 +931,7 @@ export async function createSeminarBroadcastAction(
     body: parsed.body, // 운영 본문 원형 보존 — 학생별 URL 합성 전.
     subject: parsed.subject,
     type: parsed.type,
-    is_ad: false, // 설명회 안내 = 정보성.
+    is_ad: parsed.is_ad, // 운영자 토글값. 기본 false(정보성). true 시 가드 가공 본문이 messages 로 적재됨.
     dedupe_by_phone: false,
     send_to_parent: true,
     send_to_student: false,

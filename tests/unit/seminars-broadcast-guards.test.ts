@@ -36,6 +36,7 @@ const validBroadcast: CreateBroadcastInput = {
   subject: null,
   type: "SMS",
   branch: "대치",
+  is_ad: false, // 광고 토글 추가 — 기본 정보성 발송
 };
 
 const validClaim: ClaimInvitationItemInput = {

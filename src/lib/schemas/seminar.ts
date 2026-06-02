@@ -88,6 +88,51 @@ export const CreateBroadcastInputSchema = z
       .trim()
       .min(1, "분원은 필수입니다")
       .max(20, "분원명은 20자 이내로 입력하세요"),
+    /**
+     * 광고성 문자 여부.
+     *  - true  → `(광고)` prefix 자동 부착 + `무료수신거부 080-XXXX` footer 자동 부착
+     *           + 21:00~08:00 KST 발송 차단.
+     *  - false → 정보성. 가공 없이 원문 그대로 발송 (기본값).
+     *
+     * 기본 false 인 이유: 설명회 안내는 대개 정보성. 운영자가 LMS 장문 등에서
+     * 광고성 컨텐츠를 섞을 때만 명시적으로 토글한다. UI(step3)는 호출 시 명시 전달.
+     */
+    is_ad: z.boolean().default(false),
+    /**
+     * 광고 footer 학원명 (`무료수신거부 ...` 앞에 부착될 학원 표기).
+     *
+     * 현재 가드 헬퍼는 학원명을 footer 에 자동 삽입하지 않지만(`무료수신거부 080-XXXX`
+     * 한 줄만 추가), 향후 확장 위해 옵션으로 받아둔다. 호출자가 본문 자체에 학원명을
+     * 박는 경우엔 미사용.
+     */
+    academy_name: z
+      .union([z.string(), z.null(), z.undefined()])
+      .transform((v) => {
+        if (v === null || v === undefined) return null;
+        const t = v.trim();
+        return t === "" ? null : t;
+      })
+      .pipe(z.string().max(20, "학원명은 20자 이내로 입력하세요").nullable())
+      .optional(),
+    /**
+     * 무료수신거부 080 번호 override.
+     *  - 비어 있으면 env `SMS_OPT_OUT_NUMBER` 사용
+     *  - env 도 없으면 가드 헬퍼 기본값 (`080-123-4567`).
+     */
+    optout_phone: z
+      .union([z.string(), z.null(), z.undefined()])
+      .transform((v) => {
+        if (v === null || v === undefined) return null;
+        const t = v.trim();
+        return t === "" ? null : t;
+      })
+      .pipe(
+        z
+          .string()
+          .max(20, "수신거부 번호는 20자 이내로 입력하세요")
+          .nullable(),
+      )
+      .optional(),
   })
   .refine(
     (v) => {

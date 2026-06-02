@@ -77,6 +77,8 @@ export function SeminarComposeStep4Send({
         subject: state.type === "LMS" ? state.subject : null,
         type: state.type,
         branch,
+        // 광고 토글 — step3 에서 입력. 서버가 prefix/footer/야간 차단 가드 적용.
+        is_ad: state.isAd,
       });
 
       switch (res.status) {
