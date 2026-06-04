@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
+  Check,
   ChevronLeft,
   Loader2,
   MinusCircle,
+  Search,
   X,
 } from "lucide-react";
 import type { GroupFilters, GroupKind } from "@/lib/schemas/group";
@@ -21,9 +23,11 @@ import {
   diffRecipientsAction,
   groupBuilderFilterOptionsAction,
   listClassOptionsAction,
+  searchStudentsAction,
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
 import type { ClassOption } from "@/lib/classes/list-class-options";
+import type { StudentSearchHit } from "@/lib/profile/search-students-for-group";
 import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
 import { BRANCHES } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
@@ -262,12 +266,16 @@ export function GroupBuilder({
   const [includeStudents, setIncludeStudents] = useState<DirectStudent[]>(
     initial.filters.includeStudents ?? [],
   );
-  // 그룹 종류 (사용자 확정 2026-05-27): 'filter'(조건 동기화) | 'custom'(고정 명단).
-  // 사용자 결정(2026-05): 빌더에서 "종류 선택" UI 는 숨긴다. 진입 컨텍스트로 자동 분기:
-  //  - 수동 그룹 생성(prefill 없음) → 'filter' (옛 그룹 JSONB 의 kind 미지정도 포함)
+  // 그룹 종류: 'filter'(조건 동기화) | 'custom'(고정 명단).
+  //  - 수동 그룹 생성(prefill 없음) → 'filter' 기본 (옛 그룹 JSONB 의 kind 미지정도 포함)
   //  - prefill(강좌별 #5 / 종강 미등록 #6 / 학생 직접) 진입 → page 가 'custom' 으로 내려줌
-  // kind 는 마운트 시점에 고정 — 빌더 안에서 바꿀 수 없으므로 setter 없이 상수처럼 둔다.
-  const kind: GroupKind = initial.filters.kind ?? "filter";
+  // 2026-06-04 (사용자 요청): create 모드에서 "조건으로 만들기"↔"학생 검색으로
+  //   만들기" 토글을 다시 허용한다(2026-05 의 "토글 숨김" 결정을 되돌림). 따라서
+  //   kind 는 state 로 둔다. edit 모드는 기존 그룹 의미 변질 방지를 위해 마운트
+  //   시점 kind 를 고정(아래 토글 UI 를 create 모드에서만 노출).
+  const [kind, setKind] = useState<GroupKind>(
+    initial.filters.kind ?? "filter",
+  );
   // 재원 상태 — 다중 선택. 빈 배열 = default 재원생 만 (수신자 산정 단에서 처리).
   // 옛 그룹 JSONB 에 statuses 키 없으면 빈 배열 → 기존 동작 보존.
   const [statuses, setStatuses] = useState<StudentStatus[]>(
@@ -672,6 +680,37 @@ export function GroupBuilder({
             </Field>
           </section>
 
+          {/* 만들기 방식 토글 — create 모드에서만 자유 전환.
+              edit 모드는 기존 그룹의 종류(kind)를 고정해 의미 변질을 막는다
+              (저장된 'filter'/'custom' 시맨틱이 바뀌면 발송 대상이 달라지므로). */}
+          {mode === "create" && (
+            <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-3">
+              <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+                만들기 방식
+              </h2>
+              <div
+                role="radiogroup"
+                aria-label="발송 그룹 만들기 방식"
+                className="inline-flex rounded-lg border border-[color:var(--border)] p-1 bg-[color:var(--bg-muted)]"
+              >
+                <ModeToggleButton
+                  active={!isCustom}
+                  label="조건으로 만들기"
+                  onClick={() => setKind("filter")}
+                />
+                <ModeToggleButton
+                  active={isCustom}
+                  label="학생 검색으로 만들기"
+                  onClick={() => setKind("custom")}
+                />
+              </div>
+              <p className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
+                학생 검색 모드는 선택한 학생만 발송 대상입니다 — 조건 미선택 시
+                전체가 되지 않습니다.
+              </p>
+            </section>
+          )}
+
           {/* 필터 — 'filter' 종류에서만 노출 (조건 동기화 그룹). */}
           {!isCustom && (
           <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-5">
@@ -875,10 +914,12 @@ export function GroupBuilder({
           </section>
           )}
 
-          {/* 담긴 학생 명단 검토 — 'custom' 종류(prefill 진입)에서만 노출.
-              강좌별 발송(#5)·종강 미등록 추적(#6)·학생 직접 진입으로 이미 담긴
-              명단을 검토(칩 + X 개별 제거)만 한다. 검색·추가 입력은 없다 —
-              사용자 결정(2026-05): 빌더에서 free-form 학생 추가 UI 제거. */}
+          {/* 담긴 학생 명단 — 'custom' 종류에서만 노출.
+              강좌별 발송(#5)·종강 미등록 추적(#6)·학생 직접 진입으로 미리 담긴
+              명단을 검토(칩 + X 개별 제거)한다.
+              2026-06-04 (사용자 요청): 빌더에서 학생 검색·직접 추가 UI 를 다시
+              허용한다(2026-05 의 "free-form 추가 제거" 결정을 되돌림). 상단에
+              이름·연락처 검색 입력을 두고, 검색 결과를 클릭해 명단에 담는다. */}
           {isCustom && (
           <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-5">
             <div className="space-y-1">
@@ -886,10 +927,34 @@ export function GroupBuilder({
                 담긴 학생 명단
               </h2>
               <p className="text-[13px] text-[color:var(--text-muted)]">
-                미리 담긴 학생들이 이 그룹의 고정 발송 대상입니다. 빼고 싶은
-                학생은 칩의 X 로 제거할 수 있어요.
+                아래에서 학생을 검색해 명단에 담으세요. 담긴 학생들이 이 그룹의
+                고정 발송 대상입니다. 빼고 싶은 학생은 칩의 X 로 제거할 수 있어요.
               </p>
             </div>
+
+            <Field label="학생 검색" hint="이름 또는 연락처로 찾아 담기">
+              <StudentSearchAdder
+                branch={branch}
+                canRevealPhone={canRevealPhone}
+                alreadyAddedIds={includeStudents.map((s) => s.id)}
+                onAdd={(hit) =>
+                  setIncludeStudents((prev) =>
+                    prev.some((x) => x.id === hit.id)
+                      ? prev
+                      : [
+                          ...prev,
+                          {
+                            id: hit.id,
+                            name: hit.name,
+                            parent_phone: hit.parent_phone,
+                            school: hit.school,
+                            grade: hit.grade,
+                          },
+                        ],
+                  )
+                }
+              />
+            </Field>
 
             <Field
               label="담긴 학생"
@@ -1452,6 +1517,289 @@ function SelectedSchoolChip({
  * prefill(강좌별 발송 #5 / 종강 미등록 추적 #6 / 학생 직접 진입)로 이미 담긴
  * 명단을 칩으로 보여주고, X 로 개별 제거만 가능하다. 추가 입력은 없음.
  */
+/**
+ * 만들기 방식 세그먼티드 토글 버튼.
+ * active = 검정 채움(흰 글씨), inactive = 흰 배경 muted 글씨. 흰/검 미니멀.
+ */
+function ModeToggleButton({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="radio"
+      aria-checked={active}
+      onClick={onClick}
+      className={`
+        inline-flex items-center justify-center h-10 px-4 rounded-md
+        text-[14px] font-medium transition-colors
+        focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--action)] focus-visible:ring-offset-1
+        ${
+          active
+            ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
+            : "bg-transparent text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
+        }
+      `}
+    >
+      {label}
+    </button>
+  );
+}
+
+/**
+ * custom(고정 명단) 그룹용 학생 검색·추가 콤보박스.
+ *
+ * - 이름 또는 학부모 연락처로 검색(>=2자). 250ms 디바운스 후 searchStudentsAction
+ *   호출(현재 branch 로 제한). useTransition 으로 로딩 표시.
+ * - 결과 드롭다운: 이름 · 분원 배지 · 학교/학년 · 전화(canRevealPhone 따라 마스킹).
+ *   클릭/Enter 로 명단에 담는다(id dedupe — 부모가 처리). 이미 담긴 학생은 "담김".
+ * - 키보드: ↑/↓ 이동, Enter 추가, Esc 닫기. listbox/option role.
+ * - branch 변경 시 입력·결과 초기화(타 분원 잔여 결과 방지).
+ */
+const SEARCH_DEBOUNCE_MS = 250;
+const SEARCH_MIN = 2;
+
+function StudentSearchAdder({
+  branch,
+  canRevealPhone,
+  alreadyAddedIds,
+  onAdd,
+}: {
+  branch: string;
+  canRevealPhone: boolean;
+  alreadyAddedIds: string[];
+  onAdd: (hit: StudentSearchHit) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState<StudentSearchHit[]>([]);
+  const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [searched, setSearched] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const [isPending, startSearch] = useTransition();
+
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const reqIdRef = useRef(0);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
+  const addedSet = useMemo(
+    () => new Set(alreadyAddedIds),
+    [alreadyAddedIds],
+  );
+
+  // branch 가 바뀌면 잔여 검색 상태 초기화 (타 분원 결과 노출 방지).
+  useEffect(() => {
+    setQuery("");
+    setResults([]);
+    setOpen(false);
+    setError(null);
+    setSearched(false);
+    setActiveIndex(-1);
+  }, [branch]);
+
+  // 디바운스 검색.
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (trimmed.length < SEARCH_MIN) {
+      setResults([]);
+      setSearched(false);
+      setError(null);
+      return;
+    }
+    debounceRef.current = setTimeout(() => {
+      const myReq = ++reqIdRef.current;
+      startSearch(async () => {
+        const result = await searchStudentsAction(trimmed, branch);
+        if (myReq !== reqIdRef.current) return;
+        if (result.status === "success") {
+          setResults(result.data);
+          setError(null);
+        } else {
+          setResults([]);
+          setError(result.reason);
+        }
+        setSearched(true);
+        setActiveIndex(-1);
+        setOpen(true);
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [query, branch]);
+
+  // 바깥 클릭 시 드롭다운 닫기.
+  useEffect(() => {
+    if (!open) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [open]);
+
+  const handleAdd = (hit: StudentSearchHit) => {
+    if (addedSet.has(hit.id)) return;
+    onAdd(hit);
+    // 연속 추가 편의 — 입력은 비우고 드롭다운은 닫는다.
+    setQuery("");
+    setResults([]);
+    setOpen(false);
+    setSearched(false);
+    setActiveIndex(-1);
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape") {
+      setOpen(false);
+      return;
+    }
+    if (results.length === 0) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setOpen(true);
+      setActiveIndex((i) => (i + 1) % results.length);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => (i <= 0 ? results.length - 1 : i - 1));
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const idx = activeIndex >= 0 ? activeIndex : 0;
+      const hit = results[idx];
+      if (hit) handleAdd(hit);
+    }
+  };
+
+  const showDropdown =
+    open && query.trim().length >= SEARCH_MIN && searched;
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div className="relative">
+        <Search
+          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-muted)]"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={onKeyDown}
+          onFocus={() => {
+            if (results.length > 0) setOpen(true);
+          }}
+          role="combobox"
+          aria-expanded={showDropdown}
+          aria-controls="student-search-listbox"
+          aria-autocomplete="list"
+          aria-label="이름 또는 연락처로 학생 검색"
+          placeholder="이름 또는 연락처로 검색"
+          className="
+            w-full h-10 rounded-lg pl-9 pr-9
+            bg-bg-card border border-[color:var(--border)]
+            text-[15px] text-[color:var(--text)]
+            placeholder:text-[color:var(--text-dim)]
+            focus:outline-none focus:border-[color:var(--border-strong)]
+            transition-colors
+          "
+        />
+        {isPending && (
+          <Loader2
+            className="absolute right-3 top-1/2 -translate-y-1/2 size-4 animate-spin text-[color:var(--text-muted)]"
+            aria-hidden
+          />
+        )}
+      </div>
+
+      {showDropdown && (
+        <ul
+          id="student-search-listbox"
+          role="listbox"
+          aria-label="학생 검색 결과"
+          className="
+            absolute z-20 mt-1 w-full max-h-72 overflow-auto
+            rounded-lg border border-[color:var(--border)] bg-bg-card
+            shadow-lg py-1
+          "
+        >
+          {error ? (
+            <li className="px-3 py-2.5 text-[13px] text-[color:var(--danger)]">
+              {error}
+            </li>
+          ) : results.length === 0 ? (
+            <li className="px-3 py-2.5 text-[13px] text-[color:var(--text-muted)]">
+              검색 결과가 없습니다. 다른 이름이나 번호로 찾아보세요.
+            </li>
+          ) : (
+            results.map((hit, i) => {
+              const added = addedSet.has(hit.id);
+              const phone = hit.parent_phone
+                ? canRevealPhone
+                  ? formatPhone(hit.parent_phone) || hit.parent_phone
+                  : maskPhone(hit.parent_phone)
+                : "—";
+              return (
+                <li key={hit.id} role="option" aria-selected={i === activeIndex}>
+                  <button
+                    type="button"
+                    disabled={added}
+                    onMouseEnter={() => setActiveIndex(i)}
+                    onClick={() => handleAdd(hit)}
+                    className={`
+                      flex w-full items-center gap-2 px-3 py-2 text-left
+                      transition-colors
+                      ${
+                        added
+                          ? "cursor-not-allowed opacity-60"
+                          : i === activeIndex
+                            ? "bg-[color:var(--bg-hover)]"
+                            : "hover:bg-[color:var(--bg-hover)]"
+                      }
+                    `}
+                  >
+                    <span className="text-[14px] font-medium text-[color:var(--text)]">
+                      {hit.name}
+                    </span>
+                    <BranchBadge branch={hit.branch} />
+                    <span className="text-[12px] text-[color:var(--text-muted)]">
+                      {hit.school ?? "-"}
+                    </span>
+                    <span className="text-[12px] text-[color:var(--text-muted)]">
+                      {hit.grade ?? ""}
+                    </span>
+                    <span className="text-[12px] text-[color:var(--text-muted)]">
+                      {phone}
+                    </span>
+                    {added && (
+                      <span className="ml-auto inline-flex items-center gap-1 text-[12px] font-medium text-[color:var(--text-muted)]">
+                        <Check className="size-3.5" strokeWidth={2} aria-hidden />
+                        담김
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function IncludeStudentReview({
   students,
   onRemove,
