@@ -412,21 +412,22 @@ export function SeminarComposeStep3Body({
             </p>
           </div>
 
-          {/* 테스트 발송 — 본인 번호 1건. 본문의 {초대링크} 자리는 샘플 URL 로
-              치환 후 testSendAction 에 raw 본문 + isAd 토글 전달. 광고 prefix·
-              080 footer 는 testSend 내부에서 다시 적용됨(중복 X). */}
+          {/* 테스트 발송 — 본인 번호 1건. 설명회 모드: raw 본문(`{초대링크}` 포함)을
+              그대로 넘기면 서버가 실제 학생 토큰 URL 로 치환하고 inviteUrl 을
+              돌려준다(가짜 SAMPLE_INVITE_URL 클라 치환 X). 광고 prefix·080
+              footer 는 seminarTestSendAction 내부에서 적용됨(중복 X).
+              선택된 설명회가 0개면 서버가 classIds 를 못 받으므로 disabled. */}
           <TestSendCard
             type={state.type}
             subject={state.subject}
-            body={
-              state.body.trim().length === 0
-                ? ""
-                : state.body.includes("{초대링크}")
-                  ? state.body.split("{초대링크}").join(SAMPLE_INVITE_URL)
-                  : `${state.body}\n\n신청: ${SAMPLE_INVITE_URL}`
-            }
+            body={state.body.trim().length === 0 ? "" : state.body}
             isAd={state.isAd}
-            disabled={state.body.trim().length === 0 || isOverLimit}
+            seminarClassIds={selectedClasses.map((c) => c.class_id)}
+            disabled={
+              state.body.trim().length === 0 ||
+              isOverLimit ||
+              selectedClasses.length === 0
+            }
           />
         </aside>
       </div>

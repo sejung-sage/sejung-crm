@@ -36,8 +36,12 @@ import {
 import { generateLinkToken } from "@/lib/seminars/generate-link-token";
 import {
   dispatchBroadcast,
+  buildInviteUrl,
   type BroadcastRecipient,
 } from "@/lib/seminars/dispatch-broadcast";
+import { testSend } from "@/lib/messaging/test-send";
+import type { SendCampaignResult } from "@/lib/messaging/send-campaign";
+import { formatPhone } from "@/lib/phone";
 import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
 import { applyNameToken } from "@/lib/messaging/personalize";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
@@ -289,6 +293,89 @@ const MAX_INVITATION_RECIPIENTS = 10_000;
 /** invitation.link_token UNIQUE 충돌 시 재시도 한도. */
 const INVITATION_TOKEN_RETRY = 3;
 
+/**
+ * 강좌(class_ids)별 crm_class_signup_pages find-or-create + 순서/dedupe 정리.
+ *
+ * createSeminarBroadcastAction 의 2-2 블록을 추출 — seminarTestSendAction 과 공유.
+ * 페이지는 강좌 1:1 (UNIQUE class_id). 없으면 status='open' 으로 자동 생성한다.
+ *
+ * 반환 signupPageIds 는 class_ids 입력 순서를 따르되, 같은 page 가 두 번 나오면
+ * (class_ids 중복) 한 번만 담는다 — items UNIQUE(invitation_id, signup_page_id) 방어.
+ */
+async function findOrCreateSignupPages(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  classIds: string[],
+  branch: string,
+  createdBy: string,
+): Promise<
+  { ok: true; signupPageIds: string[] } | { ok: false; reason: string }
+> {
+  const { data: existingPages, error: pageFetchError } = (await supabase
+    .from("crm_class_signup_pages")
+    .select("id, class_id")
+    .in("class_id", classIds)) as unknown as {
+    data: Array<{ id: string; class_id: string }> | null;
+    error: { message: string } | null;
+  };
+  if (pageFetchError) {
+    return {
+      ok: false,
+      reason: `신청 페이지 조회에 실패했습니다: ${pageFetchError.message}`,
+    };
+  }
+  const pageByClass = new Map<string, string>();
+  for (const p of existingPages ?? []) pageByClass.set(p.class_id, p.id);
+
+  const toCreatePages = classIds.filter((cid) => !pageByClass.has(cid));
+  if (toCreatePages.length > 0) {
+    const newPageRows = toCreatePages.map((cid) => ({
+      class_id: cid,
+      branch,
+      status: "open",
+      created_by: createdBy,
+    }));
+    const { data: createdPages, error: createPageError } = (await (
+      supabase.from("crm_class_signup_pages") as unknown as {
+        insert: (v: Record<string, unknown>[]) => {
+          select: (cols: string) => Promise<{
+            data: Array<{ id: string; class_id: string }> | null;
+            error: { message: string } | null;
+          }>;
+        };
+      }
+    )
+      .insert(newPageRows)
+      .select("id, class_id")) as {
+      data: Array<{ id: string; class_id: string }> | null;
+      error: { message: string } | null;
+    };
+    if (createPageError || !createdPages) {
+      return {
+        ok: false,
+        reason: `신청 페이지 생성 실패: ${createPageError?.message ?? "알 수 없는 오류"}`,
+      };
+    }
+    for (const p of createdPages) pageByClass.set(p.class_id, p.id);
+  }
+
+  // class_ids 순서대로 signup_page_ids 배열 추출 (items INSERT 에 사용).
+  // dedupe: class_ids 가 같은 값을 두 번 가질 경우(클라이언트 버그·재시도) item
+  // UNIQUE(invitation_id, signup_page_id) 가 깨지지 않도록 한 번 더 안전망.
+  const seenPageIds = new Set<string>();
+  const signupPageIds: string[] = [];
+  for (const cid of classIds) {
+    const pid = pageByClass.get(cid);
+    if (!pid) {
+      // find-or-create 이후 누락은 사실상 발생 X — 방어.
+      throw new Error(`signup_page 매핑 누락: class_id=${cid}`);
+    }
+    if (seenPageIds.has(pid)) continue;
+    seenPageIds.add(pid);
+    signupPageIds.push(pid);
+  }
+  return { ok: true, signupPageIds };
+}
+
 export async function createSeminarBroadcastAction(
   input: CreateBroadcastInput,
 ): Promise<CreateSeminarBroadcastActionResult> {
@@ -373,73 +460,18 @@ export async function createSeminarBroadcastAction(
     };
   }
 
-  // 2-2) 각 강좌의 crm_class_signup_pages find-or-create.
-  //      페이지 1:1 강좌 (UNIQUE class_id). 없으면 자동 생성.
-  const { data: existingPages, error: pageFetchError } = (await supabase
-    .from("crm_class_signup_pages")
-    .select("id, class_id")
-    .in("class_id", parsed.class_ids)) as unknown as {
-    data: Array<{ id: string; class_id: string }> | null;
-    error: { message: string } | null;
-  };
-  if (pageFetchError) {
-    return {
-      status: "failed",
-      reason: `신청 페이지 조회에 실패했습니다: ${pageFetchError.message}`,
-    };
-  }
-  const pageByClass = new Map<string, string>();
-  for (const p of existingPages ?? []) pageByClass.set(p.class_id, p.id);
-
-  const toCreatePages = parsed.class_ids.filter(
-    (cid) => !pageByClass.has(cid),
+  // 2-2) 각 강좌의 crm_class_signup_pages find-or-create + 순서·dedupe 정리.
+  //      (createSeminarBroadcastAction / seminarTestSendAction 공유 helper.)
+  const pagesResult = await findOrCreateSignupPages(
+    supabase,
+    parsed.class_ids,
+    parsed.branch,
+    auth.user.user_id,
   );
-  if (toCreatePages.length > 0) {
-    const newPageRows = toCreatePages.map((cid) => ({
-      class_id: cid,
-      branch: parsed.branch,
-      status: "open",
-      created_by: auth.user.user_id,
-    }));
-    const { data: createdPages, error: createPageError } = (await (
-      supabase.from("crm_class_signup_pages") as unknown as {
-        insert: (v: Record<string, unknown>[]) => {
-          select: (cols: string) => Promise<{
-            data: Array<{ id: string; class_id: string }> | null;
-            error: { message: string } | null;
-          }>;
-        };
-      }
-    )
-      .insert(newPageRows)
-      .select("id, class_id")) as {
-      data: Array<{ id: string; class_id: string }> | null;
-      error: { message: string } | null;
-    };
-    if (createPageError || !createdPages) {
-      return {
-        status: "failed",
-        reason: `신청 페이지 생성 실패: ${createPageError?.message ?? "알 수 없는 오류"}`,
-      };
-    }
-    for (const p of createdPages) pageByClass.set(p.class_id, p.id);
+  if (!pagesResult.ok) {
+    return { status: "failed", reason: pagesResult.reason };
   }
-
-  // class_ids 순서대로 signup_page_ids 배열 추출 (items INSERT 에 사용).
-  // dedupe: class_ids 가 같은 값을 두 번 가질 경우(클라이언트 버그·재시도) item
-  // UNIQUE(invitation_id, signup_page_id) 가 깨지지 않도록 한 번 더 안전망.
-  const seenPageIds = new Set<string>();
-  const signupPageIds: string[] = [];
-  for (const cid of parsed.class_ids) {
-    const pid = pageByClass.get(cid);
-    if (!pid) {
-      // 위 find-or-create 이후 누락은 사실상 발생 X — 방어.
-      throw new Error(`signup_page 매핑 누락: class_id=${cid}`);
-    }
-    if (seenPageIds.has(pid)) continue;
-    seenPageIds.add(pid);
-    signupPageIds.push(pid);
-  }
+  const signupPageIds = pagesResult.signupPageIds;
 
   // 3) 그룹 권한·분원 격리 검증.
   const group = await getGroup(parsed.group_id);
@@ -811,6 +843,235 @@ function readPublicOriginForActions(): string {
     return `https://${process.env.VERCEL_URL}`;
   }
   return "http://localhost:3000";
+}
+
+// ─── seminarTestSendAction (위저드 테스트 발송 — 본인 1건) ───
+//
+// 위저드 "테스트 발송" 카드 전용. 일반 testSend() 와 달리 본문의 {초대링크} 를
+// 실제로 열리는 학생 페이지 URL 로 치환해 보낸다.
+//
+// 동작 요지:
+//   1) dev-seed 차단.
+//   2) 인증 + 쓰기 권한(assertSeminarWrite, 분원=user.branch).
+//   3) 테스트 수신번호 형식 검증.
+//   4) 그 번호를 parent_phone 으로 가진 "테스트용 학생" 1명 탐색 (= 내거로).
+//   5) class_ids find-or-create → signup_page_ids 확보.
+//   6) 그 학생으로 invitation 1행 + items N행 INSERT (campaign_id=null).
+//   7) inviteUrl 합성 → 본문 {초대링크} 치환(없으면 끝에 부착).
+//   8) testSend() 코어 재사용 (가드·is_test 캠페인·어댑터·비용).
+//   9) 발송 결과가 실패/차단이어도 inviteUrl 은 항상 함께 반환 — 운영자가 링크를
+//      바로 클릭 검증할 수 있어야 하므로(현 sendon IP 이슈로 발송이 막혀도).
+//
+// 캐시 무효화 없음: 테스트 발송이라 명단 화면 즉시 갱신 불필요. invitation 은 DB 에
+// 남지만 items 가 'pending' 이라 signed 명단엔 안 뜬다(정상).
+export type SeminarTestSendInput = {
+  /** 위저드에서 선택된 설명회 강좌 id 들 (1개 이상). */
+  classIds: string[];
+  /** {초대링크} 포함 가능한 raw 본문. */
+  body: string;
+  subject: string | null;
+  type: "SMS" | "LMS" | "ALIMTALK";
+  isAd: boolean;
+  /** 테스트 수신 번호 (하이픈 무관). */
+  toPhone: string;
+};
+
+export async function seminarTestSendAction(
+  input: SeminarTestSendInput,
+): Promise<SendCampaignResult & { inviteUrl?: string }> {
+  // 1) dev-seed 차단 (inviteUrl 없이).
+  if (isDevSeedMode()) {
+    return { status: "dev_seed_mode", reason: "개발 시드 모드 — 실 발송 차단됨" };
+  }
+
+  // 2) 인증 + 쓰기 권한 (분원은 user.branch 기준).
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "failed", reason: "로그인 후 이용 가능합니다" };
+  }
+  const auth = await assertSeminarWrite(user.branch);
+  if (!auth.ok) return { status: "failed", reason: auth.reason };
+
+  // classIds 방어 — 최소 1개.
+  if (!Array.isArray(input.classIds) || input.classIds.length === 0) {
+    return { status: "failed", reason: "설명회 강좌를 1개 이상 선택해 주세요" };
+  }
+
+  // 3) 수신번호 형식 검증 (숫자만 추출 후 휴대폰 패턴).
+  const phone = input.toPhone.replace(/\D/g, "");
+  if (!/^01[016789][0-9]{7,8}$/.test(phone)) {
+    return { status: "failed", reason: "휴대폰 번호 형식이 올바르지 않습니다" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  const branch = auth.user.branch;
+
+  // 4) 테스트 수신번호로 등록된 학생 1명 탐색 (= "내거로").
+  //    우선 하이픈 포맷(formatPhone)으로 정확 eq 조회. 없으면 branch 학생 중
+  //    parent_phone 숫자만 추출해 phone 과 매칭 폴백 (뒤 8자리 like 로 후보만 좁힘).
+  type StudentMatchRow = {
+    id: string;
+    name: string;
+    branch: string;
+    parent_phone: string | null;
+  };
+  let matchedStudent: StudentMatchRow | null = null;
+
+  const hyphenated = formatPhone(phone);
+  {
+    const { data, error } = (await supabase
+      .from("crm_students")
+      .select("id, name, branch, parent_phone")
+      .eq("branch", branch)
+      .eq("parent_phone", hyphenated)
+      .limit(1)
+      .maybeSingle()) as unknown as {
+      data: StudentMatchRow | null;
+      error: { message: string } | null;
+    };
+    if (error) {
+      return {
+        status: "failed",
+        reason: `학생 조회에 실패했습니다: ${error.message}`,
+      };
+    }
+    matchedStudent = data;
+  }
+
+  // 폴백: 포맷이 달라(공백·하이픈 차이) eq 미스인 경우, 뒤 8자리 like 로 후보를
+  //       좁힌 뒤 숫자만 비교해 정확 일치 1명 선별 (쿼리 과대 방지).
+  if (!matchedStudent) {
+    const tail8 = phone.slice(-8);
+    const { data: candidates, error: candError } = (await supabase
+      .from("crm_students")
+      .select("id, name, branch, parent_phone")
+      .eq("branch", branch)
+      .like("parent_phone", `%${tail8.slice(0, 4)}%${tail8.slice(4)}`)
+      .limit(50)) as unknown as {
+      data: StudentMatchRow[] | null;
+      error: { message: string } | null;
+    };
+    if (candError) {
+      return {
+        status: "failed",
+        reason: `학생 조회에 실패했습니다: ${candError.message}`,
+      };
+    }
+    matchedStudent =
+      (candidates ?? []).find(
+        (c) => (c.parent_phone ?? "").replace(/\D/g, "") === phone,
+      ) ?? null;
+  }
+
+  if (!matchedStudent) {
+    return {
+      status: "failed",
+      reason:
+        "이 번호로 등록된 학생이 없어 테스트 링크를 만들 수 없습니다. 본인 번호를 학부모 연락처로 가진 학생(테스트용)을 먼저 등록하세요.",
+    };
+  }
+
+  // 5) class_ids find-or-create → signup_page_ids (공유 helper).
+  //    강좌 branch 격리는 helper 가 학생 branch 와 동일 branch 로 페이지 생성.
+  const pagesResult = await findOrCreateSignupPages(
+    supabase,
+    input.classIds,
+    matchedStudent.branch,
+    auth.user.user_id,
+  );
+  if (!pagesResult.ok) {
+    return { status: "failed", reason: pagesResult.reason };
+  }
+  const signupPageIds = pagesResult.signupPageIds;
+
+  // 6) invitation 1행 INSERT (UNIQUE(link_token) 충돌 시 재시도).
+  let invitation: { id: string; token: string } | null = null;
+  let lastInvError: string | null = null;
+  for (let attempt = 0; attempt < INVITATION_TOKEN_RETRY; attempt += 1) {
+    const token = generateLinkToken();
+    const { data: invRow, error: invError } = (await (
+      supabase.from("crm_class_signup_invitations") as unknown as {
+        insert: (v: Record<string, unknown>) => {
+          select: (cols: string) => {
+            single: () => Promise<{
+              data: { id: string } | null;
+              error: { message: string; code?: string } | null;
+            }>;
+          };
+        };
+      }
+    )
+      .insert({
+        branch: matchedStudent.branch,
+        student_id: matchedStudent.id,
+        link_token: token,
+        campaign_id: null,
+        created_by: auth.user.user_id,
+      })
+      .select("id")
+      .single()) as {
+      data: { id: string } | null;
+      error: { message: string; code?: string } | null;
+    };
+    if (!invError && invRow) {
+      invitation = { id: invRow.id, token };
+      break;
+    }
+    if (invError?.code === "23505") {
+      lastInvError = "토큰 충돌";
+      continue;
+    }
+    lastInvError = invError?.message ?? "알 수 없는 오류";
+    break;
+  }
+  if (!invitation) {
+    return {
+      status: "failed",
+      reason: `테스트 invitation 생성 실패: ${lastInvError ?? "알 수 없는 오류"}`,
+    };
+  }
+
+  // 6-2) items INSERT (invitation × 각 signup_page). UNIQUE(invitation_id,
+  //      signup_page_id) 는 signupPageIds 가 이미 dedupe 되어 안전.
+  const itemRows = signupPageIds.map((pageId) => ({
+    invitation_id: invitation.id,
+    signup_page_id: pageId,
+    status: "pending" as const,
+  }));
+  const { error: itemsError } = (await (
+    supabase.from("crm_class_signup_items") as unknown as {
+      insert: (v: Record<string, unknown>[]) => Promise<{
+        error: { message: string } | null;
+      }>;
+    }
+  ).insert(itemRows)) as { error: { message: string } | null };
+  if (itemsError) {
+    return {
+      status: "failed",
+      reason: `테스트 invitation 카드 생성 실패: ${itemsError.message}`,
+    };
+  }
+
+  // 7) inviteUrl 합성.
+  const inviteUrl = buildInviteUrl(invitation.token);
+
+  // 8) 본문 치환: {초대링크} 전부 → inviteUrl. 없으면 끝에 부착(위저드 미리보기와 일치).
+  const rawBody = input.body;
+  const finalBody = rawBody.includes(INVITE_TOKEN)
+    ? rawBody.split(INVITE_TOKEN).join(inviteUrl)
+    : `${rawBody}\n\n신청: ${inviteUrl}`;
+
+  // 9) testSend() 코어 재사용 — 단건이라 name-slot 개인화 불필요(평문 본문 그대로).
+  const sendResult = await testSend({
+    body: finalBody,
+    subject: input.subject,
+    type: input.type,
+    isAd: input.isAd,
+    toPhone: phone,
+  });
+
+  // 10) 발송 실패/차단이어도 invitation 은 이미 생성됨 → inviteUrl 항상 반환.
+  return { ...sendResult, inviteUrl };
 }
 
 // ─── claimInvitationItemAction (학부모 anon) ────────────────
