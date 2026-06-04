@@ -904,11 +904,13 @@ export async function seminarTestSendAction(
   }
 
   const supabase = await createSupabaseServerClient();
-  const branch = auth.user.branch;
 
   // 4) 테스트 수신번호로 등록된 학생 1명 탐색 (= "내거로").
-  //    우선 하이픈 포맷(formatPhone)으로 정확 eq 조회. 없으면 branch 학생 중
-  //    parent_phone 숫자만 추출해 phone 과 매칭 폴백 (뒤 8자리 like 로 후보만 좁힘).
+  //    분원으로 묶지 않는다 — 테스트용 학생(본인 번호)이 설명회와 다른 분원에
+  //    등록돼 있을 수 있다(예: 대치 설명회 테스트인데 본인 학생은 반포 소속).
+  //    접근 권한은 RLS 가 보장(master 는 전 분원, 그 외는 자기 분원만 조회됨).
+  //    우선 하이픈 포맷(formatPhone)으로 정확 eq 조회. 없으면 parent_phone 숫자만
+  //    추출해 phone 과 매칭 폴백 (뒤 8자리 like 로 후보만 좁힘).
   type StudentMatchRow = {
     id: string;
     name: string;
@@ -922,7 +924,6 @@ export async function seminarTestSendAction(
     const { data, error } = (await supabase
       .from("crm_students")
       .select("id, name, branch, parent_phone")
-      .eq("branch", branch)
       .eq("parent_phone", hyphenated)
       .limit(1)
       .maybeSingle()) as unknown as {
@@ -945,7 +946,6 @@ export async function seminarTestSendAction(
     const { data: candidates, error: candError } = (await supabase
       .from("crm_students")
       .select("id, name, branch, parent_phone")
-      .eq("branch", branch)
       .like("parent_phone", `%${tail8.slice(0, 4)}%${tail8.slice(4)}`)
       .limit(50)) as unknown as {
       data: StudentMatchRow[] | null;
@@ -971,12 +971,34 @@ export async function seminarTestSendAction(
     };
   }
 
-  // 5) class_ids find-or-create → signup_page_ids (공유 helper).
-  //    강좌 branch 격리는 helper 가 학생 branch 와 동일 branch 로 페이지 생성.
+  // 4-2) 선택된 설명회 강좌의 분원 확인. 페이지·invitation 은 학생 분원이 아니라
+  //      설명회(강좌) 분원 기준으로 만들어야 일관적이다 (테스트 학생이 타 분원일 수
+  //      있음). 선택된 강좌들은 같은 분원이라는 전제(위저드가 단일 분원).
+  const { data: classRows, error: classErr } = (await supabase
+    .from("crm_classes")
+    .select("id, branch")
+    .in("id", input.classIds)) as unknown as {
+    data: Array<{ id: string; branch: string }> | null;
+    error: { message: string } | null;
+  };
+  if (classErr) {
+    return {
+      status: "failed",
+      reason: `설명회 강좌 조회에 실패했습니다: ${classErr.message}`,
+    };
+  }
+  const foundClasses = classRows ?? [];
+  if (foundClasses.length === 0) {
+    return { status: "failed", reason: "선택한 설명회를 찾을 수 없습니다" };
+  }
+  const classBranch = foundClasses[0].branch;
+
+  // 5) class_ids find-or-create → signup_page_ids (공유 helper). 페이지는 설명회
+  //    강좌 분원으로 생성/조회한다.
   const pagesResult = await findOrCreateSignupPages(
     supabase,
     input.classIds,
-    matchedStudent.branch,
+    classBranch,
     auth.user.user_id,
   );
   if (!pagesResult.ok) {
@@ -1002,7 +1024,7 @@ export async function seminarTestSendAction(
       }
     )
       .insert({
-        branch: matchedStudent.branch,
+        branch: classBranch,
         student_id: matchedStudent.id,
         link_token: token,
         campaign_id: null,
