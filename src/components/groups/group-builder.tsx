@@ -671,7 +671,12 @@ export function GroupBuilder({
                       active={isCurrent}
                       onClick={() => {
                         if (!canPickBranch) return;
+                        if (b === branch) return;
                         setBranch(b);
+                        // 분원이 바뀌면 직접 담은 학생 명단을 초기화한다 — 발송 그룹은
+                        // 같은 분원 학생끼리만 담을 수 있다(검색도 분원별). 타 분원 학생이
+                        // 명단에 남아 미리보기/발송에서 걸러지는 혼선을 막는다.
+                        setIncludeStudents([]);
                       }}
                     />
                   );

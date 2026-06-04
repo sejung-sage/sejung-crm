@@ -163,16 +163,13 @@ export async function loadAllGroupRecipients(
   while (collected.length < maxRecipients) {
     const to = Math.min(from + CHUNK_SIZE - 1, maxRecipients - 1);
 
+    // 분원 격리 — custom·filter 모두 그룹 분원으로 제한(count-recipients 와 동일).
+    // custom 그룹도 같은 분원 학생만 담기므로(빌더 강제), 타 분원 id 는 걸러진다.
     let q = supabase
       .from("crm_students")
       .select("id, name, parent_phone, phone, status")
-      .neq("status", "탈퇴");
-    // custom(고정 명단) 그룹은 분원 필터를 적용하지 않는다 — 운영자가 직접 담은
-    // 학생은 타 분원(예: 본사 테스트용)이라도 발송 대상에 포함. count-recipients 와
-    // 동일 규칙이라 미리보기 수 = 실제 발송 수. 접근은 RLS 가 보장.
-    if (!custom) {
-      q = q.eq("branch", group.branch);
-    }
+      .neq("status", "탈퇴")
+      .eq("branch", group.branch);
 
     // 재원 상태 — count-recipients 와 동일. 빈 배열 default = 탈퇴 빼고 3종 통합.
     // 옛 그룹 JSONB 에 statuses 키가 없으면 빈 배열 → "탈퇴 빼고 전체" 의미 보존.

@@ -220,10 +220,10 @@ async function countFromSupabase(
       .select(selectExpr, options)
       .neq("status", "탈퇴");
 
-    // custom(고정 명단) 그룹은 분원 필터를 적용하지 않는다 — 직접 담은 학생은 타
-    // 분원(예: 본사 테스트용)이라도 명단에 그대로 포함한다(load-all-group-recipients
-    // 와 동일 규칙). filter 그룹은 분원 격리 유지. 접근은 RLS 가 보장.
-    if (branch && !custom) {
+    // 분원 격리 — custom·filter 모두 그룹 분원으로 제한한다. custom 그룹도
+    // 같은 분원 학생만 담을 수 있다(빌더가 분원별 검색 + 분원 변경 시 명단 초기화로
+    // 강제). 타 분원 id 가 섞이면 여기서 걸러져 count=발송 일관성 유지.
+    if (branch) {
       q = q.eq("branch", branch);
     }
 
