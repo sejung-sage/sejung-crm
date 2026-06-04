@@ -23,7 +23,11 @@ import { can } from "@/lib/auth/can";
 import { getCampaign } from "@/lib/campaigns/get-campaign";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
 import { getTemplate } from "@/lib/templates/get-template";
+import { buildInviteUrl } from "@/lib/seminars/dispatch-broadcast";
 import type { SendCampaignResult } from "./send-campaign";
+
+/** 설명회 본문의 초대링크 자리표시. seminars/actions.ts 의 INVITE_TOKEN 과 동일. */
+const INVITE_TOKEN = "{초대링크}";
 import {
   readFromNumber,
   extractFailedReason,
@@ -150,8 +154,36 @@ export async function resendFailedMessages(
 
   // eligible 와 원본 messages.id 매핑
   const phoneToMsgId = new Map<string, string>();
+  const phoneToStudentId = new Map<string, string>();
   for (const m of failedMessages) {
-    phoneToMsgId.set(m.phone.replace(/\D/g, ""), m.id);
+    const p = m.phone.replace(/\D/g, "");
+    phoneToMsgId.set(p, m.id);
+    if (m.student_id) phoneToStudentId.set(p, m.student_id);
+  }
+
+  // 설명회 초대링크 치환 준비 — 본문에 {초대링크} 가 있으면(설명회 캠페인) 각 학생의
+  // 기존 invitation(원 발송 때 생성, campaign_id 연결) 토큰을 미리 모아 학생별 URL 로
+  // 바꿔 보낸다. 단건 재발송(resend-single)과 동일 규칙 — 안 하면 "{초대링크}" 글자가
+  // 그대로 전송됨. 학생당 URL 이 달라 batch 본문을 수신자별로 치환한다.
+  const hasInviteToken = guarded.finalBody.includes(INVITE_TOKEN);
+  const inviteUrlByStudent = new Map<string, string>();
+  if (hasInviteToken) {
+    const studentIds = Array.from(new Set(phoneToStudentId.values()));
+    if (studentIds.length > 0) {
+      const { data: invRows } = await supabase
+        .from("crm_class_signup_invitations")
+        .select("student_id, link_token")
+        .eq("campaign_id", campaignId)
+        .in("student_id", studentIds);
+      for (const r of (invRows ?? []) as Array<{
+        student_id: string;
+        link_token: string;
+      }>) {
+        if (!inviteUrlByStudent.has(r.student_id)) {
+          inviteUrlByStudent.set(r.student_id, buildInviteUrl(r.link_token));
+        }
+      }
+    }
   }
 
   const adapter = createSmsAdapter();
@@ -173,16 +205,23 @@ export async function resendFailedMessages(
   for (let i = 0; i < guarded.eligible.length; i += SEND_BATCH_SIZE) {
     const batch = guarded.eligible.slice(i, i + SEND_BATCH_SIZE);
     const sendResults = await Promise.allSettled(
-      batch.map((r) =>
-        adapter.send({
+      batch.map((r) => {
+        // 설명회 캠페인이면 이 수신자(학생)의 초대링크로 {초대링크} 치환.
+        let body = guarded.finalBody;
+        if (hasInviteToken) {
+          const studentId = phoneToStudentId.get(r.phone);
+          const url = studentId ? inviteUrlByStudent.get(studentId) : undefined;
+          if (url) body = body.split(INVITE_TOKEN).join(url);
+        }
+        return adapter.send({
           to: r.phone,
-          body: guarded.finalBody,
+          body,
           subject: template.subject,
           type: template.type,
           fromNumber,
           isAd: template.is_ad,
-        }),
-      ),
+        });
+      }),
     );
 
     for (let j = 0; j < batch.length; j += 1) {

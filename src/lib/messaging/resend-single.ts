@@ -40,7 +40,11 @@ import { can } from "@/lib/auth/can";
 import { getCampaign } from "@/lib/campaigns/get-campaign";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
 import { applyDateToken, applyNameToken } from "./personalize";
+import { buildInviteUrl } from "@/lib/seminars/dispatch-broadcast";
 import type { SendCampaignResult } from "./send-campaign";
+
+/** 설명회 본문의 초대링크 자리표시. seminars/actions.ts 의 INVITE_TOKEN 과 동일. */
+const INVITE_TOKEN = "{초대링크}";
 import {
   readFromNumber,
   extractFailedReason,
@@ -232,10 +236,26 @@ export async function resendSingleMessage(
     parseDateOrNull(campaign.scheduled_at) ??
     parseDateOrNull(campaign.sent_at) ??
     new Date();
-  const personalizedBody = applyNameToken(
+  let personalizedBody = applyNameToken(
     applyDateToken(guarded.finalBody, personalizationDate),
     studentName,
   );
+
+  // 7-2) 설명회 초대링크 치환 — 본문에 {초대링크} 가 있으면(설명회 캠페인) 이 학생의
+  //      기존 invitation(원 발송 때 생성, campaign_id 로 연결) 토큰을 찾아 실제 URL 로
+  //      바꾼다. 최초 발송은 sendon name-slot 으로 학생별 URL 을 박았지만, 단건
+  //      재발송은 batch 가 아니라 평문 1건이라 여기서 직접 치환해야 한다(안 하면
+  //      "{초대링크}" 글자가 그대로 전송됨).
+  if (personalizedBody.includes(INVITE_TOKEN) && message.student_id) {
+    const inviteUrl = await resolveInviteUrl(
+      supabase,
+      campaignId,
+      message.student_id,
+    );
+    if (inviteUrl) {
+      personalizedBody = personalizedBody.split(INVITE_TOKEN).join(inviteUrl);
+    }
+  }
 
   // 8) 어댑터 발송
   const adapter = createSmsAdapter();
@@ -298,6 +318,29 @@ export async function resendSingleMessage(
     failed,
     cost: addedCost,
   };
+}
+
+/**
+ * 이 학생이 해당 캠페인에서 받은 초대 링크 URL 을 복원한다.
+ * crm_class_signup_invitations 에서 (campaign_id, student_id) 로 link_token 을 찾아
+ * buildInviteUrl 로 합성. 매칭 invitation 이 없으면(옛 캠페인 등) null.
+ */
+async function resolveInviteUrl(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  campaignId: string,
+  studentId: string,
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("crm_class_signup_invitations")
+    .select("link_token")
+    .eq("campaign_id", campaignId)
+    .eq("student_id", studentId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) return null;
+  const token = (data as { link_token?: string } | null)?.link_token;
+  return token ? buildInviteUrl(token) : null;
 }
 
 /** ISO 문자열을 Date 로. null/파싱 실패 시 null. (drain-campaign 와 동일 헬퍼.) */
