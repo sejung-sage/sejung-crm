@@ -24,6 +24,7 @@ import { Loader2 } from "lucide-react";
 export function SidebarNavLink({
   href,
   matchPrefix = false,
+  exact = false,
   className,
   activeClassName,
   inactiveClassName,
@@ -32,15 +33,22 @@ export function SidebarNavLink({
   href: string;
   /** true 면 path 가 href 로 시작할 때도 active. 부모 메뉴용. */
   matchPrefix?: boolean;
+  /**
+   * true 면 `matchPrefix` 와 무관하게 정확히 같은 경로일 때만 active.
+   * 예: top-level "설명회"(/seminars) 는 하위 "설명회 문자"(/seminars/compose)
+   * 까지 prefix 매칭해 동시 하이라이트되므로, 이 항목만 exact 로 둬 충돌 차단.
+   */
+  exact?: boolean;
   className: string;
   activeClassName: string;
   inactiveClassName: string;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
-  const isActive = matchPrefix
-    ? pathname === href || pathname.startsWith(`${href}/`)
-    : pathname === href;
+  const isActive =
+    !exact && matchPrefix
+      ? pathname === href || pathname.startsWith(`${href}/`)
+      : pathname === href;
 
   return (
     <Link

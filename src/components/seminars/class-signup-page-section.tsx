@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import {
   Send,
-  Calendar,
   ChevronDown,
   ChevronUp,
   Users,
@@ -13,8 +12,6 @@ import {
 import type { ClassSignupPageDetail } from "@/lib/seminars/get-class-signup-page";
 import { upsertClassSignupPageAction } from "@/app/(features)/seminars/actions";
 import { useToast } from "@/components/ui/toast";
-import { formatKstDateTime } from "@/lib/datetime";
-import { formatPhone, maskPhone } from "@/lib/phone";
 
 /**
  * 강좌 상세 (`/classes/[id]`) 의 "공개 신청 페이지" 섹션 (0084/0085 새 모델).
@@ -36,7 +33,6 @@ interface Props {
   className: string;
   detail: ClassSignupPageDetail;
   canEdit: boolean;
-  canRevealPhone: boolean;
 }
 
 type StatusValue = "draft" | "open" | "closed";
@@ -47,7 +43,6 @@ export function ClassSignupPageSection({
   className,
   detail,
   canEdit,
-  canRevealPhone,
 }: Props) {
   const router = useRouter();
   const { show: showToast } = useToast();
@@ -270,40 +265,8 @@ export function ClassSignupPageSection({
             </div>
           )}
 
-          {/* 신청자 명단 */}
-          <div className="space-y-2">
-            <h3 className="text-[14px] font-semibold text-[color:var(--text)]">
-              신청 완료 명단
-            </h3>
-            {detail.signed_parents.length === 0 ? (
-              <p className="text-[13px] text-[color:var(--text-muted)]">
-                아직 신청한 학부모가 없습니다.
-              </p>
-            ) : (
-              <ul className="divide-y divide-[color:var(--border)] rounded-lg border border-[color:var(--border)] bg-bg-card">
-                {detail.signed_parents.map((p) => (
-                  <li
-                    key={p.item_id}
-                    className="flex items-center gap-3 px-4 py-2.5"
-                  >
-                    <span className="font-medium text-[14px] text-[color:var(--text)] truncate">
-                      {p.student_name}
-                    </span>
-                    <span className="text-[13px] text-[color:var(--text-muted)] tabular-nums">
-                      {canRevealPhone
-                        ? formatPhone(p.parent_phone) || "—"
-                        : maskPhone(p.parent_phone) || "—"}
-                    </span>
-                    <div className="flex-1" />
-                    <span className="inline-flex items-center gap-1 text-[12px] text-[color:var(--text-dim)] tabular-nums">
-                      <Calendar className="size-3" strokeWidth={1.75} aria-hidden />
-                      {formatKstDateTime(p.signed_at)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
+          {/* 신청 완료 명단은 아래 "설명회 명단" 2패널(SeminarRosterPanels)에서
+              표시 — 여기서는 설정 폼 + 신청 카운트 + 발송 진입만 담당(중복 제거). */}
         </div>
       )}
       <span className="hidden" data-class-name={className} />

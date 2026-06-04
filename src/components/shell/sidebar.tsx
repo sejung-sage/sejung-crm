@@ -3,6 +3,7 @@ import {
   Users,
   GraduationCap,
   BookOpen,
+  Presentation,
   MessageSquare,
   MapPin,
   UserCircle2,
@@ -41,6 +42,12 @@ type NavItem = {
   /** 이 항목 위에 작은 섹션 헤더를 표시할지 여부 */
   sectionLabel?: string;
   /**
+   * true 면 active 판정을 정확 경로(exact) 로만 한다.
+   * "설명회"(/seminars) 처럼 하위 메뉴(/seminars/compose) 와 prefix 충돌이
+   * 있는 top-level 항목 전용. 미지정이면 기존대로 matchPrefix 동작.
+   */
+  exact?: boolean;
+  /**
    * 이 항목을 볼 수 있는 role 화이트리스트.
    * 미지정이면 모든 활성 사용자에게 노출.
    */
@@ -66,6 +73,14 @@ const NAV_ITEMS: NavItem[] = [
     href: "/classes",
     label: "강좌",
     icon: BookOpen,
+  },
+  {
+    // 설명회 전용 목록. /seminars/compose("설명회 문자") 와 prefix 충돌하므로
+    // exact 매칭으로 둬 /seminars 정확 경로에서만 active.
+    href: "/seminars",
+    label: "설명회",
+    icon: Presentation,
+    exact: true,
   },
   {
     href: "/campaigns",
@@ -175,6 +190,7 @@ export async function Sidebar() {
               <SidebarNavLink
                 href={item.href}
                 matchPrefix
+                exact={item.exact}
                 className="
                   flex items-center gap-3 h-10 px-3 rounded-lg
                   text-[15px]

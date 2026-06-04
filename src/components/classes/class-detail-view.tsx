@@ -8,6 +8,7 @@ import { ClassStudentsPanel } from "@/components/classes/class-students-panel";
 import { ClassLapsedPanel } from "@/components/classes/class-lapsed-panel";
 import { ClassAttendanceGrid } from "@/components/classes/class-attendance-grid";
 import { ClassSignupPageSection } from "@/components/seminars/class-signup-page-section";
+import { SeminarRosterPanels } from "@/components/seminars/seminar-roster-panels";
 import type { ClassSignupPageDetail } from "@/lib/seminars/get-class-signup-page";
 
 interface Props {
@@ -50,11 +51,14 @@ export function ClassDetailView({
     isLapsedStudent(s.status),
   );
 
+  // 설명회(subject='설명회') 면 명단·브레드크럼·출결 표시를 분기한다.
+  const isSeminar = detail.class.subject === "설명회";
+
   return (
     <div className="max-w-7xl space-y-6">
       <nav aria-label="이동 경로">
         <Link
-          href="/classes"
+          href={isSeminar ? "/seminars" : "/classes"}
           className="
             inline-flex items-center gap-1 h-9 -ml-2 px-2 rounded-md
             text-[14px] text-[color:var(--text-muted)]
@@ -63,7 +67,7 @@ export function ClassDetailView({
           "
         >
           <ChevronLeft className="size-4" strokeWidth={1.75} aria-hidden />
-          강좌 목록
+          {isSeminar ? "설명회 목록" : "강좌 목록"}
         </Link>
       </nav>
 
@@ -81,18 +85,35 @@ export function ClassDetailView({
           className={detail.class.name}
           detail={signupPageDetail}
           canEdit={canSendToClass}
-          canRevealPhone={canRevealPhone}
         />
       )}
 
       <ClassKpiCards detail={detail} />
 
-      <section className="space-y-3" aria-label="수강생 명단">
-        <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-          수강생 명단
-        </h2>
-        <ClassStudentsPanel students={detail.students} canRevealPhone={canRevealPhone} />
-      </section>
+      {isSeminar ? (
+        // 설명회: 아카 수강생 vs CRM 신청생 2패널.
+        <section className="space-y-3" aria-label="설명회 명단">
+          <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+            설명회 명단
+          </h2>
+          <SeminarRosterPanels
+            acaStudents={detail.students}
+            crmSignups={signupPageDetail?.signed_parents ?? []}
+            canRevealPhone={canRevealPhone}
+          />
+        </section>
+      ) : (
+        // 일반 강좌: 기존 수강생 명단 테이블.
+        <section className="space-y-3" aria-label="수강생 명단">
+          <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+            수강생 명단
+          </h2>
+          <ClassStudentsPanel
+            students={detail.students}
+            canRevealPhone={canRevealPhone}
+          />
+        </section>
+      )}
 
       {lapsedStudents.length > 0 && (
         <ClassLapsedPanel
@@ -103,16 +124,19 @@ export function ClassDetailView({
         />
       )}
 
-      <section className="space-y-3" aria-label="학생별 일자 출결">
-        <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-          학생 × 일자 출결
-        </h2>
-        <ClassAttendanceGrid
-          students={detail.students}
-          attendances={detail.attendances}
-          branch={detail.class.branch}
-        />
-      </section>
+      {/* 출결 격자 — 출결 기록이 있을 때만. 설명회는 보통 출결이 없어 자연 숨김. */}
+      {detail.attendances.length > 0 && (
+        <section className="space-y-3" aria-label="학생별 일자 출결">
+          <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+            학생 × 일자 출결
+          </h2>
+          <ClassAttendanceGrid
+            students={detail.students}
+            attendances={detail.attendances}
+            branch={detail.class.branch}
+          />
+        </section>
+      )}
     </div>
   );
 }
