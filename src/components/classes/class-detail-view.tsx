@@ -9,6 +9,7 @@ import { ClassLapsedPanel } from "@/components/classes/class-lapsed-panel";
 import { ClassAttendanceGrid } from "@/components/classes/class-attendance-grid";
 import { ClassSignupPageSection } from "@/components/seminars/class-signup-page-section";
 import { SeminarRosterPanels } from "@/components/seminars/seminar-roster-panels";
+import { SeminarRosterExportButton } from "@/components/seminars/seminar-roster-export-button";
 import type { ClassSignupPageDetail } from "@/lib/seminars/get-class-signup-page";
 
 interface Props {
@@ -93,9 +94,17 @@ export function ClassDetailView({
       {isSeminar ? (
         // 설명회: 아카 수강생 vs CRM 신청생 2패널.
         <section className="space-y-3" aria-label="설명회 명단">
-          <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-            설명회 명단
-          </h2>
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+              설명회 명단
+            </h2>
+            <SeminarRosterExportButton
+              className={detail.class.name}
+              acaStudents={detail.students}
+              crmSignups={signupPageDetail?.signed_parents ?? []}
+              canRevealPhone={canRevealPhone}
+            />
+          </div>
           <SeminarRosterPanels
             acaStudents={detail.students}
             crmSignups={signupPageDetail?.signed_parents ?? []}

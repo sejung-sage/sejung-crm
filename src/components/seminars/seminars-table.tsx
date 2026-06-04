@@ -95,6 +95,7 @@ export function SeminarsTable({ rows, sendableBranches = null }: Props) {
               </Td>
               <Td>
                 <SignupProgress
+                  enrolled={r.enrolled_student_count}
                   signed={r.signed_count}
                   capacity={r.effective_capacity}
                 />
@@ -168,46 +169,62 @@ function Td({
 }
 
 /**
- * 신청현황 셀.
- *  - 정원 있음: 진행바(검정 채움/회색 트랙) + "signed / cap".
- *  - 정원 없음: "N명 신청" 텍스트만 (무제한).
+ * 신청현황 셀 — 두 출처를 함께 보여준다.
+ *  - 아카: 아카(Aca2000)에 등록된 수강생 수 (enrolled_student_count).
+ *  - CRM: 공개 신청 페이지로 신청 완료(signed)한 수.
+ *
+ * 상단에 "아카 N · CRM M" 카운트를 항상 노출하고,
+ * 정원(effective_capacity)이 있으면 그 아래에 CRM 신청 진행바 + "signed / cap" 를 덧붙인다.
  */
 function SignupProgress({
+  enrolled,
   signed,
   capacity,
 }: {
+  enrolled: number;
   signed: number;
   capacity: number | null;
 }) {
-  if (capacity === null || capacity <= 0) {
-    return (
-      <span className="text-[14px] text-[color:var(--text)] tabular-nums">
-        {signed.toLocaleString()}명 신청
-      </span>
-    );
-  }
-
-  const ratio = Math.min(1, signed / capacity);
-  const pct = Math.round(ratio * 100);
-
   return (
-    <div className="flex items-center gap-2.5">
-      <div
-        className="relative h-2 flex-1 rounded-full bg-[color:var(--bg-muted)] overflow-hidden"
-        role="progressbar"
-        aria-valuemin={0}
-        aria-valuemax={capacity}
-        aria-valuenow={signed}
-        aria-label={`정원 ${capacity}명 중 ${signed}명 신청`}
-      >
-        <div
-          className="absolute inset-y-0 left-0 rounded-full bg-[color:var(--action)]"
-          style={{ width: `${pct}%` }}
-        />
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2 text-[14px] tabular-nums">
+        <span className="text-[color:var(--text-muted)]">
+          아카{" "}
+          <strong className="font-semibold text-[color:var(--text)]">
+            {enrolled.toLocaleString()}
+          </strong>
+        </span>
+        <span className="text-[color:var(--text-dim)]" aria-hidden>
+          ·
+        </span>
+        <span className="text-[color:var(--text-muted)]">
+          CRM{" "}
+          <strong className="font-semibold text-[color:var(--text)]">
+            {signed.toLocaleString()}
+          </strong>
+        </span>
       </div>
-      <span className="text-[13px] text-[color:var(--text)] tabular-nums shrink-0">
-        {signed.toLocaleString()} / {capacity.toLocaleString()}
-      </span>
+
+      {capacity !== null && capacity > 0 && (
+        <div className="flex items-center gap-2.5">
+          <div
+            className="relative h-1.5 flex-1 rounded-full bg-[color:var(--bg-muted)] overflow-hidden"
+            role="progressbar"
+            aria-valuemin={0}
+            aria-valuemax={capacity}
+            aria-valuenow={signed}
+            aria-label={`정원 ${capacity}명 중 CRM 신청 ${signed}명`}
+          >
+            <div
+              className="absolute inset-y-0 left-0 rounded-full bg-[color:var(--action)]"
+              style={{ width: `${Math.round(Math.min(1, signed / capacity) * 100)}%` }}
+            />
+          </div>
+          <span className="text-[12px] text-[color:var(--text-dim)] tabular-nums shrink-0">
+            {signed.toLocaleString()} / {capacity.toLocaleString()}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
