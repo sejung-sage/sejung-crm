@@ -330,17 +330,33 @@ async function resolveInviteUrl(
   campaignId: string,
   studentId: string,
 ): Promise<string | null> {
-  const { data, error } = await supabase
+  // 1) campaign + student 정확 매칭 (원 발송 때 만든 invitation).
+  const exact = await fetchLatestToken(supabase, studentId, campaignId);
+  if (exact) return buildInviteUrl(exact);
+
+  // 2) 폴백 — 이 학생의 가장 최근 invitation(캠페인 무관). 옛 캠페인이 dedupe/버그로
+  //    이 학생 invitation 을 campaign_id 로 안 남겼어도, 학생 페이지 링크는 제공.
+  const fallback = await fetchLatestToken(supabase, studentId, null);
+  return fallback ? buildInviteUrl(fallback) : null;
+}
+
+/** 학생(+선택적 campaign)의 최신 invitation link_token. 없으면 null. */
+async function fetchLatestToken(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  studentId: string,
+  campaignId: string | null,
+): Promise<string | null> {
+  let q = supabase
     .from("crm_class_signup_invitations")
     .select("link_token")
-    .eq("campaign_id", campaignId)
-    .eq("student_id", studentId)
+    .eq("student_id", studentId);
+  if (campaignId) q = q.eq("campaign_id", campaignId);
+  const { data, error } = await q
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
   if (error) return null;
-  const token = (data as { link_token?: string } | null)?.link_token;
-  return token ? buildInviteUrl(token) : null;
+  return (data as { link_token?: string } | null)?.link_token ?? null;
 }
 
 /** ISO 문자열을 Date 로. null/파싱 실패 시 null. (drain-campaign 와 동일 헬퍼.) */

@@ -170,6 +170,7 @@ export async function resendFailedMessages(
   if (hasInviteToken) {
     const studentIds = Array.from(new Set(phoneToStudentId.values()));
     if (studentIds.length > 0) {
+      // 1) campaign + student 정확 매칭.
       const { data: invRows } = await supabase
         .from("crm_class_signup_invitations")
         .select("student_id, link_token")
@@ -181,6 +182,26 @@ export async function resendFailedMessages(
       }>) {
         if (!inviteUrlByStudent.has(r.student_id)) {
           inviteUrlByStudent.set(r.student_id, buildInviteUrl(r.link_token));
+        }
+      }
+
+      // 2) 폴백 — 정확 매칭 못 찾은 학생은 campaign 무관 최신 invitation 으로.
+      //    옛 캠페인이 dedupe/버그로 campaign_id 를 안 남긴 경우 대비. created_at
+      //    DESC 로 받아 학생별 첫 행(=최신)만 채택.
+      const missing = studentIds.filter((id) => !inviteUrlByStudent.has(id));
+      if (missing.length > 0) {
+        const { data: fbRows } = await supabase
+          .from("crm_class_signup_invitations")
+          .select("student_id, link_token")
+          .in("student_id", missing)
+          .order("created_at", { ascending: false });
+        for (const r of (fbRows ?? []) as Array<{
+          student_id: string;
+          link_token: string;
+        }>) {
+          if (!inviteUrlByStudent.has(r.student_id)) {
+            inviteUrlByStudent.set(r.student_id, buildInviteUrl(r.link_token));
+          }
         }
       }
     }
