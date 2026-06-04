@@ -166,8 +166,13 @@ export async function loadAllGroupRecipients(
     let q = supabase
       .from("crm_students")
       .select("id, name, parent_phone, phone, status")
-      .neq("status", "탈퇴")
-      .eq("branch", group.branch);
+      .neq("status", "탈퇴");
+    // custom(고정 명단) 그룹은 분원 필터를 적용하지 않는다 — 운영자가 직접 담은
+    // 학생은 타 분원(예: 본사 테스트용)이라도 발송 대상에 포함. count-recipients 와
+    // 동일 규칙이라 미리보기 수 = 실제 발송 수. 접근은 RLS 가 보장.
+    if (!custom) {
+      q = q.eq("branch", group.branch);
+    }
 
     // 재원 상태 — count-recipients 와 동일. 빈 배열 default = 탈퇴 빼고 3종 통합.
     // 옛 그룹 JSONB 에 statuses 키가 없으면 빈 배열 → "탈퇴 빼고 전체" 의미 보존.
