@@ -18,6 +18,7 @@
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
+import { GRADUATED_NAME_PREFIXES } from "@/lib/classes/list-classes";
 import type { ClassSignupOption } from "@/types/database";
 
 interface ListClassSignupOptionsQuery {
@@ -54,13 +55,22 @@ async function listFromSupabase(
     classroom: string | null;
     capacity: number | null;
   };
-  const { data: classData, error: classError } = (await supabase
+  // 종강·폐강 prefix("(종)" 등 4종) 설명회는 발송 대상에서 제외 (2026-06-04 운영
+  // 요청). 아카2000 동기화로 닫힌 과거 설명회가 위저드 목록을 채우는 것을 막는다.
+  // /seminars 목록(list-classes 의 status='seminar')과 동일한 prefix 룰.
+  let classQuery = supabase
     .from("crm_classes")
     .select("id, name, branch, classroom, capacity")
     .eq("subject", "설명회")
     .eq("branch", query.branch)
-    .eq("active", true)
-    .order("name", { ascending: true })) as unknown as {
+    .eq("active", true);
+  for (const prefix of GRADUATED_NAME_PREFIXES) {
+    classQuery = classQuery.not("name", "ilike", `${prefix}%`);
+  }
+  const { data: classData, error: classError } = (await classQuery.order(
+    "name",
+    { ascending: true },
+  )) as unknown as {
     data: ClassRow[] | null;
     error: { message: string } | null;
   };

@@ -69,7 +69,7 @@ const MAX_PAGE_SIZE = 200;
  * 진행 중 / 일자 / 월 필터를 통과해 결과에 새는 것을 막기 위한 영구 가드.
  * 향후 동기화로 NULL 인 행이 다시 들어와도 안전.
  */
-const GRADUATED_NAME_PREFIXES = ["(종)", "종)", "(폐)", "폐)"] as const;
+export const GRADUATED_NAME_PREFIXES = ["(종)", "종)", "(폐)", "폐)"] as const;
 
 /**
  * PostgREST `.or(...)` 인자 인젝션 방어용 sanitizer.
@@ -275,10 +275,14 @@ function applyClassFilters<Q extends ClassQueryBuilder>(
     // "전체" 토글에서는 노출. NULL subject 는 미분류라 일단 진행 중에 포함.
     q = q.or("subject.is.null,subject.neq.설명회") as Q;
   } else if (filters.status === "seminar") {
-    // 설명회 토글 — subject = '설명회' 만. 종강/폐강 prefix 가드는 적용하지 않는다
-    // (설명회 자체가 1회성 이벤트라 "종강" 개념 약함). 운영 의도는 "지금까지 잡힌
-    // 모든 설명회/간담회" 를 한 화면에서 보는 것.
+    // 설명회 토글 — subject = '설명회' 만. 종강/폐강 prefix("(종)" 등 4종) 가 붙은
+    // 설명회는 이미 끝난 회차라 발송·조회 대상이 아니므로 제외한다 (2026-06-04 운영
+    // 요청). 아카2000 동기화로 닫힌 과거 설명회가 prefix 로 들어와 목록을 채우는 것을
+    // 막는다 — "progressing" 가드와 동일한 prefix 룰.
     q = q.eq("subject", "설명회") as Q;
+    for (const prefix of GRADUATED_NAME_PREFIXES) {
+      q = q.not("name", "ilike", `${prefix}%`) as Q;
+    }
   } else if (filters.status === "graduated") {
     const today = todayKstDateString();
     const orParts = [
