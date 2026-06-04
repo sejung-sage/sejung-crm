@@ -6,7 +6,7 @@
  * (`crm_class_signup_pages`) 와 신청 완료(signed) 수를 머지해 설명회 화면용
  * 행으로 가공한다. DB 스키마 변경 없음 — 기존 테이블만 조회.
  *
- * 쿼리 구조 (총 1 + 1 + 1 = 최대 3쿼리):
+ * 쿼리 구조 (기본 1 + 1 + 1, signed 가 1000행 초과 시 (3) 만 페이지네이션):
  *   1) listClasses({ ...filters, status: "seminar" })
  *      — 설명회 강좌 목록 + total/page/pageSize. status='seminar' 필터 로직은
  *        list-classes 에 이미 있으므로 재구현하지 않고 강제 주입만 한다.
@@ -112,24 +112,34 @@ export async function listSeminars(
   const pageIds = pages.map((p) => p.id);
   if (pageIds.length > 0) {
     type SignedItemRow = { signup_page_id: string };
-    const { data: itemData, error: itemError } = (await supabase
-      .from("crm_class_signup_items")
-      .select("signup_page_id")
-      .eq("status", "signed")
-      .in("signup_page_id", pageIds)) as unknown as {
-      data: SignedItemRow[] | null;
-      error: { message: string } | null;
-    };
-    if (itemError) {
-      throw new Error(
-        `설명회 신청 완료 수 집계에 실패했습니다: ${itemError.message}`,
-      );
-    }
-    for (const row of itemData ?? []) {
-      signedCountByPageId.set(
-        row.signup_page_id,
-        (signedCountByPageId.get(row.signup_page_id) ?? 0) + 1,
-      );
+    // PostgREST 기본 max_rows(=1000) cap 회피 — 페이지네이션.
+    // 정원 999 설명회가 한 페이지에 둘 이상 만석이면 signed 합산이 1000행을
+    // 넘어 잘리고 일부 설명회가 과소 집계된다. 1000행씩 끝까지 fetch.
+    const PAGE = 1000;
+    for (let offset = 0; ; offset += PAGE) {
+      const { data: itemData, error: itemError } = (await supabase
+        .from("crm_class_signup_items")
+        .select("signup_page_id")
+        .eq("status", "signed")
+        .in("signup_page_id", pageIds)
+        .order("signup_page_id", { ascending: true })
+        .range(offset, offset + PAGE - 1)) as unknown as {
+        data: SignedItemRow[] | null;
+        error: { message: string } | null;
+      };
+      if (itemError) {
+        throw new Error(
+          `설명회 신청 완료 수 집계에 실패했습니다: ${itemError.message}`,
+        );
+      }
+      const itemRows = itemData ?? [];
+      for (const row of itemRows) {
+        signedCountByPageId.set(
+          row.signup_page_id,
+          (signedCountByPageId.get(row.signup_page_id) ?? 0) + 1,
+        );
+      }
+      if (itemRows.length < PAGE) break;
     }
   }
 

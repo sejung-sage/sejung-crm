@@ -596,30 +596,46 @@ async function fetchEnrolledStudentCounts(
     return new Map();
   }
 
-  const { data, error } = await supabase
-    .from("crm_enrollments")
-    .select("aca_class_id, student_id")
-    .in("aca_class_id", acaClassIds);
-
-  if (error) {
-    throw new Error(
-      `강좌별 수강생 집계에 실패했습니다: ${error.message}`,
-    );
-  }
-
   // aca_class_id → Set<student_id> 로 distinct 집계.
   const studentSetByAcaId = new Map<string, Set<string>>();
-  for (const row of (data ?? []) as Array<{
-    aca_class_id: string | null;
-    student_id: string;
-  }>) {
-    if (!row.aca_class_id) continue;
-    let set = studentSetByAcaId.get(row.aca_class_id);
-    if (!set) {
-      set = new Set<string>();
-      studentSetByAcaId.set(row.aca_class_id, set);
+
+  // PostgREST 기본 max_rows(=1000) cap 회피 — 페이지네이션.
+  // 한 페이지에 수강생 수백 명짜리 설명회가 여러 개면 enrollments 합산이
+  // 1000행을 쉽게 넘어 잘리고, cap 밖으로 밀린 강좌가 0명으로 오집계된다.
+  // (상세 loader 는 강좌 1개만 조회해 cap 에 안 걸리므로 숫자가 어긋났다.)
+  // 안정 정렬(aca_class_id, student_id) 후 1000행씩 끝까지 fetch.
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("crm_enrollments")
+      .select("aca_class_id, student_id")
+      .in("aca_class_id", acaClassIds)
+      .order("aca_class_id", { ascending: true })
+      .order("student_id", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+
+    if (error) {
+      throw new Error(
+        `강좌별 수강생 집계에 실패했습니다: ${error.message}`,
+      );
     }
-    set.add(row.student_id);
+
+    const rows = (data ?? []) as Array<{
+      aca_class_id: string | null;
+      student_id: string;
+    }>;
+    for (const row of rows) {
+      if (!row.aca_class_id) continue;
+      let set = studentSetByAcaId.get(row.aca_class_id);
+      if (!set) {
+        set = new Set<string>();
+        studentSetByAcaId.set(row.aca_class_id, set);
+      }
+      set.add(row.student_id);
+    }
+
+    // 마지막 페이지(1000행 미만)면 종료.
+    if (rows.length < PAGE) break;
   }
 
   // Set → count 로 변환.
