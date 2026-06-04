@@ -71,16 +71,27 @@ export function ParentInvitationFlow({
   });
   const [, startTransition] = useTransition();
 
+  // 신청 확인 모달 대상 카드. null 이면 모달 닫힘.
+  // 네이티브 window.confirm 대신 인앱 모달을 쓴다 — iOS Safari 가 confirm/alert 에
+  // "대화상자 숨기기" 버튼을 붙여, 학부모가 그걸 누르면 이후 신청 확인창이 차단돼
+  // 신청이 막히는 문제(2026-06-04 구진규 보고)를 없앤다.
+  const [confirmItem, setConfirmItem] = useState<LookupInvitationItem | null>(
+    null,
+  );
+  // 신청 결과 안내 모달 (성공/이미 신청). null 이면 닫힘.
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // 카드 [신청하기] → 확인 모달 열기.
   const handleClaim = (item: LookupInvitationItem) => {
     if (pending.busyPageId) return;
+    setConfirmItem(item);
+  };
 
-    // 신청 전 확인창 — 40~60대 학부모가 실수로 잘못 신청하는 것을 막는다.
-    // "확인" 을 누르면 곧바로 신청 처리, "취소" 면 아무 일도 일어나지 않는다.
-    const when = item.held_at ? `\n일시: ${formatKstDateTime(item.held_at)}` : "";
-    const ok = window.confirm(
-      `아래 설명회를 신청하시겠습니까?\n\n${item.name}${when}`,
-    );
-    if (!ok) return;
+  // 확인 모달에서 [신청하기] 확정 → 실제 신청 처리.
+  const confirmClaim = () => {
+    const item = confirmItem;
+    setConfirmItem(null);
+    if (!item || pending.busyPageId) return;
 
     setPending((p) => ({ ...p, busyPageId: item.signup_page_id }));
 
@@ -107,12 +118,12 @@ export function ParentInvitationFlow({
       switch (result.status) {
         case "signed":
           applyState("signed", null);
-          window.alert(`"${item.name}" 신청이 완료되었습니다.`);
+          setNotice(`"${item.name}" 신청이 완료되었습니다.`);
           router.refresh();
           break;
         case "already_signed":
           applyState("signed", null);
-          window.alert("이미 신청된 설명회입니다.");
+          setNotice("이미 신청된 설명회입니다.");
           router.refresh();
           break;
         case "closed":
@@ -139,7 +150,7 @@ export function ParentInvitationFlow({
         case "dev_seed_mode":
           // 시연 모드: 낙관적으로 신청 완료 처리.
           applyState("signed", null);
-          window.alert(`"${item.name}" 신청이 완료되었습니다.`);
+          setNotice(`"${item.name}" 신청이 완료되었습니다.`);
           break;
         case "failed":
           applyState(
@@ -237,6 +248,119 @@ export function ParentInvitationFlow({
           {inquiryPhone}
         </a>
       </p>
+
+      {/* 신청 확인 모달 — 네이티브 confirm 대체 (iOS '대화상자 숨기기' 제거). */}
+      {confirmItem && (
+        <Modal
+          title="설명회를 신청하시겠습니까?"
+          onClose={() => setConfirmItem(null)}
+        >
+          <div className="space-y-1.5">
+            <p className="text-[16px] font-semibold text-[color:var(--text)] leading-snug">
+              {confirmItem.name}
+            </p>
+            {confirmItem.held_at && (
+              <p className="text-[14px] text-[color:var(--text-muted)] tabular-nums">
+                {formatKstDateTime(confirmItem.held_at)}
+              </p>
+            )}
+          </div>
+          <div className="mt-5 space-y-2">
+            <button
+              type="button"
+              onClick={confirmClaim}
+              className="
+                w-full inline-flex items-center justify-center
+                h-12 px-4 rounded-xl
+                bg-[color:var(--action)] text-[color:var(--action-text)]
+                text-[16px] font-semibold
+                hover:bg-[color:var(--action-hover)] transition-colors
+              "
+            >
+              신청하기
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmItem(null)}
+              className="
+                w-full inline-flex items-center justify-center
+                h-12 px-4 rounded-xl
+                border border-[color:var(--border)] bg-bg-card
+                text-[15px] font-medium text-[color:var(--text-muted)]
+                hover:bg-[color:var(--bg-hover)] transition-colors
+              "
+            >
+              취소
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 신청 결과 안내 모달 — 네이티브 alert 대체. */}
+      {notice && (
+        <Modal title="안내" onClose={() => setNotice(null)}>
+          <div className="flex items-start gap-2.5">
+            <CheckCircle2
+              className="mt-0.5 size-6 shrink-0 text-[color:var(--success)]"
+              strokeWidth={2}
+              aria-hidden
+            />
+            <p className="text-[15px] leading-relaxed text-[color:var(--text)]">
+              {notice}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="
+              mt-5 w-full inline-flex items-center justify-center
+              h-12 px-4 rounded-xl
+              bg-[color:var(--action)] text-[color:var(--action-text)]
+              text-[16px] font-semibold
+              hover:bg-[color:var(--action-hover)] transition-colors
+            "
+          >
+            확인
+          </button>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── 인앱 모달 (네이티브 confirm/alert 대체) ─────────────────────
+//
+// 학부모(모바일·40~60대) 대상이라 큰 버튼·흰검 미니멀. 배경 클릭 시 닫힘,
+// role="dialog"+aria-modal 로 접근성 보장.
+function Modal({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-5 bg-black/40"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onClick={(e) => e.stopPropagation()}
+        className="
+          w-full max-w-sm rounded-2xl bg-bg-card p-6
+          border border-[color:var(--border)] shadow-xl
+        "
+      >
+        <h2 className="text-[17px] font-semibold text-[color:var(--text)]">
+          {title}
+        </h2>
+        <div className="mt-3">{children}</div>
+      </div>
     </div>
   );
 }
