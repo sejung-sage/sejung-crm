@@ -111,6 +111,7 @@ export type CreateSeminarBroadcastActionResult =
  *
  *  - signed         : 정상 접수 (pending → signed)
  *  - already_signed : 멱등 (이미 signed — 재클릭 무해)
+ *  - limit_reached  : 중복 신청 불가(allow_multiple=false) 인데 이미 다른 카드 signed (0087)
  *  - closed         : 정원 마감
  *  - ended          : 행사 종료
  *  - cancelled      : 설명회·카드 취소
@@ -124,6 +125,7 @@ export type ClaimInvitationItemActionResult =
       status:
         | "signed"
         | "already_signed"
+        | "limit_reached"
         | "closed"
         | "ended"
         | "cancelled"
@@ -683,6 +685,9 @@ export async function createSeminarBroadcastAction(
           link_token: token,
           campaign_id: campaignId,
           created_by: auth.user.user_id,
+          // 0087: 위저드 "중복 신청 허용" 체크박스 값. false 면 claim_signup_item 이
+          //       두 번째 카드부터 'limit_reached' 로 차단. 기본 true(Zod default).
+          allow_multiple: parsed.allow_multiple,
         })
         .select("id")
         .single()) as {
@@ -874,6 +879,12 @@ export type SeminarTestSendInput = {
   isAd: boolean;
   /** 테스트 수신 번호 (하이픈 무관). */
   toPhone: string;
+  /**
+   * 중복 신청 허용 여부 (0087). 위저드 체크박스 값을 그대로 받아 테스트
+   * invitation 의 allow_multiple 에 반영 → 테스트 링크에서도 실제 발송과 동일한
+   * 중복신청 동작(false 시 2번째 카드 'limit_reached')을 재현. 미지정 시 true.
+   */
+  allowMultiple?: boolean;
 };
 
 export async function seminarTestSendAction(
@@ -1029,6 +1040,9 @@ export async function seminarTestSendAction(
         link_token: token,
         campaign_id: null,
         created_by: auth.user.user_id,
+        // 0087: 위저드 체크박스 값 반영(미지정 시 true). 실 발송과 동일한 중복신청
+        //       동작을 테스트 링크에서도 재현하기 위함.
+        allow_multiple: input.allowMultiple ?? true,
       })
       .select("id")
       .single()) as {

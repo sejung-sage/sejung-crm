@@ -39,9 +39,10 @@ export const InvitationItemStatusSchema = z.enum([
 export type InvitationItemStatus = z.infer<typeof InvitationItemStatusSchema>;
 
 /**
- * claim_invitation_item RPC 반환 status enum.
+ * claim_invitation_item / claim_signup_item RPC 반환 status enum.
  *  - signed         : 정상 접수
  *  - already_signed : 멱등 (이미 signed — 재클릭 무해)
+ *  - limit_reached  : 중복 신청 불가(allow_multiple=false) 인데 이미 다른 카드 signed (0087)
  *  - closed         : 정원 마감
  *  - ended          : 행사 종료
  *  - cancelled      : 설명회·카드 취소
@@ -51,6 +52,7 @@ export type InvitationItemStatus = z.infer<typeof InvitationItemStatusSchema>;
 export const ClaimInvitationStatusSchema = z.enum([
   "signed",
   "already_signed",
+  "limit_reached",
   "closed",
   "ended",
   "cancelled",
@@ -104,6 +106,16 @@ export const CreateBroadcastInputSchema = z
      * 광고성 컨텐츠를 섞을 때만 명시적으로 토글한다. UI(step3)는 호출 시 명시 전달.
      */
     is_ad: z.boolean().default(false),
+    /**
+     * 중복 신청 허용 여부 (0087).
+     *  - true (기본) → 학부모가 invitation 내 여러 설명회 카드를 자유롭게 신청 가능(현행).
+     *  - false       → 1개만 신청 가능. 이미 1개라도 signed 면 claim_signup_item 이
+     *                  나머지 카드 신청을 'limit_reached' 로 차단.
+     *
+     * 발송 위저드의 "중복 신청 허용" 체크박스가 이 값을 결정하고, 발송 액션이
+     * 생성하는 각 invitation 행의 allow_multiple 컬럼에 저장한다.
+     */
+    allow_multiple: z.boolean().default(true),
     /**
      * 광고 footer 학원명 (`무료수신거부 ...` 앞에 부착될 학원 표기).
      *

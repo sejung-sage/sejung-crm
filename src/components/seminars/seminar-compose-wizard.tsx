@@ -33,6 +33,12 @@ export interface SeminarComposeState {
   body: string;
   /** 광고성 문자 여부. true → (광고) prefix + 무료수신거부 footer + 야간 차단. */
   isAd: boolean;
+  /**
+   * 중복 신청 허용 여부 (0087). true(기본)=학부모가 받은 여러 설명회를 동시에
+   * 신청 가능. false=한 명당 1개만 신청 가능(1개 신청 시 나머지 잠김 →
+   * claim 이 'limit_reached' 반환). 현행 동작 보존을 위해 기본 true.
+   */
+  allowMultiple: boolean;
 }
 
 interface Props {
@@ -61,6 +67,7 @@ export function SeminarComposeWizard({
     subject: "설명회 안내",
     body: buildDefaultBody(classes, initialClassId),
     isAd: false,
+    allowMultiple: true,
   }));
 
   const selectedClasses = useMemo<ClassSignupOption[]>(
@@ -92,6 +99,10 @@ export function SeminarComposeWizard({
         <SeminarComposeStep1Seminars
           classes={classes}
           selectedIds={state.selectedClassIds}
+          allowMultiple={state.allowMultiple}
+          onAllowMultipleChange={(next) =>
+            setState((p) => ({ ...p, allowMultiple: next }))
+          }
           onChange={(ids) =>
             setState((p) => ({
               ...p,

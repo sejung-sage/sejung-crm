@@ -48,6 +48,12 @@ interface Props {
    * 이 경우 `body` 는 `{초대링크}` 가 든 raw 본문이어야 한다.
    */
   seminarClassIds?: string[];
+  /**
+   * 설명회 모드 — 중복 신청 허용 여부 (0087). 위저드 체크박스 값을 그대로 받아
+   * 테스트 invitation 에 반영해, 테스트 링크에서도 실제 발송과 동일한 중복신청
+   * 동작(false 시 2번째 카드 limit_reached)을 재현한다. 미지정 시 true.
+   */
+  seminarAllowMultiple?: boolean;
 }
 
 export function TestSendCard({
@@ -57,6 +63,7 @@ export function TestSendCard({
   isAd,
   disabled = false,
   seminarClassIds,
+  seminarAllowMultiple,
 }: Props) {
   const { show: showToast } = useToast();
   const [phone, setPhone] = useState("");
@@ -96,6 +103,8 @@ export function TestSendCard({
           type,
           isAd,
           toPhone: normalized,
+          // 중복 신청 허용 (0087) — 미지정 시 서버가 true 처리.
+          allowMultiple: seminarAllowMultiple,
         });
         // 발송 성공·실패와 무관하게 링크가 오면 노출한다.
         setInviteUrl(result.inviteUrl ?? null);

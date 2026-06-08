@@ -423,6 +423,7 @@ export function SeminarComposeStep3Body({
             body={state.body.trim().length === 0 ? "" : state.body}
             isAd={state.isAd}
             seminarClassIds={selectedClasses.map((c) => c.class_id)}
+            seminarAllowMultiple={state.allowMultiple}
             disabled={
               state.body.trim().length === 0 ||
               isOverLimit ||

@@ -22,6 +22,12 @@ interface Props {
   classes: ClassSignupOption[];
   selectedIds: string[];
   onChange: (ids: string[]) => void;
+  /**
+   * 중복 신청 허용 여부 (0087). true=학부모가 받은 여러 설명회 동시 신청 가능,
+   * false=한 명당 1개만 신청 가능. 섹션 하단 체크박스로 토글.
+   */
+  allowMultiple: boolean;
+  onAllowMultipleChange: (next: boolean) => void;
 }
 
 type MonthKey = "all" | "tbd" | string; // "YYYY-MM"
@@ -30,6 +36,8 @@ export function SeminarComposeStep1Seminars({
   classes,
   selectedIds,
   onChange,
+  allowMultiple,
+  onAllowMultipleChange,
 }: Props) {
   const [query, setQuery] = useState("");
   const [monthKey, setMonthKey] = useState<MonthKey>("all");
@@ -291,6 +299,42 @@ export function SeminarComposeStep1Seminars({
           })}
         </ul>
       )}
+      {/* 중복 신청 허용 (0087) — 선택한 설명회가 여러 개일 때 의미가 커서 이 섹션
+          하단에 배치. 라벨 전체가 클릭 가능(터치영역 ≥40px), 흰검 토큰. */}
+      <label
+        htmlFor="seminar-allow-multiple"
+        className="
+          flex items-start gap-3 mt-1 min-h-[40px] cursor-pointer
+          rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)]
+          px-4 py-3
+          hover:bg-[color:var(--bg-hover)]
+          focus-within:ring-2 focus-within:ring-[color:var(--border-strong)]
+          transition-colors
+        "
+      >
+        <input
+          id="seminar-allow-multiple"
+          type="checkbox"
+          checked={allowMultiple}
+          onChange={(e) => onAllowMultipleChange(e.target.checked)}
+          className="mt-0.5 size-5 shrink-0 cursor-pointer accent-[color:var(--action)]"
+          aria-describedby="seminar-allow-multiple-desc"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-[14px] font-medium text-[color:var(--text)]">
+            중복 신청 허용
+          </span>
+          <span
+            id="seminar-allow-multiple-desc"
+            className="text-[12px] leading-relaxed text-[color:var(--text-muted)]"
+          >
+            체크하면 학부모가 받은 설명회를 여러 개 동시에 신청할 수 있어요.
+            체크를 해제하면 받은 설명회 중 <strong className="font-medium text-[color:var(--text)]">1개만</strong>{" "}
+            신청할 수 있고, 한 개를 신청하면 나머지는 잠깁니다.
+          </span>
+        </span>
+      </label>
+
       {/* someFilteredSelected 는 향후 indeterminate checkbox 도입 시 사용. 현재는 사용 안 함. */}
       {/* prettier-ignore */}
       <span className="hidden" aria-hidden>{someFilteredSelected ? "" : ""}</span>

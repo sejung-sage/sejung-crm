@@ -223,6 +223,7 @@ const base: CreateBroadcastInput = {
   type: "SMS",
   branch: "대치",
   is_ad: false,
+  allow_multiple: true, // 중복 신청 허용 (0087) — 기본 true(현행)
 };
 
 describe("createSeminarBroadcastAction · {이름} 본문 변수 잔존 가드", () => {

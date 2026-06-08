@@ -9,6 +9,8 @@ import {
   MapPin,
   Ban,
   Clock,
+  Info,
+  Lock,
 } from "lucide-react";
 import type {
   LookupInvitationByTokenResult,
@@ -81,6 +83,29 @@ export function ParentInvitationFlow({
   // 신청 결과 안내 모달 (성공/이미 신청). null 이면 닫힘.
   const [notice, setNotice] = useState<string | null>(null);
 
+  // 중복 신청 허용 여부 (0087). false 면 1개만 신청 가능 — 이미 1개라도 signed
+  // 이면 나머지 pending 카드를 잠근다(서버 limit_reached 와 일관).
+  const allowMultiple = invitation.allow_multiple;
+
+  // 카드의 "현재 유효 상태"를 server 상태 + 이번 세션 override 로 합성하는 헬퍼.
+  // (아래 렌더 분기와 동일 규칙 — "이미 어떤 카드든 signed 인지" 판정에 재사용.)
+  const resolveStatus = (
+    item: LookupInvitationItem,
+  ): InvitationItemStatus | "closed" | "ended" | "out_of_window" => {
+    const override = pending.overrides[item.signup_page_id];
+    const baseStatus: InvitationItemStatus | "closed" =
+      item.page_status === "closed" ? "closed" : item.item_status;
+    return override ?? baseStatus;
+  };
+
+  // 1개라도 signed(서버 또는 이번 세션 낙관적 override)면 true.
+  const hasAnySigned = invitation.items.some(
+    (item) => resolveStatus(item) === "signed",
+  );
+
+  // allow_multiple=false 인데 이미 1개 signed → 나머지 pending 카드 잠금.
+  const lockOthers = !allowMultiple && hasAnySigned;
+
   // 카드 [신청하기] → 확인 모달 열기.
   const handleClaim = (item: LookupInvitationItem) => {
     if (pending.busyPageId) return;
@@ -125,6 +150,15 @@ export function ParentInvitationFlow({
           applyState("signed", null);
           setNotice("이미 신청된 설명회입니다.");
           router.refresh();
+          break;
+        case "limit_reached":
+          // 중복 신청 불가(allow_multiple=false) 인데 이미 다른 카드 signed (0087).
+          // 낙관적 signed 처리 금지 — 이 카드는 pending 으로 두고 사유만 표시.
+          // 다른 카드가 이미 signed 라 lockOthers 로 버튼은 이미 잠겨 있다.
+          applyState(
+            item.item_status,
+            result.reason ?? "다른 설명회를 이미 신청해 1개만 신청할 수 있어요",
+          );
           break;
         case "closed":
           applyState("closed", result.reason ?? "정원이 마감되었습니다");
@@ -206,6 +240,28 @@ export function ParentInvitationFlow({
         </p>
       </div>
 
+      {/* 1개만 신청 가능 안내 (allow_multiple=false). 공유 금지 경고 바로 아래. */}
+      {!allowMultiple && (
+        <div
+          role="note"
+          className="
+            flex items-start gap-2.5
+            rounded-xl border border-[color:var(--border-strong)]
+            bg-[color:var(--bg-muted)] px-4 py-3
+          "
+        >
+          <Info
+            className="mt-0.5 size-5 shrink-0 text-[color:var(--text-muted)]"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          <p className="text-[14px] leading-relaxed text-[color:var(--text)]">
+            <strong className="font-semibold">이 중 한 개만 신청할 수 있어요.</strong>{" "}
+            하나를 신청하면 나머지는 신청할 수 없습니다.
+          </p>
+        </div>
+      )}
+
       {/* 설명회 카드 리스트 */}
       {invitation.items.length === 0 ? (
         <div className="rounded-2xl border border-[color:var(--border)] bg-bg-card p-6 text-center">
@@ -223,6 +279,9 @@ export function ParentInvitationFlow({
             const effectiveStatus = override ?? baseStatus;
             const reason = pending.reasons[item.signup_page_id] ?? null;
             const isBusy = pending.busyPageId === item.signup_page_id;
+            // allow_multiple=false 로 다른 카드가 signed 라면, 이 pending 카드는
+            // 잠근다(자기 자신이 signed 면 잠금 아님 — "신청 완료"로 표시).
+            const locked = lockOthers && effectiveStatus !== "signed";
             return (
               <li key={item.item_id}>
                 <SeminarCard
@@ -230,6 +289,7 @@ export function ParentInvitationFlow({
                   status={effectiveStatus}
                   reason={reason}
                   busy={isBusy}
+                  locked={locked}
                   onClaim={() => handleClaim(item)}
                 />
               </li>
@@ -378,19 +438,22 @@ function SeminarCard({
   status,
   reason,
   busy,
+  locked,
   onClaim,
 }: {
   item: LookupInvitationItem;
   status: CardStatus;
   reason: string | null;
   busy: boolean;
+  /** allow_multiple=false 로 다른 카드가 이미 signed 라 잠긴 pending 카드. */
+  locked: boolean;
   onClaim: () => void;
 }) {
   return (
     <article
       className={`
         rounded-2xl border bg-bg-card p-5 space-y-3
-        ${status === "cancelled" || status === "ended" || status === "closed" || status === "out_of_window"
+        ${status === "cancelled" || status === "ended" || status === "closed" || status === "out_of_window" || locked
           ? "border-[color:var(--border)] opacity-75"
           : "border-[color:var(--border-strong)]"}
       `}
@@ -434,6 +497,7 @@ function SeminarCard({
         status={status}
         reason={reason}
         busy={busy}
+        locked={locked}
         signedAt={item.signed_at}
         onClaim={onClaim}
       />
@@ -445,12 +509,15 @@ function CardAction({
   status,
   reason,
   busy,
+  locked,
   signedAt,
   onClaim,
 }: {
   status: CardStatus;
   reason: string | null;
   busy: boolean;
+  /** allow_multiple=false 로 다른 카드가 signed 라 잠긴 pending 카드. */
+  locked: boolean;
   signedAt: string | null;
   onClaim: () => void;
 }) {
@@ -570,6 +637,30 @@ function CardAction({
             {reason}
           </p>
         )}
+      </div>
+    );
+  }
+
+  // pending 이지만 allow_multiple=false 로 다른 카드가 이미 signed → 잠금.
+  if (locked) {
+    return (
+      <div className="space-y-1.5">
+        <button
+          type="button"
+          disabled
+          className="
+            w-full inline-flex items-center justify-center gap-2
+            h-12 px-4 rounded-xl
+            bg-[color:var(--bg-muted)] text-[color:var(--text-muted)]
+            text-[15px] font-semibold cursor-not-allowed
+          "
+        >
+          <Lock className="size-5" strokeWidth={1.75} aria-hidden />
+          신청 불가
+        </button>
+        <p className="text-[12px] text-[color:var(--text-muted)] text-center">
+          {reason ?? "1개만 신청 가능 (다른 설명회 신청함)"}
+        </p>
       </div>
     );
   }

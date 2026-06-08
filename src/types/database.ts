@@ -811,9 +811,10 @@ export type LookupSeminarByTokenResult = Pick<
 export type InvitationItemStatus = "pending" | "signed" | "cancelled";
 
 /**
- * claim_invitation_item RPC 반환 status enum.
+ * claim_invitation_item / claim_signup_item RPC 반환 status enum.
  *  - signed         : 정상 접수
  *  - already_signed : 멱등 (재클릭 무해)
+ *  - limit_reached  : 중복 신청 불가(allow_multiple=false) 인데 이미 다른 카드 signed (0087)
  *  - closed         : 정원 마감
  *  - ended          : 행사 종료
  *  - cancelled      : 설명회·카드 취소
@@ -823,6 +824,7 @@ export type InvitationItemStatus = "pending" | "signed" | "cancelled";
 export type ClaimInvitationStatus =
   | "signed"
   | "already_signed"
+  | "limit_reached"
   | "closed"
   | "ended"
   | "cancelled"
@@ -909,6 +911,12 @@ export interface LookupInvitationByTokenResult {
   student_name: string;
   parent_phone: string | null;
   branch: string;
+  /**
+   * 중복 신청 허용 여부 (0087). true(기본)=invitation 내 여러 카드 신청 가능,
+   * false=1개만 신청 가능. false 인데 이미 1개 signed 면 나머지 카드 신청은
+   * claim_signup_item 이 'limit_reached' 로 차단. 학부모 화면 안내·비활성화 판단용.
+   */
+  allow_multiple: boolean;
   items: LookupInvitationItem[];
 }
 
@@ -1064,13 +1072,22 @@ export interface Database {
       };
     };
     Functions: {
-      // ── 설명회 invitation RPC (0082) ─────────────────────
+      // ── 설명회 invitation RPC (0082, 구 모델) ─────────────
       lookup_invitation_by_token: {
         Args: { p_token: string };
         Returns: LookupInvitationByTokenResult[];
       };
       claim_invitation_item: {
         Args: { p_token: string; p_seminar_id: string };
+        Returns: ClaimInvitationItemResult[];
+      };
+      // ── 신청 페이지 RPC (0084/0085 새 모델, allow_multiple 0087) ─
+      lookup_signup_invitation_by_token: {
+        Args: { p_token: string };
+        Returns: LookupInvitationByTokenResult[];
+      };
+      claim_signup_item: {
+        Args: { p_token: string; p_signup_page_id: string };
         Returns: ClaimInvitationItemResult[];
       };
     };

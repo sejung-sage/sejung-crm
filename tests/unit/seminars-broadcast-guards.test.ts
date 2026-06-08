@@ -36,6 +36,7 @@ const validBroadcast: CreateBroadcastInput = {
   type: "SMS",
   branch: "대치",
   is_ad: false, // 광고 토글 추가 — 기본 정보성 발송
+  allow_multiple: true, // 중복 신청 허용 (0087) — 기본 true(현행)
 };
 
 const validClaim: ClaimInvitationItemInput = {

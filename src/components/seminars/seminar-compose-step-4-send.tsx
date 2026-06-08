@@ -63,6 +63,9 @@ export function SeminarComposeStep4Send({
         branch,
         // 광고 토글 — step3 에서 입력. 서버가 prefix/footer/야간 차단 가드 적용.
         is_ad: state.isAd,
+        // 중복 신청 허용 (0087) — step1 하단 체크박스 값. false 면 학부모가 받은
+        // 설명회 중 1개만 신청 가능(나머지 카드는 claim 시 limit_reached).
+        allow_multiple: state.allowMultiple,
       });
 
       switch (res.status) {
