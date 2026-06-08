@@ -6,6 +6,7 @@ import {
   Presentation,
   MessageSquare,
   MapPin,
+  BellOff,
   UserCircle2,
   Building2,
 } from "lucide-react";
@@ -113,6 +114,14 @@ const NAV_ITEMS: NavItem[] = [
     label: "학교 지역매핑",
     icon: MapPin,
     sectionLabel: "데이터 관리",
+    roles: ["master", "admin"],
+  },
+  {
+    // "데이터 관리" 섹션. 학교 지역매핑 바로 아래에 붙는다(sectionLabel 없음).
+    // 문자 발송에서 제외할 번호를 관리하는 화면. master/admin 전용.
+    href: "/unsubscribes",
+    label: "수신거부 관리",
+    icon: BellOff,
     roles: ["master", "admin"],
   },
 ];
