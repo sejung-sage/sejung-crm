@@ -21,6 +21,7 @@ import {
   type CreateStudentInput,
 } from "@/lib/schemas/student";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export type CreateStudentActionResult =
@@ -148,4 +149,130 @@ export async function createStudentAction(
 
   revalidatePath("/students");
   return { status: "success", id: data.id };
+}
+
+// ─── 수신거부(opt-out) 등록 / 해제 ────────────────────────────
+//
+// crm_unsubscribes(phone TEXT PK, unsubscribed_at, reason) 사용.
+// RLS: 읽기 전체 · INSERT 누구나 · DELETE master 전용.
+//   - 등록(add)은 RLS 상 viewer 도 가능하나 게이팅은 UI 책임.
+//   - 해제(remove)는 master 전용 — 서버에서도 역할 재확인.
+
+/** 휴대폰/유선 최소 자릿수 (지역번호 02 + 국번 + 가입자 = 최소 9). */
+const MIN_PHONE_DIGITS = 9;
+/** PostgreSQL unique_violation 코드. 멱등 등록 판정용. */
+const PG_UNIQUE_VIOLATION = "23505";
+
+/** 하이픈 등 비숫자 제거. 빈 결과는 null. */
+function normalizeUnsubPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  return digits.length > 0 ? digits : null;
+}
+
+export async function addUnsubscribeAction(input: {
+  phone: string;
+  reason?: string | null;
+}): Promise<{
+  status: "success" | "failed" | "dev_seed_mode";
+  reason?: string;
+}> {
+  if (isDevSeedMode()) {
+    return { status: "dev_seed_mode" };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "failed", reason: "로그인 후 이용 가능합니다" };
+  }
+
+  const phone = normalizeUnsubPhone(input.phone);
+  if (!phone || phone.length < MIN_PHONE_DIGITS) {
+    return { status: "failed", reason: "올바른 전화번호를 입력해 주세요" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  // Supabase v2 Database 타입 추론 한계 — 좁은 캐스팅 (위 createStudentAction 동일 패턴).
+  const { error } = await (
+    supabase.from("crm_unsubscribes") as unknown as {
+      insert: (v: Record<string, unknown>) => Promise<{
+        error: { message: string; code?: string } | null;
+      }>;
+    }
+  ).insert({
+    phone,
+    reason: input.reason ?? "운영자 등록",
+  });
+
+  if (error) {
+    // 멱등 — 이미 수신거부된 번호(PK 충돌)는 성공으로 처리.
+    if (error.code === PG_UNIQUE_VIOLATION) {
+      revalidatePath("/students", "layout");
+      return { status: "success" };
+    }
+    return {
+      status: "failed",
+      reason: `수신거부 등록에 실패했습니다: ${error.message}`,
+    };
+  }
+
+  revalidatePath("/students", "layout");
+  return { status: "success" };
+}
+
+export async function removeUnsubscribeAction(input: {
+  phone: string;
+}): Promise<{
+  status: "success" | "failed" | "forbidden" | "dev_seed_mode";
+  reason?: string;
+}> {
+  if (isDevSeedMode()) {
+    return { status: "dev_seed_mode" };
+  }
+
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "failed", reason: "로그인 후 이용 가능합니다" };
+  }
+  // master 전용 — RLS 1차 + 서버에서 역할 재확인.
+  if (user.role !== "master") {
+    return {
+      status: "forbidden",
+      reason: "수신거부 해제는 master 만 가능합니다",
+    };
+  }
+
+  const phone = normalizeUnsubPhone(input.phone);
+  if (!phone || phone.length < MIN_PHONE_DIGITS) {
+    return { status: "failed", reason: "올바른 전화번호를 입력해 주세요" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+  // 저장이 하이픈 포함일 수도 있으니 정규화/원본 둘 다로 안전 삭제.
+  const targets =
+    input.phone && input.phone !== phone ? [phone, input.phone] : [phone];
+
+  // Supabase v2 Database 타입 추론 한계 — 좁은 캐스팅.
+  const { error } = await (
+    supabase.from("crm_unsubscribes") as unknown as {
+      delete: () => {
+        in: (
+          col: string,
+          vals: string[],
+        ) => Promise<{ error: { message: string } | null }>;
+      };
+    }
+  )
+    .delete()
+    .in("phone", targets);
+
+  if (error) {
+    return {
+      status: "failed",
+      reason: `수신거부 해제에 실패했습니다: ${error.message}`,
+    };
+  }
+
+  revalidatePath("/students", "layout");
+  return { status: "success" };
 }

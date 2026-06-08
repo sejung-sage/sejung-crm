@@ -4,11 +4,18 @@ import type { StudentProfileRow } from "@/types/database";
 import { StudentStatusBadge } from "@/components/students/status-badge";
 import { BranchBadge } from "@/components/students/branch-badge";
 import { PhoneReveal } from "@/components/students/phone-reveal";
+import { UnsubscribeControl } from "@/components/students/unsubscribe-control";
 
 interface Props {
   profile: StudentProfileRow;
   /** 학부모 연락처 풀 노출 권한. master 만 true. */
   canRevealPhone?: boolean;
+  /** 학부모 번호가 수신거부에 등록돼 있는지. */
+  parentUnsubscribed?: boolean;
+  /** 수신거부 등록 권한. viewer 외 true. */
+  canManageUnsubscribe?: boolean;
+  /** 수신거부 해제 권한. master 만 true. */
+  canRemoveUnsubscribe?: boolean;
 }
 
 /**
@@ -18,6 +25,9 @@ interface Props {
 export function StudentProfileHeader({
   profile,
   canRevealPhone = false,
+  parentUnsubscribed = false,
+  canManageUnsubscribe = false,
+  canRemoveUnsubscribe = false,
 }: Props) {
   // 메타에서 branch 는 이름 옆 배지로 강조하므로 텍스트 메타에서는 제외.
   const metaParts: string[] = [];
@@ -50,6 +60,15 @@ export function StudentProfileHeader({
               학부모 연락처
             </span>
             <PhoneReveal phone={profile.parent_phone} canReveal={canRevealPhone} />
+            {/* 학부모 번호가 있을 때만 수신거부 컨트롤 노출 */}
+            {profile.parent_phone && (
+              <UnsubscribeControl
+                phone={profile.parent_phone}
+                initialUnsubscribed={parentUnsubscribed}
+                canManage={canManageUnsubscribe}
+                canRemove={canRemoveUnsubscribe}
+              />
+            )}
           </div>
         </div>
 

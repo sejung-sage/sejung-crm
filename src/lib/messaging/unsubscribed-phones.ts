@@ -35,3 +35,30 @@ export const getUnsubscribedPhones = cache(async (): Promise<string[]> => {
         typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
     );
 });
+
+/** 하이픈 등 비숫자 제거. 빈 결과는 null. */
+function normalizePhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  return digits.length > 0 ? digits : null;
+}
+
+/**
+ * 단일 번호의 수신거부 여부 조회.
+ *
+ * - phone 을 숫자만으로 정규화 후, getUnsubscribedPhones() 결과(역시 숫자만으로
+ *   정규화)에 포함되는지 비교. 저장이 하이픈 포함이어도 정규화로 안전 비교.
+ * - null/빈값/정규화 후 빈값 → false.
+ * - getUnsubscribedPhones 의 React cache 를 재사용 (요청 단위 1회 페치).
+ */
+export async function isPhoneUnsubscribed(
+  phone: string | null | undefined,
+): Promise<boolean> {
+  const norm = normalizePhone(phone);
+  if (!norm) return false;
+  const phones = await getUnsubscribedPhones();
+  for (const p of phones) {
+    if (normalizePhone(p) === norm) return true;
+  }
+  return false;
+}

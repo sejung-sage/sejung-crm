@@ -225,7 +225,8 @@ async function runImmediateSend(args: {
   // a) eligible 수신자 재조회 (preview 는 5명 샘플만 보존하므로)
   //    가드 통과 후 dedupeByPhone 이면 동일번호 collapse 까지 적용된 목록을 반환.
   //    레그 확장(학부모/학생) 도 여기서 적용된다.
-  const eligible = await reloadEligibleRecipients({
+  //    수신거부 수신자(unsubscribed)는 발송하지 않고 '실패(수신거부)' 행으로만 남긴다.
+  const { eligible, unsubscribed } = await reloadEligibleRecipients({
     groupId: input.groupId,
     body: input.body,
     isAd: input.isAd,
@@ -235,9 +236,15 @@ async function runImmediateSend(args: {
     scheduledAt: new Date(),
   });
 
-  if (eligible.length === 0) {
+  // eligible 이 0 이어도 수신거부 실패 행은 남길 가치가 있으나, 발송 가능한
+  // 수신자가 전혀 없으면 preview 단(actualMessages===0)에서 이미 차단된다.
+  // 여기 도달 시 eligible 0 + unsubscribed 0 조합만 진짜 빈 목록.
+  if (eligible.length === 0 && unsubscribed.length === 0) {
     return { status: "failed", reason: "수신자 목록이 비었습니다" };
   }
+
+  // 총 수신자 = 발송 시도(eligible) + 수신거부 실패 표시(unsubscribed).
+  const totalRecipients = eligible.length + unsubscribed.length;
 
   // b) campaigns INSERT (status='발송중')
   const campaignInsert: Record<string, unknown> = {
@@ -247,7 +254,7 @@ async function runImmediateSend(args: {
     scheduled_at: null,
     sent_at: new Date().toISOString(),
     status: "발송중",
-    total_recipients: eligible.length,
+    total_recipients: totalRecipients,
     total_cost: 0, // 드레인 워커가 누적 갱신
     created_by: userId,
     branch,
@@ -291,6 +298,48 @@ async function runImmediateSend(args: {
     }
   }
 
+  // c-2) 수신거부 수신자 → '실패(수신거부)' 행으로 즉시 INSERT.
+  //   대기 단계를 거치지 않으므로 드레인 워커가 절대 발송하지 않는다.
+  //   cost=0, sent_at=now, student_id 채워 캠페인 상세에 노출.
+  //   (※ 이번 범위는 즉시 그룹 발송만. 예약/dispatch-broadcast/drain 미적용.)
+  const nowIso = new Date().toISOString();
+  for (let i = 0; i < unsubscribed.length; i += MESSAGES_INSERT_CHUNK) {
+    const slice = unsubscribed.slice(i, i + MESSAGES_INSERT_CHUNK);
+    const rows = slice.map((r) => ({
+      campaign_id: campaignId,
+      student_id: r.studentId,
+      phone: r.phone,
+      status: "실패",
+      vendor_message_id: null,
+      cost: 0,
+      sent_at: nowIso,
+      delivered_at: null,
+      failed_reason: "수신거부",
+      is_test: input.isTest,
+    }));
+
+    const inserted = await insertMessages(supabase, rows);
+    if (!inserted.ok) {
+      await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
+      return { status: "failed", reason: inserted.reason };
+    }
+  }
+
+  // eligible 이 없고 수신거부만 있으면 드레인할 '대기' 행이 없다.
+  // 캠페인을 '완료'로 마감하고 즉시 응답(전부 실패).
+  if (eligible.length === 0) {
+    await safeUpdateCampaignStatus(supabase, campaignId, "완료", 0);
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    return {
+      status: "success",
+      campaignId,
+      sent: 0,
+      failed: unsubscribed.length,
+      cost: 0,
+    };
+  }
+
   // d) 드레인 워커 킥 — fire-and-forget. after() 는 응답 송출 후 실행되며
   //    Vercel 런타임이 promise 완료까지 함수 인스턴스 수명을 연장해준다.
   const drainSecret = process.env.DRAIN_SECRET;
@@ -331,7 +380,8 @@ async function runImmediateSend(args: {
     campaignId,
     // 큐 적재 단계까지의 카운트. 실제 발송 결과는 캠페인 상세에서 확인.
     sent: eligible.length,
-    failed: 0,
+    // 수신거부는 발송 시도 없이 즉시 실패 행으로 적재되므로 failed 에 반영.
+    failed: unsubscribed.length,
     cost: 0,
   };
 }
@@ -396,6 +446,19 @@ interface EligibleRecipient {
   name: string;
 }
 
+/**
+ * 가드 통과 eligible 수신자 + 수신거부로 제외된 수신자.
+ *
+ * 수신거부자도 "실패(수신거부)" 메시지 행으로 남겨 캠페인에 보이게 하기 위해
+ * 종전처럼 조용히 버리지 않고 분리해 반환한다. (탈퇴 제외는 기존대로 조용히 —
+ * loadAllGroupRecipients 가 SQL 단에서 status='탈퇴' 를 거른다.)
+ */
+interface ReloadResult {
+  eligible: EligibleRecipient[];
+  /** 수신거부로 제외된 수신자. phone 기준 dedupe. 절대 발송되지 않음. */
+  unsubscribed: EligibleRecipient[];
+}
+
 async function reloadEligibleRecipients(args: {
   groupId: string;
   body: string;
@@ -404,10 +467,10 @@ async function reloadEligibleRecipients(args: {
   sendToParent: boolean;
   sendToStudent: boolean;
   scheduledAt: Date;
-}): Promise<EligibleRecipient[]> {
+}): Promise<ReloadResult> {
   if (isDevSeedMode()) {
     // dev-seed 는 실 발송이 차단되므로 본 함수가 도달할 일 없음. 안전망.
-    return [];
+    return { eligible: [], unsubscribed: [] };
   }
 
   // 1) 후보 전체 일괄 수집 — loadAllGroupRecipients 가 SQL 단에서 분원·탈퇴 가드
@@ -419,24 +482,34 @@ async function reloadEligibleRecipients(args: {
   ]);
 
   // 2) 레그 확장 (학부모/학생) — 산출 순서 1단계.
-  //    번호 결측 레그 스킵 + 레그별 번호 기준 수신거부 제외(가드 강화).
-  const legs = expandRecipientLegs(rows, {
+  //    수신거부 제외를 여기서 하면 제외된 레그를 회수할 수 없으므로, 여기서는
+  //    번호 결측만 스킵하고 수신거부는 아래에서 직접 분리(실패 행으로 남기기 위함).
+  const allLegs = expandRecipientLegs(rows, {
     sendToParent: args.sendToParent,
     sendToStudent: args.sendToStudent,
-    unsubscribedPhones: unsubPhones,
+    // unsubscribedPhones 미주입 → 레그 확장 단계에서 수신거부 미적용.
   });
 
-  // 고유 학생 수(사람 수) — 레그 1개 이상 생성된 학생만 계수.
+  // 2-1) 수신거부 레그 분리 (정규화 비교). eligible 레그만 가드/dedupe 로 흘려보낸다.
+  const unsubSet = new Set<string>(
+    unsubPhones
+      .map((p) => normalizeUnsubPhone(p))
+      .filter((p): p is string => p !== null),
+  );
+  const eligibleLegs = allLegs.filter((l) => !unsubSet.has(l.phone));
+  const unsubscribedLegs = allLegs.filter((l) => unsubSet.has(l.phone));
+
+  // 고유 학생 수(사람 수) — eligible 레그 1개 이상 생성된 학생만 계수.
   //   (번호 결측/수신거부로 0레그가 된 학생은 제외 → 불변식 legs >= targetStudents 보장.)
-  const targetStudents = countDistinctStudents(legs);
+  const targetStudents = countDistinctStudents(eligibleLegs);
 
   // 3) 본문 가드 (광고 prefix / 080 footer / 야간 차단) 만 추가 적용.
-  //    탈퇴는 SQL 단, 수신거부는 레그 확장 단에서 제외됐으므로 unsubscribedPhones 비워서 호출.
+  //    탈퇴는 SQL 단, 수신거부는 위에서 분리했으므로 unsubscribedPhones 비워서 호출.
   const guarded = applyAllGuards({
     body: args.body,
     isAd: args.isAd,
     scheduledAt: args.scheduledAt,
-    recipients: legs,
+    recipients: eligibleLegs,
     unsubscribedPhones: [],
   });
 
@@ -454,7 +527,37 @@ async function reloadEligibleRecipients(args: {
     targetStudents,
   );
 
-  return recipients;
+  // 5) 수신거부 레그 phone 기준 dedupe (실패 행 중복 방지).
+  const unsubscribed = dedupeByPhoneFirst(
+    unsubscribedLegs.map((r) => ({
+      studentId: r.studentId,
+      phone: r.phone,
+      name: r.name,
+    })),
+  );
+
+  return { eligible: recipients, unsubscribed };
+}
+
+/** phone 기준 첫 등장만 유지하는 단순 dedupe (수신거부 실패 행용). */
+function dedupeByPhoneFirst(
+  recipients: EligibleRecipient[],
+): EligibleRecipient[] {
+  const seen = new Set<string>();
+  const out: EligibleRecipient[] = [];
+  for (const r of recipients) {
+    if (seen.has(r.phone)) continue;
+    seen.add(r.phone);
+    out.push(r);
+  }
+  return out;
+}
+
+/** 하이픈 등 비숫자 제거. 빈 결과는 null. (수신거부 정규화 비교용) */
+function normalizeUnsubPhone(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, "");
+  return digits.length > 0 ? digits : null;
 }
 
 // ─── DB IO 헬퍼 (좁은 cast) ────────────────────────────────
