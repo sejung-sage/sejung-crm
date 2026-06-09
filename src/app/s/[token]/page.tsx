@@ -23,7 +23,8 @@ export const metadata: Metadata = {
  *
  * 이전 0080 폼 모델은 폐기. `lookupSeminarByToken` / `ParentSignupFlow` 미사용.
  */
-const INQUIRY_PHONE = "02-501-0000"; // 데모용 — 향후 분원별 문의번호로 교체
+// CRM 대표 문의·발신번호로 통일 (2026-06). sendon 발신번호(SENDON_FROM_NUMBER)와 동일.
+const INQUIRY_PHONE = "02-567-0606";
 
 export default async function PublicInvitationPage({
   params,
