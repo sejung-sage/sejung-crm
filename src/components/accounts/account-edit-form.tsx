@@ -22,7 +22,7 @@ import {
   reactivateAccountAction,
   adminResetPasswordAction,
 } from "@/app/(features)/accounts/actions";
-import { BRANCHES as BRANCH_OPTIONS } from "@/config/branches";
+import { BRANCHES as BRANCH_OPTIONS, MASTER_BRANCH } from "@/config/branches";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { generateTempPassword } from "@/lib/auth/generate-password";
@@ -84,6 +84,9 @@ export function AccountEditForm({
   const [branch, setBranch] = useState<string>(target.branch);
   const [active, setActive] = useState<boolean>(target.active);
 
+  // 마스터 계정은 분원에 속하지 않으므로 "마스터" 분원으로 고정.
+  const effectiveBranch = role === "master" ? MASTER_BRANCH : branch;
+
   const [pendingToggle, setPendingToggle] = useState<
     null | "deactivate" | "reactivate"
   >(null);
@@ -133,7 +136,8 @@ export function AccountEditForm({
     const trimmedName = name.trim();
     if (trimmedName !== target.name) patch.name = trimmedName;
     if (canEditRoleBranch && role !== target.role) patch.role = role;
-    if (canEditRoleBranch && branch !== target.branch) patch.branch = branch;
+    if (canEditRoleBranch && effectiveBranch !== target.branch)
+      patch.branch = effectiveBranch;
     if (active !== target.active) patch.active = active;
 
     // 변경 사항이 없으면 빠르게 안내
@@ -357,34 +361,42 @@ export function AccountEditForm({
           id="acc-branch"
           label="분원"
           hint={
-            canEditRoleBranch
-              ? undefined
-              : "분원 변경은 마스터만 가능합니다."
+            !canEditRoleBranch
+              ? "분원 변경은 마스터만 가능합니다."
+              : role === "master"
+                ? "마스터 계정은 분원에 속하지 않습니다."
+                : undefined
           }
         >
           <select
             id="acc-branch"
-            value={branch}
-            disabled={!canEditRoleBranch}
+            value={effectiveBranch}
+            disabled={!canEditRoleBranch || role === "master"}
             title={
-              canEditRoleBranch
-                ? undefined
-                : "분원 변경은 마스터만 가능합니다"
+              !canEditRoleBranch
+                ? "분원 변경은 마스터만 가능합니다"
+                : role === "master"
+                  ? "마스터 계정은 분원에 속하지 않습니다"
+                  : undefined
             }
             onChange={(e) => setBranch(e.target.value)}
             className={`${selectClass} disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-muted)] disabled:cursor-not-allowed`}
           >
-            {/* target 의 분원이 옵션 목록에 없을 수도 있어 보존 */}
-            {!BRANCH_OPTIONS.includes(
-              target.branch as (typeof BRANCH_OPTIONS)[number],
-            ) && (
-              <option value={target.branch}>{target.branch}</option>
+            {role === "master" ? (
+              <option value={MASTER_BRANCH}>{MASTER_BRANCH}</option>
+            ) : (
+              <>
+                {/* target 의 분원이 옵션 목록에 없을 수도 있어 보존 */}
+                {!BRANCH_OPTIONS.includes(
+                  target.branch as (typeof BRANCH_OPTIONS)[number],
+                ) && <option value={target.branch}>{target.branch}</option>}
+                {BRANCH_OPTIONS.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </>
             )}
-            {BRANCH_OPTIONS.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
           </select>
         </Field>
 

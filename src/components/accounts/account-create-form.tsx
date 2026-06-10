@@ -8,7 +8,7 @@ import type { UserRole } from "@/types/database";
 import { CreateAccountInputSchema } from "@/lib/schemas/auth";
 import { createAccountAction } from "@/app/(features)/accounts/actions";
 import { useToast } from "@/components/ui/toast";
-import { BRANCHES as BRANCH_OPTIONS } from "@/config/branches";
+import { BRANCHES as BRANCH_OPTIONS, MASTER_BRANCH } from "@/config/branches";
 
 interface Props {
   currentUserRole: UserRole;
@@ -61,6 +61,9 @@ export function AccountCreateForm({
     currentUserRole === "master" ? "대치" : currentUserBranch,
   );
 
+  // 마스터 계정은 분원에 속하지 않으므로 "마스터" 분원으로 고정.
+  const effectiveBranch = role === "master" ? MASTER_BRANCH : branch;
+
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -72,7 +75,7 @@ export function AccountCreateForm({
       name: name.trim(),
       password,
       role,
-      branch,
+      branch: effectiveBranch,
     });
     if (!parsed.success) {
       // 첫 이슈만 필드별 매핑
@@ -97,7 +100,7 @@ export function AccountCreateForm({
         name: name.trim(),
         password,
         role,
-        branch,
+        branch: effectiveBranch,
       });
 
       if (result.status === "success") {
@@ -256,18 +259,22 @@ export function AccountCreateForm({
         hint={
           currentUserRole === "admin"
             ? "관리자는 본인 분원 계정만 생성할 수 있습니다."
-            : "이 계정이 속할 분원을 선택하세요."
+            : role === "master"
+              ? "마스터 계정은 분원에 속하지 않습니다."
+              : "이 계정이 속할 분원을 선택하세요."
         }
       >
         <select
           id="acc-branch"
-          value={branch}
-          disabled={currentUserRole === "admin"}
+          value={effectiveBranch}
+          disabled={currentUserRole === "admin" || role === "master"}
           onChange={(e) => setBranch(e.target.value)}
           className={`${selectClass} disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-muted)] disabled:cursor-not-allowed`}
         >
           {currentUserRole === "admin" ? (
             <option value={currentUserBranch}>{currentUserBranch}</option>
+          ) : role === "master" ? (
+            <option value={MASTER_BRANCH}>{MASTER_BRANCH}</option>
           ) : (
             BRANCH_OPTIONS.map((b) => (
               <option key={b} value={b}>
