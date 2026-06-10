@@ -56,6 +56,11 @@ export type ReactivateAccountActionResult =
   | { status: "failed"; reason: string }
   | { status: "dev_seed_mode" };
 
+export type DeleteAccountActionResult =
+  | { status: "success" }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
+
 export type AdminResetPasswordActionResult =
   | { status: "success"; message: string }
   | { status: "failed"; reason: string }
@@ -479,6 +484,59 @@ export async function reactivateAccountAction(
     return {
       status: "failed",
       reason: `계정 재활성화에 실패했습니다: ${error.message}`,
+    };
+  }
+
+  revalidatePath("/accounts");
+  return { status: "success" };
+}
+
+// ─── deleteAccountAction ──────────────────────────────────
+
+/**
+ * 계정 영구 삭제. master 전용, 자기 자신 불가.
+ *
+ * auth.users 행을 service role 로 지우면 users_profile.user_id 의
+ * ON DELETE CASCADE(0001) 로 프로필 행도 함께 삭제된다.
+ * groups/templates/campaigns/messages 의 created_by 는 SET NULL 이라
+ * 삭제가 FK 로 막히지 않는다(작성 이력은 NULL 로 남음).
+ *
+ * 비활성화로 충분한 경우가 많아 UI 에서 위험(danger) 톤 + 확인 다이얼로그로 가드.
+ */
+export async function deleteAccountAction(
+  userId: string,
+): Promise<DeleteAccountActionResult> {
+  if (isDevSeedMode()) {
+    return { status: "dev_seed_mode" };
+  }
+
+  if (!userId || typeof userId !== "string") {
+    return { status: "failed", reason: "사용자 ID 가 유효하지 않습니다" };
+  }
+
+  const cur = await requireCurrentUser();
+  if (!cur.ok) return { status: "failed", reason: cur.reason };
+
+  const guard = requireMaster(cur.user);
+  if (!guard.ok) {
+    return { status: "failed", reason: guard.reason };
+  }
+
+  if (userId === cur.user.user_id) {
+    return { status: "failed", reason: "자기 자신을 삭제할 수 없습니다" };
+  }
+
+  const target = await loadTargetProfile(userId);
+  if (!target.ok) return { status: "failed", reason: target.reason };
+
+  // auth.users 삭제 → users_profile CASCADE 삭제.
+  const svc = createSupabaseServiceClient();
+  const { error } = await svc.auth.admin.deleteUser(userId);
+
+  if (error) {
+    return {
+      status: "failed",
+      reason: `계정 삭제에 실패했습니다: ${error.message}`,
     };
   }
 

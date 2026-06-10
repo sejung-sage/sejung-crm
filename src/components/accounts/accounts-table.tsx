@@ -8,6 +8,7 @@ import {
   Pencil,
   PowerOff,
   Power,
+  Trash2,
   CheckCircle2,
   XCircle,
 } from "lucide-react";
@@ -18,6 +19,7 @@ import { BranchBadge } from "@/components/groups/branch-badge";
 import {
   deactivateAccountAction,
   reactivateAccountAction,
+  deleteAccountAction,
 } from "@/app/(features)/accounts/actions";
 
 interface Props {
@@ -28,7 +30,8 @@ interface Props {
 
 type PendingAction =
   | { kind: "deactivate"; userId: string; name: string }
-  | { kind: "reactivate"; userId: string; name: string };
+  | { kind: "reactivate"; userId: string; name: string }
+  | { kind: "delete"; userId: string; name: string };
 
 /**
  * F4 · 계정 리스트 테이블 (Client Component).
@@ -75,13 +78,17 @@ export function AccountsTable({ rows, currentUserId }: Props) {
       const result =
         pending.kind === "deactivate"
           ? await deactivateAccountAction(pending.userId)
-          : await reactivateAccountAction(pending.userId);
+          : pending.kind === "reactivate"
+            ? await reactivateAccountAction(pending.userId)
+            : await deleteAccountAction(pending.userId);
 
       if (result.status === "success") {
         setNotice(
           pending.kind === "deactivate"
             ? `'${pending.name}' 계정을 비활성화했습니다.`
-            : `'${pending.name}' 계정을 활성화했습니다.`,
+            : pending.kind === "reactivate"
+              ? `'${pending.name}' 계정을 활성화했습니다.`
+              : `'${pending.name}' 계정을 삭제했습니다.`,
         );
         router.refresh();
       } else if (result.status === "dev_seed_mode") {
@@ -226,6 +233,14 @@ export function AccountsTable({ rows, currentUserId }: Props) {
                               },
                         );
                       }}
+                      onDelete={() => {
+                        setOpenMenuId(null);
+                        setPending({
+                          kind: "delete",
+                          userId: r.user_id,
+                          name: r.name,
+                        });
+                      }}
                     />
                   </Td>
                 </tr>
@@ -241,15 +256,25 @@ export function AccountsTable({ rows, currentUserId }: Props) {
           title={
             pending.kind === "deactivate"
               ? "계정을 비활성화할까요?"
-              : "계정을 활성화할까요?"
+              : pending.kind === "reactivate"
+                ? "계정을 활성화할까요?"
+                : "계정을 영구 삭제할까요?"
           }
           description={
             pending.kind === "deactivate"
               ? `'${pending.name}' 계정을 비활성화합니다. 비활성화된 계정은 즉시 로그인이 차단됩니다. 다시 활성화하면 기존 권한으로 복구됩니다.`
-              : `'${pending.name}' 계정을 활성화합니다. 활성화 후 다시 로그인할 수 있습니다.`
+              : pending.kind === "reactivate"
+                ? `'${pending.name}' 계정을 활성화합니다. 활성화 후 다시 로그인할 수 있습니다.`
+                : `'${pending.name}' 계정을 완전히 삭제합니다. 이 작업은 되돌릴 수 없습니다. 로그인 차단만 원하면 삭제 대신 비활성화를 사용하세요.`
           }
-          confirmLabel={pending.kind === "deactivate" ? "비활성화" : "활성화"}
-          confirmTone={pending.kind === "deactivate" ? "danger" : "default"}
+          confirmLabel={
+            pending.kind === "deactivate"
+              ? "비활성화"
+              : pending.kind === "reactivate"
+                ? "활성화"
+                : "삭제"
+          }
+          confirmTone={pending.kind === "reactivate" ? "default" : "danger"}
           busy={isPending}
           onCancel={() => setPending(null)}
           onConfirm={confirmAction}
@@ -330,6 +355,7 @@ function RowMenu({
   active,
   isSelf,
   onToggleActive,
+  onDelete,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -337,6 +363,7 @@ function RowMenu({
   active: boolean;
   isSelf: boolean;
   onToggleActive: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="relative inline-block">
@@ -398,6 +425,16 @@ function RowMenu({
                 활성화
               </MenuItem>
             )}
+            <div className="my-1 h-px bg-[color:var(--border)]" />
+            <MenuItem
+              icon={Trash2}
+              tone="danger"
+              disabled={isSelf}
+              title={isSelf ? "본인 계정은 삭제할 수 없습니다" : undefined}
+              onClick={onDelete}
+            >
+              삭제
+            </MenuItem>
           </div>
         </>
       )}
