@@ -39,6 +39,36 @@ import {
 } from "./students-dev-seed";
 
 /**
+ * 검색어가 전화번호 형태(숫자+구분자만)면 하이픈·공백을 제거한 숫자열을,
+ * 아니면(이름·학교 검색) null 을 반환한다.
+ *
+ * parent_phone 은 DB 에 하이픈 없는 숫자(01074667133)로 저장되므로,
+ * '010-7466-7133' 처럼 입력해도 매칭되게 정규화한다. '3학년'처럼 한글이
+ * 섞인 검색은 null 이라 전화번호 부분일치 노이즈를 막는다.
+ */
+function phoneDigitsForSearch(search: string): string | null {
+  const digits = search.replace(/\D/g, "");
+  if (digits.length === 0) return null;
+  // 숫자·공백·하이픈·괄호·+ 외 문자가 있으면 전화번호 검색이 아님.
+  if (/[^\d\s()+-]/.test(search)) return null;
+  return digits;
+}
+
+/**
+ * 학생 검색 `.or(...)` 표현식. 이름·학교는 입력 그대로 부분일치하고,
+ * 전화번호는 phoneDigitsForSearch 로 정규화해 매칭한다.
+ * 학생 명단의 count/본 쿼리/2단계 fetch 가 동일 식을 써 결과 1:1 일치.
+ */
+function buildStudentSearchOr(search: string): string {
+  const like = `%${search}%`;
+  const digits = phoneDigitsForSearch(search);
+  const phoneClause = digits
+    ? `parent_phone.ilike.%${digits}%`
+    : `parent_phone.ilike.${like}`;
+  return `name.ilike.${like},school.ilike.${like},${phoneClause}`;
+}
+
+/**
  * school_regions 매핑은 거의 정적 (운영자가 가끔 수동 갱신).
  * region → schools 변환을 매 요청마다 페치하지 않도록 service client + 300s 캐시.
  *
@@ -138,10 +168,7 @@ async function listFromSupabase(
     .select("id", { count: "exact", head: true });
 
   if (input.search) {
-    const like = `%${input.search}%`;
-    countQuery = countQuery.or(
-      `name.ilike.${like},school.ilike.${like},parent_phone.ilike.${like}`,
-    );
+    countQuery = countQuery.or(buildStudentSearchOr(input.search));
   }
   if (input.branch && input.branch !== "전체") {
     countQuery = countQuery.eq("branch", input.branch);
@@ -205,10 +232,7 @@ async function listFromSupabase(
   let query = supabase.from("student_profiles").select("*");
 
   if (input.search) {
-    const like = `%${input.search}%`;
-    query = query.or(
-      `name.ilike.${like},school.ilike.${like},parent_phone.ilike.${like}`,
-    );
+    query = query.or(buildStudentSearchOr(input.search));
   }
 
   if (input.branch && input.branch !== "전체") {
@@ -415,10 +439,7 @@ async function fetchTwoStage(args: {
   let idsQuery = supabase.from("crm_students").select("id");
 
   if (input.search) {
-    const like = `%${input.search}%`;
-    idsQuery = idsQuery.or(
-      `name.ilike.${like},school.ilike.${like},parent_phone.ilike.${like}`,
-    );
+    idsQuery = idsQuery.or(buildStudentSearchOr(input.search));
   }
   if (input.branch && input.branch !== "전체") {
     idsQuery = idsQuery.eq("branch", input.branch);
@@ -713,6 +734,7 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
 
   if (input.search) {
     const q = input.search.toLowerCase();
+    const digits = phoneDigitsForSearch(input.search);
     rows = rows.filter((r) => {
       const name = r.name?.toLowerCase() ?? "";
       const school = r.school?.toLowerCase() ?? "";
@@ -720,7 +742,7 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
       return (
         name.includes(q) ||
         school.includes(q) ||
-        phone.includes(input.search)
+        (digits ? phone.includes(digits) : phone.includes(input.search))
       );
     });
   }
