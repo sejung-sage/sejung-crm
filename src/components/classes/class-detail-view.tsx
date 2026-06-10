@@ -89,7 +89,12 @@ export function ClassDetailView({
         />
       )}
 
-      <ClassKpiCards detail={detail} />
+      <ClassKpiCards
+        detail={detail}
+        seminarSignups={
+          isSeminar ? (signupPageDetail?.signed_parents ?? []) : null
+        }
+      />
 
       {isSeminar ? (
         // 설명회: 아카 수강생 vs CRM 신청생 2패널.
