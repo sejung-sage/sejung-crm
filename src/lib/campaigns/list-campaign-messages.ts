@@ -23,6 +23,11 @@ type RawJoined = Omit<CampaignMessageRow, "student_name"> & {
   students: { name: string } | { name: string }[] | null;
 };
 
+// 상세 페이지에 한 번에 로드할 건별 메시지 상한.
+// 단일 캠페인 실수신자는 분원 전체(수천 명) 규모라 이 값이면 실무상 전부 표시.
+// 인덱스(LIMIT) 로 끊으므로 6만 건 캠페인이어도 timeout 없이 안전.
+const MAX_ROWS = 5000;
+
 export async function listCampaignMessages(
   campaignId: string,
 ): Promise<CampaignMessageRow[]> {
@@ -34,18 +39,19 @@ export async function listCampaignMessages(
 
   const supabase = await createSupabaseServerClient();
   // 60K+ 캠페인 상세 페이지 로드 시 statement timeout 회피:
-  //  - .limit(50) 으로 첫 페이지만 받음 (이전 무제한 → 60K 전체 sort 로 8초 timeout)
+  //  - .limit(MAX_ROWS) 로 상한을 둠 (이전 무제한 → 60K 전체 sort 로 8초 timeout).
   //  - 정렬: 최신 발송시각 우선 (created_at DESC) — 0033 인덱스 활용.
-  //    PostgreSQL 기본 인덱스 정렬이 ASC 라 (campaign_id, created_at DESC) 가
-  //    DESC 방향 정렬을 인덱스만으로 처리 → ms 단위 응답.
-  //  - UI 의 CampaignMessagesTable 은 클라이언트 페이지네이션 (50건 안에서만 동작).
-  //    50건 이상 페이지 이동은 추후 server-side paginate (page param) 으로 확장.
+  //    (campaign_id, created_at DESC) 인덱스를 LIMIT 와 함께 쓰면 전체 sort 없이
+  //    앞에서부터 LIMIT 만큼만 읽고 멈춤 → ms 단위 응답.
+  //  - 칩 카운트는 별도 head 쿼리(getCampaignMessageCounts)라 MAX_ROWS 로 잘려도
+  //    전체 건수는 정확히 유지된다.
+  //  - UI 의 CampaignMessagesTable 은 로드된 rows 안에서 클라이언트 페이지네이션.
   const { data, error } = await supabase
     .from("crm_messages")
     .select("*, students:student_id(name)")
     .eq("campaign_id", campaignId)
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(MAX_ROWS);
 
   if (error) {
     throw new Error(`캠페인 메시지 조회에 실패했습니다: ${error.message}`);

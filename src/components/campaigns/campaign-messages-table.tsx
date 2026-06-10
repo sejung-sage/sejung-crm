@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react";
 import type { CampaignMessageRow, MessageStatus } from "@/types/database";
+import type { CampaignMessageCounts } from "@/lib/campaigns/get-campaign-message-counts";
 import { MessageStatusBadge } from "@/components/campaigns/campaign-status-badge";
 import { ResendSingleButton } from "@/components/campaigns/resend-single-button";
 import { formatPhone, maskPhone } from "@/lib/phone";
@@ -9,6 +10,11 @@ import { formatKstDateTime } from "@/lib/datetime";
 
 interface Props {
   rows: CampaignMessageRow[];
+  /**
+   * 상태별 전체 건수 (서버 head 쿼리). 칩 카운트는 rows(로드 상한 있음)가 아니라
+   * 이 값을 신뢰 — 6만 건 캠페인처럼 rows 가 잘려도 칩 수치는 정확히 유지된다.
+   */
+  counts: CampaignMessageCounts;
   /** 학부모 연락처 풀 노출 권한. master 만 true. */
   canRevealPhone?: boolean;
   /** 행별 재발송 권한. false 면 재발송 컬럼 자체를 숨김. */
@@ -37,6 +43,7 @@ const PAGE_SIZE = 50;
  */
 export function CampaignMessagesTable({
   rows,
+  counts,
   canRevealPhone = false,
   canResend = false,
 }: Props) {
@@ -56,12 +63,6 @@ export function CampaignMessagesTable({
   const start = (safePage - 1) * PAGE_SIZE;
   const visible = filtered.slice(start, start + PAGE_SIZE);
 
-  const counts = useMemo(() => {
-    const c = { 대기: 0, 발송됨: 0, 도달: 0, 실패: 0 };
-    for (const r of rows) c[r.status]++;
-    return c;
-  }, [rows]);
-
   const onFilterChange = (v: "ALL" | MessageStatus) => {
     setStatusFilter(v);
     setPage(1);
@@ -74,7 +75,7 @@ export function CampaignMessagesTable({
         {STATUS_CHIPS.map((chip) => {
           const active = statusFilter === chip.value;
           const count =
-            chip.value === "ALL" ? rows.length : counts[chip.value];
+            chip.value === "ALL" ? counts.total : counts[chip.value];
           return (
             <button
               key={chip.value}

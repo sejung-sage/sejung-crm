@@ -242,6 +242,7 @@ export function CampaignDetailView({
 
         <CampaignMessagesTable
           rows={messages}
+          counts={counts}
           canRevealPhone={canRevealPhone}
           canResend={canResend}
         />
