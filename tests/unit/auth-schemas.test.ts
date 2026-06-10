@@ -45,6 +45,7 @@ describe("CreateAccountInputSchema", () => {
     const r = CreateAccountInputSchema.safeParse({
       email: "new@example.com",
       name: "홍길동",
+      password: "sejung1234",
       role: "manager",
       branch: "대치",
     });
@@ -55,6 +56,7 @@ describe("CreateAccountInputSchema", () => {
     const r = CreateAccountInputSchema.safeParse({
       email: "bad",
       name: "홍길동",
+      password: "sejung1234",
       role: "manager",
       branch: "대치",
     });
@@ -65,6 +67,7 @@ describe("CreateAccountInputSchema", () => {
     const r = CreateAccountInputSchema.safeParse({
       email: "new@example.com",
       name: "",
+      password: "sejung1234",
       role: "manager",
       branch: "대치",
     });
@@ -75,6 +78,29 @@ describe("CreateAccountInputSchema", () => {
     const r = CreateAccountInputSchema.safeParse({
       email: "new@example.com",
       name: "가".repeat(21),
+      password: "sejung1234",
+      role: "manager",
+      branch: "대치",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("실패: password 8자 미만", () => {
+    const r = CreateAccountInputSchema.safeParse({
+      email: "new@example.com",
+      name: "홍길동",
+      password: "se12",
+      role: "manager",
+      branch: "대치",
+    });
+    expect(r.success).toBe(false);
+  });
+
+  it("실패: password 숫자 없음", () => {
+    const r = CreateAccountInputSchema.safeParse({
+      email: "new@example.com",
+      name: "홍길동",
+      password: "onlyletters",
       role: "manager",
       branch: "대치",
     });
@@ -85,6 +111,7 @@ describe("CreateAccountInputSchema", () => {
     const r = CreateAccountInputSchema.safeParse({
       email: "new@example.com",
       name: "홍길동",
+      password: "sejung1234",
       role: "superuser",
       branch: "대치",
     });
@@ -95,6 +122,7 @@ describe("CreateAccountInputSchema", () => {
     const r = CreateAccountInputSchema.safeParse({
       email: "new@example.com",
       name: "홍길동",
+      password: "sejung1234",
       role: "manager",
       branch: "",
     });

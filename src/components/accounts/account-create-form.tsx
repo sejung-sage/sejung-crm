@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
-import { Mail, Loader2 } from "lucide-react";
+import { KeyRound, Loader2 } from "lucide-react";
 import type { UserRole } from "@/types/database";
 import { CreateAccountInputSchema } from "@/lib/schemas/auth";
 import { createAccountAction } from "@/app/(features)/accounts/actions";
@@ -55,6 +55,7 @@ export function AccountCreateForm({
 
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>(roleOptions[0].value);
   const [branch, setBranch] = useState<string>(
     currentUserRole === "master" ? "대치" : currentUserBranch,
@@ -69,6 +70,7 @@ export function AccountCreateForm({
     const parsed = CreateAccountInputSchema.safeParse({
       email: email.trim(),
       name: name.trim(),
+      password,
       role,
       branch,
     });
@@ -93,6 +95,7 @@ export function AccountCreateForm({
       const result = await createAccountAction({
         email: email.trim(),
         name: name.trim(),
+        password,
         role,
         branch,
       });
@@ -137,25 +140,28 @@ export function AccountCreateForm({
         </div>
       )}
 
-      {/* 초대 안내 */}
+      {/* 발급 안내 */}
       <div
         className="
           flex gap-3 rounded-lg
-          border border-[color:var(--warning)]
-          bg-[color:var(--warning-bg)]
+          border border-[color:var(--border)]
+          bg-[color:var(--bg-muted)]
           px-4 py-3
         "
         role="note"
       >
-        <Mail
-          className="size-5 shrink-0 text-[color:var(--warning)] mt-0.5"
+        <KeyRound
+          className="size-5 shrink-0 text-[color:var(--text-muted)] mt-0.5"
           strokeWidth={1.75}
           aria-hidden
         />
         <div className="text-[13px] text-[color:var(--text)] leading-relaxed">
-          <p className="font-medium">계정 생성 시 초대 메일이 자동 발송됩니다.</p>
+          <p className="font-medium">
+            아이디(이메일)와 비밀번호를 직접 정해 바로 발급합니다.
+          </p>
           <p className="mt-1 text-[color:var(--text-muted)]">
-            초대받은 사용자는 첫 로그인 시 비밀번호를 변경해야 합니다.
+            메일 인증 없이 즉시 로그인할 수 있습니다. 발급한 비밀번호를 사용자에게
+            직접 전달하세요.
           </p>
         </div>
       </div>
@@ -163,9 +169,9 @@ export function AccountCreateForm({
       {/* 이메일 */}
       <Field
         id="acc-email"
-        label="이메일"
+        label="이메일 (로그인 아이디)"
         error={fieldErrors.email}
-        hint="이 이메일로 초대 메일이 발송됩니다. 이후 변경할 수 없습니다."
+        hint="로그인 아이디로 사용됩니다. 이후 변경할 수 없습니다."
       >
         <input
           id="acc-email"
@@ -176,6 +182,25 @@ export function AccountCreateForm({
           inputMode="email"
           placeholder="name@example.com"
           maxLength={120}
+          className={inputClass}
+        />
+      </Field>
+
+      {/* 비밀번호 */}
+      <Field
+        id="acc-password"
+        label="비밀번호"
+        error={fieldErrors.password}
+        hint="8자 이상, 영문과 숫자를 포함하세요. 사용자에게 그대로 전달됩니다."
+      >
+        <input
+          id="acc-password"
+          type="text"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          autoComplete="off"
+          placeholder="예: sejung1234"
+          maxLength={72}
           className={inputClass}
         />
       </Field>
@@ -284,7 +309,7 @@ export function AccountCreateForm({
           {isPending && (
             <Loader2 className="size-4 animate-spin" strokeWidth={2} aria-hidden />
           )}
-          {isPending ? "생성 중..." : "계정 생성하고 초대 보내기"}
+          {isPending ? "생성 중..." : "계정 생성"}
         </button>
       </div>
     </form>

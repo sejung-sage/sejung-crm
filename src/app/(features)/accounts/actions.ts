@@ -8,9 +8,9 @@
  *   - 권한 가드: 모든 계정 액션은 master 전용.
  *     · master  : 전 분원 계정 관리.
  *     · 그 외   : 거부.
- *   - 계정 생성: Supabase Admin API `inviteUserByEmail` 사용.
- *     → auth.users 행 생성 + 임시 비밀번호 설정 메일 발송.
- *     → 반환된 user.id 로 users_profile INSERT (must_change_password=true).
+ *   - 계정 생성: Supabase Admin API `admin.createUser` 사용 (초대 메일 없음).
+ *     → email_confirm=true 로 auth.users 행 + 비밀번호 즉시 생성.
+ *     → 반환된 user.id 로 users_profile INSERT (must_change_password=false).
  *   - 계정 수정:
  *     · role/branch 모두 master 가 자유롭게 변경.
  *   - 자기 자신 비활성화/role 강등 금지.
@@ -143,21 +143,23 @@ export async function createAccountAction(
     return { status: "failed", reason: guard.reason };
   }
 
-  // 5) Service role 로 invite
+  // 5) Service role 로 계정 직접 생성 (초대 메일 없이 비밀번호 즉시 발급)
   const svc = createSupabaseServiceClient();
-  const { data, error } = await svc.auth.admin.inviteUserByEmail(payload.email);
+  const { data, error } = await svc.auth.admin.createUser({
+    email: payload.email,
+    password: payload.password,
+    email_confirm: true,
+  });
 
   if (error || !data.user) {
     // Supabase 가 반환하는 message 를 그대로 노출하지 않고 사례별 한글화.
     const msg = (error?.message ?? "").toLowerCase();
-    if (msg.includes("already") || msg.includes("registered")) {
+    if (
+      msg.includes("already") ||
+      msg.includes("registered") ||
+      msg.includes("exists")
+    ) {
       return { status: "failed", reason: "이미 등록된 이메일입니다" };
-    }
-    if (msg.includes("rate")) {
-      return {
-        status: "failed",
-        reason: "초대 메일 발송이 잠시 제한되었습니다. 잠시 후 다시 시도하세요",
-      };
     }
     return {
       status: "failed",
@@ -175,7 +177,7 @@ export async function createAccountAction(
     role: payload.role,
     branch: payload.branch,
     active: true,
-    must_change_password: true,
+    must_change_password: false,
   };
 
   const { error: insertErr } = await (

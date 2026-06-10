@@ -22,15 +22,22 @@ export const LoginInputSchema = z.object({
 
 export type LoginInput = z.infer<typeof LoginInputSchema>;
 
-// ─── 계정 생성 (초대) ────────────────────────────────────────
+// ─── 계정 생성 (직접 발급) ───────────────────────────────────
 //
-// master/admin 이 /accounts/new 에서 입력.
-// 서버에서 Supabase Admin API 로 auth.users 생성 + 임시 비밀번호 메일 발송 후
-// users_profile 에 must_change_password=TRUE 로 insert.
+// master 가 /accounts/new 에서 입력.
+// 서버에서 Supabase Admin API 로 auth.users 를 비밀번호와 함께 즉시 생성
+// (email_confirm=true, 초대 메일 없음). users_profile 에
+// must_change_password=FALSE 로 insert — 입력한 비밀번호를 그대로 전달해 사용.
 
 export const CreateAccountInputSchema = z.object({
   email: z.string().trim().email("이메일 형식이 올바르지 않습니다"),
   name: z.string().trim().min(1, "이름은 필수입니다").max(20, "이름은 20자 이하입니다"),
+  password: z
+    .string()
+    .min(8, "비밀번호는 8자 이상입니다")
+    .max(72, "비밀번호는 72자 이하입니다")
+    .regex(/[A-Za-z]/, "영문을 포함해야 합니다")
+    .regex(/[0-9]/, "숫자를 포함해야 합니다"),
   role: UserRoleSchema,
   branch: z.string().trim().min(1, "분원은 필수입니다").max(20, "분원은 20자 이하입니다"),
 });

@@ -25,6 +25,7 @@ describe("Account Server Actions · dev-seed 조기 반환", () => {
     const r = await createAccountAction({
       email: "a@b.com",
       name: "테스트",
+      password: "sejung1234",
       role: "manager",
       branch: "대치",
     });
