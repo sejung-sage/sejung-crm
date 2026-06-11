@@ -17,6 +17,10 @@ export interface ClassSignupParentRow {
   item_id: string;
   student_id: string;
   student_name: string;
+  /** 학생 학교 — 인쇄용 명단 표기에 사용. */
+  school: string | null;
+  /** 학생 학년 — 인쇄용 명단 표기에 사용. */
+  grade: string | null;
   parent_phone: string | null;
   signed_at: string;
 }
@@ -95,7 +99,13 @@ export async function getClassSignupPage(
     invitation: {
       id: string;
       student_id: string;
-      student: { id: string; name: string; parent_phone: string | null } | null;
+      student: {
+        id: string;
+        name: string;
+        school: string | null;
+        grade: string | null;
+        parent_phone: string | null;
+      } | null;
     } | null;
   };
   const { data: itemRows, error: itemError } = (await supabase
@@ -105,7 +115,7 @@ export async function getClassSignupPage(
        invitation:crm_class_signup_invitations!inner(
          id,
          student_id,
-         student:crm_students!inner(id, name, parent_phone)
+         student:crm_students!inner(id, name, school, grade, parent_phone)
        )`,
     )
     .eq("signup_page_id", pageData.id)
@@ -136,6 +146,8 @@ export async function getClassSignupPage(
         item_id: r.id,
         student_id: r.invitation.student.id,
         student_name: r.invitation.student.name,
+        school: r.invitation.student.school,
+        grade: r.invitation.student.grade,
         parent_phone: r.invitation.student.parent_phone,
         signed_at: r.signed_at,
       });
