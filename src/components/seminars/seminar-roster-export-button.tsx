@@ -97,7 +97,7 @@ export function SeminarRosterExportButton({
         disabled:opacity-50 disabled:cursor-not-allowed
         transition-colors
       "
-      title={total === 0 ? "내보낼 명단이 없습니다" : "아카·CRM 명단을 엑셀로 받기"}
+      title={total === 0 ? "내보낼 명단이 없습니다" : undefined}
     >
       <Download className="size-4" strokeWidth={1.75} aria-hidden />
       {busy ? "내보내는 중..." : "엑셀 다운로드"}

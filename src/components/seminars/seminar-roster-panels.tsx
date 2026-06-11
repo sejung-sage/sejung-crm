@@ -62,9 +62,7 @@ export function SeminarRosterPanels({
                 <span className="font-medium text-[15px] text-[color:var(--text)] truncate">
                   {p.student_name}
                 </span>
-                {acaStudentIds.has(p.student_id) && (
-                  <Badge>아카에도 등록</Badge>
-                )}
+                {acaStudentIds.has(p.student_id) && <Badge>중복</Badge>}
                 <span className="text-[13px] text-[color:var(--text-muted)] tabular-nums">
                   {p.parent_phone
                     ? canRevealPhone
@@ -106,7 +104,7 @@ export function SeminarRosterPanels({
                 >
                   {s.name}
                 </Link>
-                {signupStudentIds.has(s.id) && <Badge>신청함</Badge>}
+                {signupStudentIds.has(s.id) && <Badge>중복</Badge>}
                 <span className="text-[13px] text-[color:var(--text-muted)] truncate">
                   {formatSchoolGrade(s.school, s.grade)}
                 </span>
