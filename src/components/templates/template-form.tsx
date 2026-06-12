@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { AlertTriangle, Megaphone, Send } from "lucide-react";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { byteProgress, countEucKrBytes } from "@/lib/messaging/sms-bytes";
+import { insertAdSubjectTag } from "@/lib/messaging/guards";
 import {
   createTemplateAction,
   updateTemplateAction,
@@ -127,7 +128,10 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
     if (subjectRequired && !subject.trim()) {
       errs.subject = "LMS 는 제목이 필수입니다";
     }
-    if (subjectRequired && countEucKrBytes(subject) > 40) {
+    if (
+      subjectRequired &&
+      countEucKrBytes(insertAdSubjectTag(subject, isAd) ?? "") > 40
+    ) {
       errs.subject = "제목은 40byte 이내 (한글 20자 / 영문 40자)";
     }
     if (!body.trim()) errs.body = "본문은 필수입니다";
@@ -317,8 +321,10 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
             </label>
             {subjectRequired && (() => {
               // LMS 제목 EUC-KR byte 기준 40byte (사용자 정책 2026-05-22).
-              // 한글 1자 = 2byte / 영문 1자 = 1byte.
-              const sbBytes = countEucKrBytes(subject);
+              // 한글 1자 = 2byte / 영문 1자 = 1byte. 광고면 (광고) prefix 포함.
+              const sbBytes = countEucKrBytes(
+                insertAdSubjectTag(subject, isAd) ?? "",
+              );
               const sbOver = sbBytes > 40;
               return (
                 <span
