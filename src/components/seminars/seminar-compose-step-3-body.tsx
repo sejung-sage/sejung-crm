@@ -111,7 +111,11 @@ export function SeminarComposeStep3Body({
   const isOverLimit = projectedBytes > limit;
 
   // 광고면 제목 앞 (광고) 가 발송 시 붙으므로 바이트에도 포함해 센다.
+  // 빈 제목이어도 광고면 "(광고) " prefix 바이트를 표시한다(0 으로 보이지 않게).
   const subjectBytes = useMemo(() => {
+    if (state.isAd && (state.subject ?? "").trim().length === 0) {
+      return countEucKrBytes("(광고) ");
+    }
     const s = insertAdSubjectTag(state.subject, state.isAd);
     return s ? countEucKrBytes(s) : 0;
   }, [state.subject, state.isAd]);
