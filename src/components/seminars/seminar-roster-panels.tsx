@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Link2, GraduationCap } from "lucide-react";
 import type { ClassStudentRow } from "@/types/database";
 import type { ClassSignupParentRow } from "@/lib/seminars/get-class-signup-page";
-import { formatPhone, maskPhone } from "@/lib/phone";
+import { formatPhone } from "@/lib/phone";
 import { formatKstDateTime } from "@/lib/datetime";
 
 interface Props {
@@ -10,8 +10,6 @@ interface Props {
   acaStudents: ClassStudentRow[];
   /** CRM 공개 신청 페이지에서 신청 완료(signed)한 학부모/학생. */
   crmSignups: ClassSignupParentRow[];
-  /** 학부모 연락처 풀 노출 권한. master 만 true. */
-  canRevealPhone: boolean;
 }
 
 /**
@@ -30,7 +28,6 @@ interface Props {
 export function SeminarRosterPanels({
   acaStudents,
   crmSignups,
-  canRevealPhone,
 }: Props) {
   // 교집합 판정용 Set — 양방향.
   const acaStudentIds = new Set(acaStudents.map((s) => s.id));
@@ -63,12 +60,10 @@ export function SeminarRosterPanels({
                   {p.student_name}
                 </span>
                 {acaStudentIds.has(p.student_id) && <Badge>중복</Badge>}
+                {/* 설명회 명단은 호명·연락 용도라 전체 번호 노출(마스킹 없음).
+                    엑셀 다운로드와 동일 정책. */}
                 <span className="text-[13px] text-[color:var(--text-muted)] tabular-nums">
-                  {p.parent_phone
-                    ? canRevealPhone
-                      ? formatPhone(p.parent_phone) || "—"
-                      : maskPhone(p.parent_phone)
-                    : "—"}
+                  {p.parent_phone ? formatPhone(p.parent_phone) || "—" : "—"}
                 </span>
                 <div className="flex-1" />
                 <span className="text-[12px] text-[color:var(--text-dim)] tabular-nums shrink-0">
