@@ -130,7 +130,6 @@ export function ClassDetailView({
           <ClassRoster
             allStudents={detail.students}
             sessions={sessions ?? { sessions: [], totalSessions: 0 }}
-            classId={detail.class.id}
             canSend={canSendToClass}
             canRevealPhone={canRevealPhone}
           />

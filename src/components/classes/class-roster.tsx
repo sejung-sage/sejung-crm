@@ -6,13 +6,13 @@ import { CalendarDays, Send } from "lucide-react";
 import type { ClassStudentRow } from "@/types/database";
 import type { ClassSessionsResult } from "@/lib/classes/get-class-sessions";
 import { formatPhone, maskPhone } from "@/lib/phone";
+import { ClassSendModal } from "@/components/classes/class-send-modal";
 
 interface Props {
   /** 전체(등록) 수강생 — enrollment 기준, 출결 카운트 포함. */
   allStudents: ClassStudentRow[];
   /** 회차(날짜)별 수강생 — aca_tickets 기준. 회차 없으면 빈 결과 → 회차 탭 미표시. */
   sessions: ClassSessionsResult;
-  classId: string;
   /** 발송 권한(write/group). 발송 버튼·체크박스 노출. */
   canSend: boolean;
   /** 학부모 연락처 풀 노출 권한(master). false 면 마스킹. */
@@ -46,7 +46,6 @@ const ALL_KEY = "all";
 export function ClassRoster({
   allStudents,
   sessions,
-  classId,
   canSend,
   canRevealPhone,
 }: Props) {
@@ -111,18 +110,26 @@ export function ClassRoster({
     setExcluded(allChecked ? new Set(sendableIds) : new Set());
   };
 
-  const sendHref = useMemo(() => {
-    const base = isAll
-      ? `/groups/new?class=${classId}`
-      : `/groups/new?class=${classId}&sessionDate=${selectedSession?.date ?? ""}`;
-    const excludedIds = sendableIds.filter((id) => excluded.has(id));
-    if (excludedIds.length === 0) return base;
-    const includedIds = sendableIds.filter((id) => !excluded.has(id));
-    // URL 길이 방어: 더 짧은 쪽(include/exclude)만 싣는다.
-    return excludedIds.length <= includedIds.length
-      ? `${base}&exclude=${excludedIds.join(",")}`
-      : `${base}&include=${includedIds.join(",")}`;
-  }, [isAll, classId, selectedSession, sendableIds, excluded]);
+  // 발송 모달에 넘길 선택 학생(체크된 발송 가능 학생) → {name, phone}.
+  const selectedRecipients = useMemo(
+    () =>
+      rows
+        .filter(
+          (r) =>
+            r.id !== null &&
+            !!r.parent_phone &&
+            !excluded.has(r.id as string),
+        )
+        .map((r) => ({ name: r.name, phone: r.parent_phone as string })),
+    [rows, excluded],
+  );
+
+  const [sendOpen, setSendOpen] = useState(false);
+  const contextLabel = isAll
+    ? "전체 수강생"
+    : selectedSession
+      ? `${selectedSession.sessionNo}회차 · ${formatMonthDay(selectedSession.date)}`
+      : "";
 
   const phoneCell = (raw: string | null) =>
     raw ? (canRevealPhone ? formatPhone(raw) || raw : maskPhone(raw)) : "—";
@@ -179,25 +186,33 @@ export function ClassRoster({
         </span>
         <div className="flex-1" />
         {selectable && (
-          <Link
-            href={sendHref}
-            aria-disabled={selectedCount === 0}
-            tabIndex={selectedCount === 0 ? -1 : undefined}
+          <button
+            type="button"
+            onClick={() => setSendOpen(true)}
+            disabled={selectedCount === 0}
             className={`
               inline-flex items-center gap-1.5 h-9 px-3 rounded-lg shrink-0
               text-[13px] font-medium transition-colors
               ${
                 selectedCount === 0
-                  ? "bg-[color:var(--bg-muted)] text-[color:var(--text-dim)] pointer-events-none"
+                  ? "bg-[color:var(--bg-muted)] text-[color:var(--text-dim)] cursor-not-allowed"
                   : "bg-[color:var(--action)] text-[color:var(--action-text)] hover:bg-[color:var(--action-hover)]"
               }
             `}
           >
             <Send className="size-4" strokeWidth={1.75} aria-hidden />
             {isAll ? "선택 학생에게 문자 발송" : "이 회차로 문자 발송"}
-          </Link>
+          </button>
         )}
       </div>
+
+      {sendOpen && selectedRecipients.length > 0 && (
+        <ClassSendModal
+          recipients={selectedRecipients}
+          contextLabel={contextLabel}
+          onClose={() => setSendOpen(false)}
+        />
+      )}
 
       {/* 표 */}
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-x-auto">
