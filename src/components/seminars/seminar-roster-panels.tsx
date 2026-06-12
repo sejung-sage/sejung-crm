@@ -2,15 +2,12 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, GraduationCap, ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
+import { Link2, GraduationCap, ArrowRight, Loader2 } from "lucide-react";
 import type { ClassStudentRow } from "@/types/database";
 import type { ClassSignupParentRow } from "@/lib/seminars/get-class-signup-page";
 import { formatPhone } from "@/lib/phone";
 import { formatKstDateTime } from "@/lib/datetime";
-import {
-  addManualSignupAction,
-  cancelSignupAction,
-} from "@/app/(features)/seminars/actions";
+import { cancelSignupAction } from "@/app/(features)/seminars/actions";
 import { useToast } from "@/components/ui/toast";
 
 interface Props {
@@ -18,8 +15,6 @@ interface Props {
   acaStudents: ClassStudentRow[];
   /** CRM 공개 신청 페이지에서 신청 완료(signed)한 학부모/학생. */
   crmSignups: ClassSignupParentRow[];
-  /** 이 설명회(강좌)의 신청 페이지 id. 없으면(미생성) 수동 추가/제외 비활성. */
-  signupPageId: string | null;
   /** 운영자 수동 편집 권한(write/group). false 면 보기 전용. */
   canManage: boolean;
 }
@@ -34,23 +29,19 @@ interface UnionRow {
   crm: boolean;
 }
 
-type Selected =
-  | { side: "crm"; id: string; itemId: string }
-  | { side: "all"; id: string }
-  | null;
+/** 선택된 CRM 신청생 (제외 대상). */
+type Selected = { id: string; itemId: string } | null;
 
 /**
  * 설명회 상세 명단 — 좌: CRM 신청생 / 우: 전체 데이터(아카 ∪ CRM, aca·crm 컬럼).
  *
- * 운영자(canManage)는 가운데 ◀▶ 로 학생을 옮긴다:
- *  - ◀ : 전체 데이터에서 선택 → CRM 신청생에 수동 추가(addManualSignupAction).
- *  - ▶ : CRM 신청생에서 선택 → 신청 제외(cancelSignupAction).
- * (학생, 설명회) 단위라 이미 신청된 학생은 중복 추가되지 않는다(서버 멱등).
+ * 운영자(canManage)는 CRM 신청생을 선택하고 ▶ 로 신청 명단에서 제외할 수 있다
+ * (cancelSignupAction). 제외하면 그 학생은 CRM 신청생에서 빠지고 전체 데이터에만
+ * 남는다(아카 등록이면). 수동 추가는 제공하지 않는다 — 실제 신청만 명단에 든다.
  */
 export function SeminarRosterPanels({
   acaStudents,
   crmSignups,
-  signupPageId,
   canManage,
 }: Props) {
   const router = useRouter();
@@ -100,32 +91,10 @@ export function SeminarRosterPanels({
     );
   }, [acaStudents, crmSignups, signupStudentIds, acaStudentIds]);
 
-  const manageable = canManage && !!signupPageId;
-  const canAdd =
-    manageable &&
-    selected?.side === "all" &&
-    !signupStudentIds.has(selected.id);
-  const canRemove = manageable && selected?.side === "crm";
-
-  const doAdd = () => {
-    if (!canAdd || !signupPageId || selected?.side !== "all") return;
-    const studentId = selected.id;
-    startTransition(async () => {
-      const r = await addManualSignupAction({ signupPageId, studentId });
-      if (r.status === "success") {
-        show("success", "신청 명단에 추가했습니다.");
-        setSelected(null);
-        router.refresh();
-      } else if (r.status === "dev_seed_mode") {
-        show("error", "개발 시드 모드라 반영되지 않습니다.");
-      } else {
-        show("error", r.reason);
-      }
-    });
-  };
+  const canRemove = canManage && selected !== null;
 
   const doRemove = () => {
-    if (!canRemove || selected?.side !== "crm") return;
+    if (!canRemove || !selected) return;
     const itemId = selected.itemId;
     startTransition(async () => {
       const r = await cancelSignupAction({ signup_id: itemId });
@@ -143,7 +112,7 @@ export function SeminarRosterPanels({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto_1fr] gap-4 items-start">
-      {/* 좌 — CRM 신청생 */}
+      {/* 좌 — CRM 신청생 (선택 → ▶ 로 제외) */}
       <Panel
         icon={
           <Link2
@@ -160,19 +129,14 @@ export function SeminarRosterPanels({
         ) : (
           <ul className="divide-y divide-[color:var(--border)]">
             {crmSignups.map((p) => {
-              const isSel =
-                selected?.side === "crm" && selected.id === p.student_id;
+              const isSel = selected?.itemId === p.item_id;
               return (
                 <Row
                   key={p.item_id}
-                  selectable={manageable}
+                  selectable={canManage}
                   selected={isSel}
                   onSelect={() =>
-                    setSelected({
-                      side: "crm",
-                      id: p.student_id,
-                      itemId: p.item_id,
-                    })
+                    setSelected({ id: p.student_id, itemId: p.item_id })
                   }
                 >
                   <span className="font-medium text-[15px] text-[color:var(--text)] truncate">
@@ -193,27 +157,19 @@ export function SeminarRosterPanels({
         )}
       </Panel>
 
-      {/* 중앙 — 이동 화살표 (운영자 + 신청 페이지 있을 때만) */}
-      {manageable && (
-        <div className="flex flex-row lg:flex-col items-center justify-center gap-2 lg:self-center py-1">
+      {/* 중앙 — 제외 화살표 (CRM 신청생 → 전체 데이터). 운영자만. */}
+      {canManage && (
+        <div className="flex items-center justify-center lg:self-center py-1">
           <ArrowBtn
-            label="선택 학생을 신청 명단에 추가"
-            disabled={!canAdd || isPending}
-            busy={isPending && selected?.side === "all"}
-            onClick={doAdd}
-            dir="left"
-          />
-          <ArrowBtn
-            label="선택 학생을 신청 명단에서 제외"
+            label="선택한 신청생을 신청 명단에서 제외"
             disabled={!canRemove || isPending}
-            busy={isPending && selected?.side === "crm"}
+            busy={isPending}
             onClick={doRemove}
-            dir="right"
           />
         </div>
       )}
 
-      {/* 우 — 전체 데이터 (아카 ∪ CRM, aca·crm 컬럼) */}
+      {/* 우 — 전체 데이터 (아카 ∪ CRM, aca·crm 컬럼). 보기 전용. */}
       <Panel
         icon={
           <GraduationCap
@@ -229,36 +185,27 @@ export function SeminarRosterPanels({
           <EmptyRow message="명단이 비어 있습니다." />
         ) : (
           <ul className="divide-y divide-[color:var(--border)]">
-            {allRows.map((r) => {
-              const isSel = selected?.side === "all" && selected.id === r.id;
-              return (
-                <Row
-                  key={r.id}
-                  selectable={manageable}
-                  selected={isSel}
-                  onSelect={() => setSelected({ side: "all", id: r.id })}
-                >
-                  <span className="font-medium text-[15px] text-[color:var(--text)] truncate">
-                    {r.name}
-                  </span>
-                  <span className="text-[13px] text-[color:var(--text-muted)] truncate">
-                    {formatSchoolGrade(r.school, r.grade)}
-                  </span>
-                  <div className="flex-1" />
-                  {/* aca / crm 컬럼 */}
-                  <SourceCell on={r.aca}>아카</SourceCell>
-                  <SourceCell on={r.crm}>신청</SourceCell>
-                </Row>
-              );
-            })}
+            {allRows.map((r) => (
+              <Row key={r.id} selectable={false} selected={false} onSelect={() => {}}>
+                <span className="font-medium text-[15px] text-[color:var(--text)] truncate">
+                  {r.name}
+                </span>
+                <span className="text-[13px] text-[color:var(--text-muted)] truncate">
+                  {formatSchoolGrade(r.school, r.grade)}
+                </span>
+                <div className="flex-1" />
+                <SourceCell on={r.aca}>아카</SourceCell>
+                <SourceCell on={r.crm}>신청</SourceCell>
+              </Row>
+            ))}
           </ul>
         )}
       </Panel>
 
-      {manageable && (
+      {canManage && (
         <p className="lg:col-span-3 text-[12px] text-[color:var(--text-muted)]">
-          학생을 선택하고 ◀ 로 신청 명단에 추가, ▶ 로 신청 명단에서 제외할 수
-          있습니다. (한 명씩, 이미 신청한 학생은 중복 추가되지 않습니다.)
+          CRM 신청생을 선택하고 ▶ 로 신청 명단에서 제외할 수 있습니다. (제외해도
+          전체 데이터에는 남습니다.)
         </p>
       )}
     </div>
@@ -334,15 +281,13 @@ function ArrowBtn({
   disabled,
   busy,
   onClick,
-  dir,
 }: {
   label: string;
   disabled: boolean;
   busy: boolean;
   onClick: () => void;
-  dir: "left" | "right";
 }) {
-  const Icon = busy ? Loader2 : dir === "left" ? ArrowLeft : ArrowRight;
+  const Icon = busy ? Loader2 : ArrowRight;
   return (
     <button
       type="button"
