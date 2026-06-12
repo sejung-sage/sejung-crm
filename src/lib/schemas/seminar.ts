@@ -248,6 +248,51 @@ export type UpsertClassSignupPageInput = z.infer<
   typeof UpsertClassSignupPageInputSchema
 >;
 
+// ─── CRM 내부 설명회 생성 (아카 ETL 없이 운영자가 직접) ──────
+//
+// crm_classes 에 aca_class_id=NULL, subject='설명회' 로 INSERT 하고,
+// 생성 직후 공개 신청 페이지(status='open')를 함께 만든다.
+// 일시(held_at)·정원(capacity)·설명(description)은 선택.
+export const CreateSeminarInputSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(1, "설명회명은 필수입니다")
+    .max(100, "설명회명은 100자 이내로 입력하세요"),
+  branch: z
+    .string()
+    .trim()
+    .min(1, "분원은 필수입니다")
+    .max(20, "분원명은 20자 이내로 입력하세요"),
+  held_at: z
+    .union([z.string(), z.null(), z.undefined()])
+    .transform((v) => {
+      if (v === null || v === undefined) return null;
+      const t = v.trim();
+      return t === "" ? null : t;
+    })
+    .pipe(z.string().nullable()),
+  capacity: z
+    .union([z.number(), z.null(), z.undefined()])
+    .transform((v) => (v === undefined ? null : v))
+    .pipe(
+      z
+        .number()
+        .int("정원은 정수여야 합니다")
+        .positive("정원은 양수여야 합니다")
+        .nullable(),
+    ),
+  description: z
+    .union([z.string(), z.null(), z.undefined()])
+    .transform((v) => {
+      if (v === null || v === undefined) return null;
+      const t = v.trim();
+      return t === "" ? null : t;
+    })
+    .pipe(z.string().max(2000, "설명은 2000자 이내").nullable()),
+});
+export type CreateSeminarInput = z.infer<typeof CreateSeminarInputSchema>;
+
 // ─── 운영자 — invitation 카드 단건 취소 (0084 새 모델) ─────
 
 /**

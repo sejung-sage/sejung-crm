@@ -3,6 +3,7 @@ import {
   createSeminarBroadcastAction,
   claimInvitationItemAction,
   cancelSignupAction,
+  createSeminarAction,
 } from "@/app/(features)/seminars/actions";
 import type {
   CreateBroadcastInput,
@@ -78,6 +79,18 @@ describe("seminar invitation Server Actions · dev-seed 조기 반환", () => {
     });
   });
 
+  describe("createSeminarAction (CRM 내부 설명회 생성)", () => {
+    it("정상 입력이어도 dev-seed 면 dev_seed_mode", async () => {
+      const r = await createSeminarAction({
+        name: "2026 고1 입시설명회",
+        branch: "대치",
+        held_at: "2026-06-20T14:00",
+        capacity: 50,
+        description: "장소 안내",
+      });
+      expect(r.status).toBe("dev_seed_mode");
+    });
+  });
 });
 
 // ─── dev-seed OFF · Zod / 입력 가드 ─────────────────────────
@@ -168,6 +181,36 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
       if (r.status === "failed") {
         // 0084 새 모델: "강좌 ID 가 유효하지 않습니다" 메시지.
         expect(r.reason).toContain("강좌");
+      }
+    });
+  });
+
+  describe("createSeminarAction", () => {
+    it("설명회명 빈값 → failed (Zod)", async () => {
+      const r = await createSeminarAction({
+        name: "   ",
+        branch: "대치",
+        held_at: null,
+        capacity: null,
+        description: null,
+      });
+      expect(r.status).toBe("failed");
+      if (r.status === "failed") {
+        expect(r.reason).toContain("설명회명");
+      }
+    });
+
+    it("정원이 음수 → failed (Zod)", async () => {
+      const r = await createSeminarAction({
+        name: "정상 설명회",
+        branch: "대치",
+        held_at: null,
+        capacity: -5,
+        description: null,
+      });
+      expect(r.status).toBe("failed");
+      if (r.status === "failed") {
+        expect(r.reason).toContain("정원");
       }
     });
   });

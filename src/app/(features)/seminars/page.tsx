@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { Plus } from "lucide-react";
 import { listSeminars } from "@/lib/seminars/list-seminars";
 import { parseClassSearchParams } from "@/lib/schemas/class";
 import { applyBranchContextToParams } from "@/lib/auth/branch-context";
@@ -34,6 +36,9 @@ export default async function SeminarsPage({
   ]);
   const devMode = isDevSeedMode();
   const canPickBranch = currentUser?.role === "master";
+  // CRM 내부 설명회 생성 진입 — master/admin 만(설명회=강좌 write 권한).
+  const canCreate =
+    currentUser?.role === "master" || currentUser?.role === "admin";
 
   // 행별 "발송" 액션 노출 게이팅 — 강좌 리스트와 동일 기준(write/group).
   // master 는 전체(null), admin 은 본인 분원만, 그 외는 빈 배열(미노출).
@@ -45,13 +50,24 @@ export default async function SeminarsPage({
   return (
     <div className="max-w-7xl space-y-6">
       {/* 페이지 헤더 */}
-      <header>
-        <h1 className="text-[20px] font-semibold text-[color:var(--text)]">
-          설명회
-        </h1>
-        <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-          설명회를 모아 보고 신청 현황을 확인할 수 있습니다.
-        </p>
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-[20px] font-semibold text-[color:var(--text)]">
+            설명회
+          </h1>
+          <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
+            설명회를 모아 보고 신청 현황을 확인할 수 있습니다.
+          </p>
+        </div>
+        {canCreate && (
+          <Link
+            href="/seminars/new"
+            className="inline-flex shrink-0 items-center gap-1.5 h-10 px-4 rounded-lg bg-[color:var(--action)] text-[color:var(--action-text)] text-[14px] font-medium hover:bg-[color:var(--action-hover)] transition-colors"
+          >
+            <Plus className="size-4" strokeWidth={2} aria-hidden />
+            설명회 만들기
+          </Link>
+        )}
       </header>
 
       {/* 슬림 툴바 (검색 + 분원) */}

@@ -28,10 +28,12 @@ import {
   CancelSignupInputSchema,
   CreateBroadcastInputSchema,
   ClaimInvitationItemInputSchema,
+  CreateSeminarInputSchema,
   UpsertClassSignupPageInputSchema,
   type CancelSignupInput,
   type CreateBroadcastInput,
   type ClaimInvitationItemInput,
+  type CreateSeminarInput,
   type UpsertClassSignupPageInput,
 } from "@/lib/schemas/seminar";
 import { generateLinkToken } from "@/lib/seminars/generate-link-token";
@@ -1250,6 +1252,97 @@ export async function claimInvitationItemAction(
   };
 }
 
+
+// ─── createSeminarAction (CRM 내부 설명회 생성) ──────────────
+//
+// 아카 ETL 없이 운영자가 직접 설명회(crm_classes, subject='설명회',
+// aca_class_id=NULL)를 만들고 공개 신청 페이지(status='open')를 함께 생성한다.
+// 권한: assertSeminarWrite(branch) — master 전체 / admin 본 분원만.
+export type CreateSeminarActionResult =
+  | { status: "success"; classId: string }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
+
+export async function createSeminarAction(
+  input: CreateSeminarInput,
+): Promise<CreateSeminarActionResult> {
+  if (isDevSeedMode()) return { status: "dev_seed_mode" };
+
+  let parsed: CreateSeminarInput;
+  try {
+    parsed = CreateSeminarInputSchema.parse(input);
+  } catch (e) {
+    if (e instanceof ZodError) {
+      return { status: "failed", reason: zodErrorToReason(e) };
+    }
+    return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  const auth = await assertSeminarWrite(parsed.branch);
+  if (!auth.ok) return { status: "failed", reason: auth.reason };
+
+  const supabase = await createSupabaseServerClient();
+
+  // 1) crm_classes INSERT — aca_class_id 는 비워둔다(CRM 자체 생성 행).
+  //    정원은 crm_classes.capacity 에 저장(claim RPC 가 이 값을 정원으로 사용).
+  const { data: cls, error: classErr } = (await (
+    supabase.from("crm_classes") as unknown as {
+      insert: (v: Record<string, unknown>) => {
+        select: (cols: string) => {
+          single: () => Promise<{
+            data: { id: string } | null;
+            error: { message: string } | null;
+          }>;
+        };
+      };
+    }
+  )
+    .insert({
+      branch: parsed.branch,
+      name: parsed.name,
+      subject: "설명회",
+      capacity: parsed.capacity,
+      active: true,
+    })
+    .select("id")
+    .single()) as {
+    data: { id: string } | null;
+    error: { message: string } | null;
+  };
+
+  if (classErr || !cls) {
+    return {
+      status: "failed",
+      reason: `설명회 생성에 실패했습니다: ${classErr?.message ?? "알 수 없는 오류"}`,
+    };
+  }
+
+  // 2) 공개 신청 페이지 생성(open). 실패해도 강좌는 이미 생성됐고 발송 시
+  //    find-or-create 로 보강되므로, 경고만 남기고 성공으로 처리한다.
+  const { error: pageErr } = (await (
+    supabase.from("crm_class_signup_pages") as unknown as {
+      insert: (v: Record<string, unknown>) => Promise<{
+        error: { message: string } | null;
+      }>;
+    }
+  ).insert({
+    class_id: cls.id,
+    branch: parsed.branch,
+    status: "open",
+    held_at: parsed.held_at,
+    description: parsed.description,
+    created_by: auth.user.user_id,
+  })) as { error: { message: string } | null };
+
+  if (pageErr) {
+    console.warn(
+      `[seminars/create] 신청 페이지 생성 실패 class=${cls.id}: ${pageErr.message}`,
+    );
+  }
+
+  revalidatePath("/seminars");
+  return { status: "success", classId: cls.id };
+}
 
 // ─── upsertClassSignupPageAction ─────────────────────────
 //
