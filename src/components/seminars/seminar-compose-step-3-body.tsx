@@ -5,7 +5,11 @@ import { AlertTriangle, Link as LinkIcon, Megaphone } from "lucide-react";
 import type { ClassSignupOption, GroupListItem } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
-import { insertAdTag, insertUnsubscribeFooter } from "@/lib/messaging/guards";
+import {
+  insertAdTag,
+  insertAdSubjectTag,
+  insertUnsubscribeFooter,
+} from "@/lib/messaging/guards";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
 import { formatKstDateTime } from "@/lib/datetime";
@@ -106,10 +110,11 @@ export function SeminarComposeStep3Body({
   const projectedBytes = bodyBytesNoUrl + URL_RESERVED_BYTES;
   const isOverLimit = projectedBytes > limit;
 
-  const subjectBytes = useMemo(
-    () => (state.subject ? countEucKrBytes(state.subject) : 0),
-    [state.subject],
-  );
+  // 광고면 제목 앞 (광고) 가 발송 시 붙으므로 바이트에도 포함해 센다.
+  const subjectBytes = useMemo(() => {
+    const s = insertAdSubjectTag(state.subject, state.isAd);
+    return s ? countEucKrBytes(s) : 0;
+  }, [state.subject, state.isAd]);
   const subjectOverflow = subjectBytes > SUBJECT_BYTE_LIMIT;
 
   const hasInviteVar = state.body.includes("{초대링크}");

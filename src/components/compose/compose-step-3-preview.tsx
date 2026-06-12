@@ -18,6 +18,7 @@ import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import {
   insertAdTag,
+  insertAdSubjectTag,
   insertUnsubscribeFooter,
 } from "@/lib/messaging/guards";
 import { hasNameToken } from "@/lib/messaging/personalize";
@@ -95,11 +96,11 @@ export function ComposeStep3Preview({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
-  // 제목 byte (LMS 만 표시).
-  const subjectBytes = useMemo(
-    () => (step2.subject ? countEucKrBytes(step2.subject) : 0),
-    [step2.subject],
-  );
+  // 제목 byte (LMS 만 표시). 광고면 (광고) prefix 가 붙으므로 함께 센다.
+  const subjectBytes = useMemo(() => {
+    const s = insertAdSubjectTag(step2.subject, step2.isAd);
+    return s ? countEucKrBytes(s) : 0;
+  }, [step2.subject, step2.isAd]);
   const subjectOverflow = subjectBytes > SUBJECT_BYTE_LIMIT;
 
   // 본문 byte — 클라이언트에서 광고 prefix + 080 footer 합산해 즉시 계산.
