@@ -242,8 +242,8 @@ export function ComposeStep4Send({
               strokeWidth={1.75}
               aria-hidden
             />
-            현재 MVP 는 예약 정보를 저장만 합니다. 실제 자동 발송은 Phase 1 의
-            cron 연동 후 동작합니다.
+            예약한 시각이 되면 자동으로 발송됩니다(약 5분 간격으로 점검).
+            발송 전까지는 캠페인 상세에서 예약을 취소할 수 있어요.
           </div>
         </div>
       )}

@@ -7,6 +7,7 @@ import { CampaignStatusBadge } from "@/components/campaigns/campaign-status-badg
 import { CampaignMessagesTable } from "@/components/campaigns/campaign-messages-table";
 import { ResendFailedButton } from "@/components/campaigns/resend-failed-button";
 import { ResumeStuckButton } from "@/components/campaigns/resume-stuck-button";
+import { CancelScheduledButton } from "@/components/campaigns/cancel-scheduled-button";
 import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
 import { formatKstDateTime } from "@/lib/datetime";
 
@@ -40,6 +41,7 @@ export function CampaignDetailView({
   canResend = false,
 }: Props) {
   const isInFlight = campaign.status === "발송중";
+  const isScheduled = campaign.status === "예약됨";
 
   // 접수 성공 = sendon 큐에 들어간 건수 (vendor 응답 status=queued)
   // sendon webhook/polling 미구현이라 "도달" 통계는 보유 X.
@@ -157,16 +159,22 @@ export function CampaignDetailView({
 
           {/* 우상단 액션 */}
           <div className="shrink-0 flex flex-col items-end gap-2">
-            {isInFlight && pendingCount > 0 && (
-              <ResumeStuckButton
-                campaignId={campaign.id}
-                pendingCount={pendingCount}
-              />
+            {isScheduled && canResend ? (
+              <CancelScheduledButton campaignId={campaign.id} />
+            ) : (
+              <>
+                {isInFlight && pendingCount > 0 && (
+                  <ResumeStuckButton
+                    campaignId={campaign.id}
+                    pendingCount={pendingCount}
+                  />
+                )}
+                <ResendFailedButton
+                  campaignId={campaign.id}
+                  failedCount={failedCount}
+                />
+              </>
             )}
-            <ResendFailedButton
-              campaignId={campaign.id}
-              failedCount={failedCount}
-            />
           </div>
         </div>
       </section>
