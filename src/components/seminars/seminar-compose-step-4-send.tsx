@@ -2,8 +2,15 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
-import { Send, AlertTriangle, CheckCircle2, Calendar, MapPin } from "lucide-react";
+import { useMemo, useState, useTransition } from "react";
+import {
+  Send,
+  AlertTriangle,
+  CheckCircle2,
+  Calendar,
+  CalendarClock,
+  MapPin,
+} from "lucide-react";
 import type { ClassSignupOption, GroupListItem } from "@/types/database";
 import { formatKstDateTime } from "@/lib/datetime";
 import { createSeminarBroadcastAction } from "@/app/(features)/seminars/actions";
@@ -32,10 +39,17 @@ type SendUiResult =
       kind: "success";
       campaignId: string;
       queued: number;
+      scheduledAt: string | null;
     }
   | { kind: "blocked"; reason: string }
   | { kind: "dev_seed_mode"; reason: string }
   | { kind: "failed"; reason: string };
+
+/** Date → datetime-local 값(YYYY-MM-DDTHH:mm), 로컬 시간 기준. */
+function toLocalInput(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
 export function SeminarComposeStep4Send({
   state,
@@ -48,9 +62,21 @@ export function SeminarComposeStep4Send({
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<SendUiResult | null>(null);
+  const [mode, setMode] = useState<"now" | "schedule">("now");
+  const [scheduleAt, setScheduleAt] = useState("");
+  // sendon 최소 예약 간격(30분 후).
+  const minScheduleAt = useMemo(
+    () => toLocalInput(new Date(Date.now() + 30 * 60_000)),
+    [],
+  );
+  const canSend = mode === "now" || (mode === "schedule" && !!scheduleAt);
 
   const handleSend = () => {
     setConfirmOpen(false);
+    const scheduledIso =
+      mode === "schedule" && scheduleAt
+        ? new Date(scheduleAt).toISOString()
+        : null;
     startTransition(async () => {
       // backend `createSeminarBroadcastAction` — group_id 만 전달.
       // 학생 펼침은 서버 내부 `loadAllGroupRecipients` 가 처리 (URL 414 회피).
@@ -66,6 +92,8 @@ export function SeminarComposeStep4Send({
         // 중복 신청 허용 (0087) — step1 하단 체크박스 값. false 면 학부모가 받은
         // 설명회 중 1개만 신청 가능(나머지 카드는 claim 시 limit_reached).
         allow_multiple: state.allowMultiple,
+        // 예약 발송(sendon reservation). null=즉시.
+        scheduled_at: scheduledIso,
       });
 
       switch (res.status) {
@@ -76,6 +104,7 @@ export function SeminarComposeStep4Send({
             kind: "success",
             campaignId: res.campaign_id,
             queued: res.queued,
+            scheduledAt: res.scheduledAt ?? null,
           });
           router.push(`/campaigns/${res.campaign_id}`);
           break;
@@ -191,13 +220,13 @@ export function SeminarComposeStep4Send({
               aria-hidden
             />
             <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
-              발송을 시작했습니다
+              {result.scheduledAt ? "예약되었습니다" : "발송을 시작했습니다"}
             </h3>
           </div>
           <p className="text-[13px] text-[color:var(--text-muted)] tabular-nums">
-            {result.queued.toLocaleString()}건이 발송 대기열에 적재되었습니다.
-            실제 발송은 백그라운드에서 진행되며, 진행 상황은 캠페인 상세에서
-            실시간으로 확인할 수 있습니다.
+            {result.scheduledAt
+              ? `${result.queued.toLocaleString()}건이 ${formatKstDateTime(result.scheduledAt)} 에 발송되도록 예약되었습니다. 발송 전까지 캠페인 상세에서 취소·변경할 수 있어요.`
+              : `${result.queued.toLocaleString()}건이 발송 대기열에 적재되었습니다. 실제 발송은 백그라운드에서 진행되며, 진행 상황은 캠페인 상세에서 실시간으로 확인할 수 있습니다.`}
           </p>
           <Link
             href={`/campaigns/${result.campaignId}`}
@@ -292,13 +321,69 @@ export function SeminarComposeStep4Send({
         </div>
       )}
 
+      {/* 발송 시점 (즉시 / 예약) */}
+      {!result && (
+        <section
+          aria-label="발송 시점"
+          className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 space-y-3"
+        >
+          <div className="flex flex-wrap gap-2">
+            {(["now", "schedule"] as const).map((m) => {
+              const active = mode === m;
+              return (
+                <label
+                  key={m}
+                  className={`
+                    inline-flex items-center gap-1.5 h-9 px-4 rounded-md border cursor-pointer text-[13px]
+                    ${
+                      active
+                        ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
+                        : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
+                    }
+                  `}
+                >
+                  <input
+                    type="radio"
+                    name="seminar-send-mode"
+                    checked={active}
+                    onChange={() => setMode(m)}
+                    className="sr-only"
+                  />
+                  {m === "now" ? "즉시 발송" : "예약 발송"}
+                </label>
+              );
+            })}
+          </div>
+          {mode === "schedule" && (
+            <div className="space-y-1.5">
+              <input
+                type="datetime-local"
+                value={scheduleAt}
+                min={minScheduleAt}
+                onChange={(e) => setScheduleAt(e.target.value)}
+                className="
+                  w-full h-11 rounded-lg px-3
+                  bg-bg-card border border-[color:var(--border)]
+                  text-[15px] text-[color:var(--text)]
+                  focus:outline-none focus:border-[color:var(--border-strong)]
+                "
+              />
+              <p className="text-[12px] text-[color:var(--text-dim)] leading-relaxed">
+                예약한 시각에 sendon 이 자동 발송합니다. 최소 30분 이후로 예약할
+                수 있고, 발송 약 10분 전까지 캠페인 상세에서 취소·변경할 수 있어요.
+              </p>
+            </div>
+          )}
+        </section>
+      )}
+
       {/* 발송 버튼 */}
       {!result && (
         <div className="flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => setConfirmOpen(true)}
-            disabled={isPending}
+            disabled={isPending || !canSend}
             className="
               inline-flex items-center gap-1.5 h-10 px-5 rounded-lg
               bg-[color:var(--action)] text-[color:var(--action-text)]
@@ -308,8 +393,16 @@ export function SeminarComposeStep4Send({
               transition-colors
             "
           >
-            <Send className="size-4" strokeWidth={1.75} aria-hidden />
-            {isPending ? "발송 중..." : "지금 발송"}
+            {mode === "schedule" ? (
+              <CalendarClock className="size-4" strokeWidth={1.75} aria-hidden />
+            ) : (
+              <Send className="size-4" strokeWidth={1.75} aria-hidden />
+            )}
+            {isPending
+              ? "처리 중..."
+              : mode === "schedule"
+                ? "예약하기"
+                : "지금 발송"}
           </button>
         </div>
       )}

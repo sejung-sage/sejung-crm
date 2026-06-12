@@ -102,6 +102,8 @@ export type CreateSeminarBroadcastActionResult =
        * 진행률은 캠페인 상세(CampaignProgressPoller)에서 확인한다.
        */
       queued: number;
+      /** 예약 발송이면 예약 시각(ISO), 즉시 발송이면 null. */
+      scheduledAt?: string | null;
     }
   | { status: "blocked"; reason: string }
   | { status: "failed"; reason: string }
@@ -597,6 +599,21 @@ export async function createSeminarBroadcastAction(
   const auth = await assertSeminarWrite(parsed.branch);
   if (!auth.ok) return { status: "failed", reason: auth.reason };
 
+  // 예약 발송 시각 검증 — 지정 시 sendon 최소 간격(30분) 이후만 허용.
+  let scheduledAtDate: Date | null = null;
+  if (parsed.scheduled_at) {
+    scheduledAtDate = new Date(parsed.scheduled_at);
+    if (Number.isNaN(scheduledAtDate.getTime())) {
+      return { status: "failed", reason: "예약 시각 형식이 올바르지 않습니다" };
+    }
+    if (scheduledAtDate.getTime() < Date.now() + 30 * 60_000) {
+      return {
+        status: "failed",
+        reason: "예약 시각은 지금부터 최소 30분 이후여야 합니다",
+      };
+    }
+  }
+
   const supabase = await createSupabaseServerClient();
 
   // 발송 상한은 group 펼친 결과 길이로 후속 검증 (아래 4단계).
@@ -740,9 +757,9 @@ export async function createSeminarBroadcastAction(
     };
   }
 
-  // 5) 광고 야간 차단 (정보성이면 무관, allowed=true).
+  // 5) 광고 야간 차단 — 예약이면 예약 시각 기준(그 시각에 sendon 이 발송).
   //    여기서 즉시 차단하면 학생/캠페인 INSERT 비용 자체를 절약.
-  const quiet = checkQuietHours(new Date(), parsed.is_ad);
+  const quiet = checkQuietHours(scheduledAtDate ?? new Date(), parsed.is_ad);
   if (!quiet.allowed) {
     return {
       status: "blocked",
@@ -808,8 +825,8 @@ export async function createSeminarBroadcastAction(
     title: campaignTitle,
     template_id: null,
     group_id: null,
-    scheduled_at: null,
-    sent_at: new Date().toISOString(),
+    scheduled_at: scheduledAtDate ? scheduledAtDate.toISOString() : null,
+    sent_at: scheduledAtDate ? null : new Date().toISOString(),
     status: "발송중",
     total_recipients: filtered.length,
     total_cost: 0,
@@ -1034,6 +1051,7 @@ export async function createSeminarBroadcastAction(
     status: "success",
     campaign_id: campaignId,
     queued: filtered.length,
+    scheduledAt: scheduledAtDate ? scheduledAtDate.toISOString() : null,
   };
 }
 

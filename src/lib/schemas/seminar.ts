@@ -151,6 +151,20 @@ export const CreateBroadcastInputSchema = z
           .nullable(),
       )
       .optional(),
+    /**
+     * 예약 발송 시각 (ISO 8601). null/미지정이면 즉시 발송.
+     * 지정 시 캠페인 scheduled_at 으로 적재 → drain 이 sendon reservation 으로 접수.
+     * sendon 제약: 최소 30분 이후(서버 액션에서 검증).
+     */
+    scheduled_at: z
+      .union([z.string(), z.null(), z.undefined()])
+      .transform((v) => {
+        if (v === null || v === undefined) return null;
+        const t = v.trim();
+        return t === "" ? null : t;
+      })
+      .pipe(z.string().nullable())
+      .optional(),
   })
   .refine(
     (v) => {

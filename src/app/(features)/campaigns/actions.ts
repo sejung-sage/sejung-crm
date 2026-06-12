@@ -26,6 +26,10 @@ import {
   cancelScheduledCampaign,
   type CancelScheduledResult,
 } from "@/lib/messaging/cancel-scheduled-campaign";
+import {
+  rescheduleCampaign,
+  type RescheduleResult,
+} from "@/lib/messaging/reschedule-campaign";
 import type { SendCampaignResult } from "@/lib/messaging/send-campaign";
 
 export async function resendFailedAction(
@@ -63,6 +67,24 @@ export async function cancelScheduledCampaignAction(
   }
   const result = await cancelScheduledCampaign(campaignId);
   if (result.status === "cancelled") {
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/campaigns");
+  }
+  return result;
+}
+
+export async function rescheduleCampaignAction(
+  campaignId: string,
+  scheduledAt: string,
+): Promise<RescheduleResult> {
+  if (typeof campaignId !== "string" || campaignId.length === 0) {
+    return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
+  }
+  if (typeof scheduledAt !== "string" || scheduledAt.length === 0) {
+    return { status: "failed", reason: "예약 시각이 비어 있습니다" };
+  }
+  const result = await rescheduleCampaign(campaignId, scheduledAt);
+  if (result.status === "rescheduled") {
     revalidatePath(`/campaigns/${campaignId}`);
     revalidatePath("/campaigns");
   }

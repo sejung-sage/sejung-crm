@@ -8,6 +8,7 @@ import { CampaignMessagesTable } from "@/components/campaigns/campaign-messages-
 import { ResendFailedButton } from "@/components/campaigns/resend-failed-button";
 import { ResumeStuckButton } from "@/components/campaigns/resume-stuck-button";
 import { CancelScheduledButton } from "@/components/campaigns/cancel-scheduled-button";
+import { RescheduleButton } from "@/components/campaigns/reschedule-button";
 import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
 import { formatKstDateTime } from "@/lib/datetime";
 
@@ -160,7 +161,10 @@ export function CampaignDetailView({
           {/* 우상단 액션 */}
           <div className="shrink-0 flex flex-col items-end gap-2">
             {isScheduled && canResend ? (
-              <CancelScheduledButton campaignId={campaign.id} />
+              <>
+                <RescheduleButton campaignId={campaign.id} />
+                <CancelScheduledButton campaignId={campaign.id} />
+              </>
             ) : (
               <>
                 {isInFlight && pendingCount > 0 && (
