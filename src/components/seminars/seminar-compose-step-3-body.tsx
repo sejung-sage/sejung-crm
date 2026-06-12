@@ -167,8 +167,9 @@ export function SeminarComposeStep3Body({
         </p>
       </div>
 
-      {/* ── 상단 바: 유형 · 광고성 ───────────────────────── */}
-      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 flex flex-col sm:flex-row sm:items-start gap-5">
+      {/* ── 상단: 유형·광고성 + 테스트 발송 (한 줄) ────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+        <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 flex flex-col sm:flex-row sm:items-start gap-5">
         <fieldset className="space-y-1.5">
           <legend className="text-[12px] text-[color:var(--text-muted)]">
             유형
@@ -220,6 +221,22 @@ export function SeminarComposeStep3Body({
             </span>
           </span>
         </label>
+        </div>
+
+        {/* 테스트 발송 — 유형·광고성과 한 줄 오른쪽 */}
+        <TestSendCard
+          type={state.type}
+          subject={state.subject}
+          body={state.body.trim().length === 0 ? "" : state.body}
+          isAd={state.isAd}
+          seminarClassIds={selectedClasses.map((c) => c.class_id)}
+          seminarAllowMultiple={state.allowMultiple}
+          disabled={
+            state.body.trim().length === 0 ||
+            isOverLimit ||
+            selectedClasses.length === 0
+          }
+        />
       </div>
 
       {state.isAd && (
@@ -237,21 +254,6 @@ export function SeminarComposeStep3Body({
           </p>
         </div>
       )}
-
-      {/* ── 테스트 발송 (위로) ───────────────────────────── */}
-      <TestSendCard
-        type={state.type}
-        subject={state.subject}
-        body={state.body.trim().length === 0 ? "" : state.body}
-        isAd={state.isAd}
-        seminarClassIds={selectedClasses.map((c) => c.class_id)}
-        seminarAllowMultiple={state.allowMultiple}
-        disabled={
-          state.body.trim().length === 0 ||
-          isOverLimit ||
-          selectedClasses.length === 0
-        }
-      />
 
       {/* ── 2박스: 세정학원 문자 / 미리보기 ──────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
