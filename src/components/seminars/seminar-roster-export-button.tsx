@@ -52,9 +52,23 @@ export function SeminarRosterExportButton({
     setBusy(true);
     try {
       const people = buildPeople(acaStudents, crmSignups);
-      const XLSX = await import("xlsx");
-      const ws = XLSX.utils.aoa_to_sheet(buildSheetAoa(people));
+      // 색상·병합(제목) 지원 위해 xlsx-js-style 사용(가져오기 파서의 xlsx 와 별개).
+      const XLSX = await import("xlsx-js-style");
+      const blocks = Math.max(1, Math.ceil(people.length / BLOCK_SIZE));
+      const usedCols = blocks * STRIDE - GAP; // 맨 끝 간격 열 제외
+
+      // 1행: 제목(설명회명) 배너 → 헤더 → 데이터.
+      const aoa: (string | number)[][] = [[className], ...buildSheetAoa(people)];
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
       ws["!cols"] = buildColWidths(people.length);
+      // 제목을 전체 폭으로 병합.
+      ws["!merges"] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, usedCols - 1) } },
+      ];
+
+      // 2) 셀 스타일 — 제목/헤더/번호칸 색 + 테두리.
+      applyStyles(XLSX, ws, aoa, usedCols);
+
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "명단");
       XLSX.writeFile(wb, `${safeFileName(className)}_명단.xlsx`);
@@ -167,6 +181,68 @@ function buildColWidths(personCount: number): { wch: number }[] {
     if (b < blocks - 1) cols.push({ wch: 2 }); // 묶음 간격
   }
   return cols;
+}
+
+// ─── 셀 스타일(xlsx-js-style) ───────────────────────────────
+
+const THIN = { style: "thin", color: { rgb: "B7B7B7" } };
+const BORDER = { top: THIN, bottom: THIN, left: THIN, right: THIN };
+
+/** 제목 배너 — 연한 파랑, 굵게, 가운데. */
+const TITLE_STYLE = {
+  font: { bold: true, sz: 14 },
+  alignment: { horizontal: "center", vertical: "center" },
+  fill: { fgColor: { rgb: "BDD7EE" } },
+};
+/** 헤더(순번·이름·학교·학년·전화번호) — 초록, 굵게, 가운데, 테두리. */
+const HEADER_STYLE = {
+  font: { bold: true },
+  alignment: { horizontal: "center", vertical: "center" },
+  fill: { fgColor: { rgb: "A9D08E" } },
+  border: BORDER,
+};
+/** 번호(순번) 칸 — 연초록, 가운데, 테두리. */
+const NUMBER_STYLE = {
+  alignment: { horizontal: "center", vertical: "center" },
+  fill: { fgColor: { rgb: "C6E0B4" } },
+  border: BORDER,
+};
+/** 일반 데이터 칸 — 테두리만. */
+const DATA_STYLE = {
+  alignment: { vertical: "center" },
+  border: BORDER,
+};
+
+/**
+ * 시트 셀에 스타일 적용. 제목(0행) / 헤더(1행) / 데이터(2행~).
+ * 빈 칸(블록 간격 열·마지막 블록 빈자리)은 건너뛴다.
+ */
+function applyStyles(
+  XLSX: typeof import("xlsx-js-style"),
+  ws: Record<string, unknown>,
+  aoa: (string | number)[][],
+  usedCols: number,
+): void {
+  const titleRef = XLSX.utils.encode_cell({ r: 0, c: 0 });
+  if (ws[titleRef]) (ws[titleRef] as { s?: unknown }).s = TITLE_STYLE;
+
+  for (let r = 1; r < aoa.length; r++) {
+    const row = aoa[r] ?? [];
+    for (let c = 0; c < usedCols; c++) {
+      const v = row[c];
+      if (v === undefined || v === null || v === "") continue;
+      const ref = XLSX.utils.encode_cell({ r, c });
+      const cell = ws[ref] as { s?: unknown } | undefined;
+      if (!cell) continue;
+      const isHeader = r === 1;
+      const isNumberCol = c % STRIDE === 0;
+      cell.s = isHeader
+        ? HEADER_STYLE
+        : isNumberCol
+          ? NUMBER_STYLE
+          : DATA_STYLE;
+    }
+  }
 }
 
 /** 파일명에 못 쓰는 문자 제거. */
