@@ -274,6 +274,191 @@ export async function cancelSignupAction(
   return { status: "success" };
 }
 
+// ─── addManualSignupAction (운영자 수동 신청 추가) ──────────
+//
+// 설명회 명단에서 운영자가 학생을 'CRM 신청생'에 직접 추가(전체 데이터 → 신청).
+// (학생, signup_page) 단위 1회만 — 이미 signed 면 멱등(0091 과 동일 기준). invitation 은
+// 학생의 기존 것을 재사용, 없으면 campaign_id=null 로 생성. 제거는 cancelSignupAction.
+export type AddManualSignupActionResult =
+  | { status: "success"; item_id: string }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
+
+export async function addManualSignupAction(input: {
+  signupPageId: string;
+  studentId: string;
+}): Promise<AddManualSignupActionResult> {
+  if (isDevSeedMode()) return { status: "dev_seed_mode" };
+
+  const signupPageId =
+    typeof input?.signupPageId === "string" ? input.signupPageId.trim() : "";
+  const studentId =
+    typeof input?.studentId === "string" ? input.studentId.trim() : "";
+  if (!signupPageId || !studentId) {
+    return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  // 1) signup_page → branch/class_id.
+  const { data: page, error: pageErr } = (await supabase
+    .from("crm_class_signup_pages")
+    .select("id, class_id, branch")
+    .eq("id", signupPageId)
+    .maybeSingle()) as unknown as {
+    data: { id: string; class_id: string | null; branch: string } | null;
+    error: { message: string } | null;
+  };
+  if (pageErr) {
+    return { status: "failed", reason: `신청 페이지 조회 실패: ${pageErr.message}` };
+  }
+  if (!page) return { status: "failed", reason: "존재하지 않는 신청 페이지입니다" };
+
+  // 2) 권한 (페이지 분원 기준).
+  const auth = await assertSeminarWrite(page.branch);
+  if (!auth.ok) return { status: "failed", reason: auth.reason };
+
+  // 3) 학생의 invitation 목록(분원 일치). 최신 우선.
+  const { data: invRows } = (await supabase
+    .from("crm_class_signup_invitations")
+    .select("id")
+    .eq("student_id", studentId)
+    .eq("branch", page.branch)
+    .order("created_at", { ascending: false })) as unknown as {
+    data: Array<{ id: string }> | null;
+  };
+  const invIds = (invRows ?? []).map((r) => r.id);
+
+  // 3-2) 이미 이 설명회를 signed 한 카드가 있으면 멱등 성공(중복 생성 방지).
+  if (invIds.length > 0) {
+    const { data: alreadySigned } = (await supabase
+      .from("crm_class_signup_items")
+      .select("id")
+      .eq("signup_page_id", signupPageId)
+      .eq("status", "signed")
+      .in("invitation_id", invIds)
+      .limit(1)
+      .maybeSingle()) as unknown as { data: { id: string } | null };
+    if (alreadySigned) {
+      return { status: "success", item_id: alreadySigned.id };
+    }
+  }
+
+  // 4) 붙일 invitation — 기존 최신 재사용, 없으면 생성(토큰 충돌 재시도).
+  let invitationId = invIds[0] ?? null;
+  if (!invitationId) {
+    for (let attempt = 0; attempt < 3 && !invitationId; attempt += 1) {
+      const token = generateLinkToken();
+      const { data: created, error: invErr } = (await (
+        supabase.from("crm_class_signup_invitations") as unknown as {
+          insert: (v: Record<string, unknown>) => {
+            select: (c: string) => {
+              single: () => Promise<{
+                data: { id: string } | null;
+                error: { message: string; code?: string } | null;
+              }>;
+            };
+          };
+        }
+      )
+        .insert({
+          branch: page.branch,
+          student_id: studentId,
+          link_token: token,
+          campaign_id: null,
+          created_by: auth.user.user_id,
+          allow_multiple: true,
+        })
+        .select("id")
+        .single()) as {
+        data: { id: string } | null;
+        error: { message: string; code?: string } | null;
+      };
+      if (!invErr && created) {
+        invitationId = created.id;
+        break;
+      }
+      if (invErr?.code === "23505") continue; // 토큰 충돌 재시도
+      return {
+        status: "failed",
+        reason: `초대 생성 실패: ${invErr?.message ?? "알 수 없는 오류"}`,
+      };
+    }
+    if (!invitationId) {
+      return { status: "failed", reason: "초대 생성에 실패했습니다(토큰 충돌)" };
+    }
+  }
+
+  // 5) item upsert — (invitation, page) 기존 행이 있으면 signed 로 전이, 없으면 INSERT.
+  const nowIso = new Date().toISOString();
+  const { data: itemRow } = (await supabase
+    .from("crm_class_signup_items")
+    .select("id")
+    .eq("invitation_id", invitationId)
+    .eq("signup_page_id", signupPageId)
+    .maybeSingle()) as unknown as { data: { id: string } | null };
+
+  let itemId: string;
+  if (itemRow) {
+    const { error: upErr } = (await (
+      supabase.from("crm_class_signup_items") as unknown as {
+        update: (v: Record<string, unknown>) => {
+          eq: (
+            c: string,
+            val: string,
+          ) => Promise<{ error: { message: string } | null }>;
+        };
+      }
+    )
+      .update({
+        status: "signed",
+        signed_at: nowIso,
+        cancelled_at: null,
+        cancelled_by: null,
+      })
+      .eq("id", itemRow.id)) as { error: { message: string } | null };
+    if (upErr) {
+      return { status: "failed", reason: `신청 추가 실패: ${upErr.message}` };
+    }
+    itemId = itemRow.id;
+  } else {
+    const { data: ins, error: insErr } = (await (
+      supabase.from("crm_class_signup_items") as unknown as {
+        insert: (v: Record<string, unknown>) => {
+          select: (c: string) => {
+            single: () => Promise<{
+              data: { id: string } | null;
+              error: { message: string } | null;
+            }>;
+          };
+        };
+      }
+    )
+      .insert({
+        invitation_id: invitationId,
+        signup_page_id: signupPageId,
+        status: "signed",
+        signed_at: nowIso,
+      })
+      .select("id")
+      .single()) as {
+      data: { id: string } | null;
+      error: { message: string } | null;
+    };
+    if (insErr || !ins) {
+      return {
+        status: "failed",
+        reason: `신청 추가 실패: ${insErr?.message ?? "알 수 없는 오류"}`,
+      };
+    }
+    itemId = ins.id;
+  }
+
+  if (page.class_id) revalidatePath(`/classes/${page.class_id}`);
+  revalidatePath("/seminars/compose");
+  return { status: "success", item_id: itemId };
+}
+
 // ─── createSeminarBroadcastAction (0082 핵심) ──────────────
 //
 // 흐름:
