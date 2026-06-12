@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft, Send } from "lucide-react";
 import type { ClassDetail } from "@/types/database";
 import { isLapsedStudent } from "@/lib/schemas/group";
 import { ClassDetailHeader } from "@/components/classes/class-detail-header";
@@ -7,7 +7,6 @@ import { ClassKpiCards } from "@/components/classes/class-kpi-cards";
 import { ClassRoster } from "@/components/classes/class-roster";
 import { ClassLapsedPanel } from "@/components/classes/class-lapsed-panel";
 import { ClassAttendanceGrid } from "@/components/classes/class-attendance-grid";
-import { ClassSignupPageSection } from "@/components/seminars/class-signup-page-section";
 import { SeminarRosterPanels } from "@/components/seminars/seminar-roster-panels";
 import { SeminarRosterExportButton } from "@/components/seminars/seminar-roster-export-button";
 import type { ClassSignupPageDetail } from "@/lib/seminars/get-class-signup-page";
@@ -82,19 +81,9 @@ export function ClassDetailView({
       <ClassDetailHeader
         cls={detail.class}
         studentCount={detail.students.length}
-        canSend={canSendToClass}
+        // 설명회는 발송 진입이 별도(/seminars/compose) 라 일반 강좌 발송 버튼은 숨긴다.
+        canSend={canSendToClass && !isSeminar}
       />
-
-      {/* 설명회 강좌일 때만 공개 신청 페이지 섹션. */}
-      {signupPageDetail && (
-        <ClassSignupPageSection
-          classId={detail.class.id}
-          branch={detail.class.branch}
-          className={detail.class.name}
-          detail={signupPageDetail}
-          canEdit={canSendToClass}
-        />
-      )}
 
       <ClassKpiCards
         detail={detail}
@@ -110,11 +99,22 @@ export function ClassDetailView({
             <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
               설명회 명단
             </h2>
-            <SeminarRosterExportButton
-              className={detail.class.name}
-              acaStudents={detail.students}
-              crmSignups={signupPageDetail?.signed_parents ?? []}
-            />
+            <div className="flex items-center gap-2">
+              <SeminarRosterExportButton
+                className={detail.class.name}
+                acaStudents={detail.students}
+                crmSignups={signupPageDetail?.signed_parents ?? []}
+              />
+              {canSendToClass && (
+                <Link
+                  href={`/seminars/compose?class=${detail.class.id}`}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-[color:var(--action)] text-[color:var(--action-text)] text-[14px] font-medium hover:bg-[color:var(--action-hover)] transition-colors"
+                >
+                  <Send className="size-4" strokeWidth={1.75} aria-hidden />
+                  이 설명회로 발송
+                </Link>
+              )}
+            </div>
           </div>
           <SeminarRosterPanels
             acaStudents={detail.students}
