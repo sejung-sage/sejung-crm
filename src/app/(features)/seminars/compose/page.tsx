@@ -107,7 +107,7 @@ export default async function SeminarsHubPage({
 // ─── 헤더 ──────────────────────────────────────────────
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="max-w-6xl space-y-6">{children}</div>;
+  return <div className="max-w-7xl space-y-6">{children}</div>;
 }
 
 function PageHeader() {

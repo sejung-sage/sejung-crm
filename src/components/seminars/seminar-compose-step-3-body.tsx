@@ -5,10 +5,7 @@ import { AlertTriangle, Link as LinkIcon, Megaphone } from "lucide-react";
 import type { ClassSignupOption, GroupListItem } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
-import {
-  insertAdTag,
-  insertUnsubscribeFooter,
-} from "@/lib/messaging/guards";
+import { insertAdTag, insertUnsubscribeFooter } from "@/lib/messaging/guards";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
 import { formatKstDateTime } from "@/lib/datetime";
@@ -17,27 +14,21 @@ import type { SeminarComposeState, SmsType } from "./seminar-compose-wizard";
 /**
  * F5 · 설명회 발송 Step 3 — 본문 작성.
  *
- * 2026-06 개편: 일반 `/compose` step3 와 동일한 톤으로 통합.
- *  - 좌측: 유형 토글 · 광고 토글 · 변수 삽입(`{초대링크}`) · 바이트 카운터·경고.
- *  - 우측: `PhonePreviewCard` editable 모드 — 제목·본문을 미리보기 말풍선에서
- *    직접 타이핑한다. 광고 토글 ON 일 때 footer 말풍선에 학원명·080 input 노출.
- *  - 광고 가드(prefix/footer) 는 클라이언트 단에서도 동일 순수 함수(`insertAdTag`,
- *    `insertUnsubscribeFooter`) 로 즉시 계산 → 바이트 카운터·overflow 가 가공
- *    결과 기준이 되도록 한다. 서버 가드는 최종 검증선이지만 UI 의 표시값과
- *    일치한다.
+ * 2026-06 개편: 상단에 유형·광고성·테스트발송을 모으고, 아래를 두 박스로 분리.
+ *  - 상단 바: 유형 토글 · 광고성 토글.
+ *  - 테스트 발송 카드(상단).
+ *  - 박스 1 "세정학원 문자": 제목·본문 직접 입력(바이트는 라벨 옆 표기) + 변수 삽입.
+ *  - 박스 2 "미리보기": PhonePreviewCard(읽기 전용) — (광고)·세정학원·무료수신거부
+ *    및 {초대링크} 예시 URL 치환까지 실제 발송과 동일하게 시각화.
  *
- * 변수 토큰 정책:
- *  - 설명회는 sendon name 슬롯을 `{초대링크}` URL 치환에 hijack 한다
- *    (`actions.ts` 의 `INVITE_TOKEN` / `SENDON_INVITE_PLACEHOLDER` 참고).
- *    그래서 `{이름}` 변수는 사용 불가 — 변수 삽입 버튼은 `{초대링크}` 만 노출.
- *  - 미리보기 sample 말풍선에는 `{초대링크}` 자리를 예시 URL 로 치환해 보여줘
- *    수신자 입장을 가늠하게 한다.
+ * 광고 가드(prefix/footer) 는 클라이언트에서도 동일 순수 함수로 즉시 계산해
+ * 바이트 카운터·overflow 가 가공 결과 기준이 되게 한다. 서버 가드가 최종 검증선.
  *
- * 바이트 한도:
- *  - 표시는 SMS 90 / LMS 2,000 (BYTE_LIMITS 와 동일 — 시스템 일관성).
- *  - 단, `{초대링크}` 자리는 발송 시 250바이트 안팎 URL 로 치환되므로 본문
- *    바이트 + 250 이 한도를 넘는지 별도로 안내한다 (서버는 finalBody 기준
- *    검증 — UI 가 먼저 경고만 띄움).
+ * 변수 토큰: 설명회는 sendon name 슬롯을 `{초대링크}` URL 치환에 hijack 하므로
+ * `{이름}` 은 사용 불가 — 변수 삽입 버튼은 `{초대링크}` 만 노출한다.
+ *
+ * 바이트 한도: `{초대링크}` 는 발송 시 250바이트 안팎 URL 로 치환되므로 본문
+ * 바이트 + 250 을 한도와 비교해 미리 경고한다.
  */
 
 interface Props {
@@ -55,6 +46,8 @@ const URL_RESERVED_BYTES = 250;
 /** 미리보기 sample 에 노출할 예시 학생 토큰 URL. */
 const SAMPLE_INVITE_URL = "https://sejung-crm.vercel.app/s/abc123XY";
 
+const SUBJECT_BYTE_LIMIT = 40;
+
 const TYPE_OPTIONS: Array<{
   value: TemplateTypeLiteral;
   label: string;
@@ -63,6 +56,24 @@ const TYPE_OPTIONS: Array<{
   { value: "LMS", label: "LMS · 장문", hint: "2,000바이트" },
   { value: "SMS", label: "SMS · 단문", hint: "90바이트" },
 ];
+
+const INPUT_CLASS = `
+  w-full h-11 rounded-lg px-3
+  bg-bg-card border border-[color:var(--border)]
+  text-[15px] text-[color:var(--text)]
+  placeholder:text-[color:var(--text-dim)]
+  focus:outline-none focus:border-[color:var(--border-strong)]
+  transition-colors
+`;
+
+const TEXTAREA_CLASS = `
+  w-full rounded-lg px-3 py-2.5 resize-y
+  bg-bg-card border border-[color:var(--border)]
+  text-[15px] leading-relaxed text-[color:var(--text)]
+  placeholder:text-[color:var(--text-dim)]
+  focus:outline-none focus:border-[color:var(--border-strong)]
+  transition-colors
+`;
 
 export function SeminarComposeStep3Body({
   state,
@@ -74,7 +85,6 @@ export function SeminarComposeStep3Body({
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   // 광고 가드를 적용한 최종 본문 — 바이트 측정과 오버플로 판정의 기준.
-  // 발송 시 `{초대링크}` 가 학생별 URL 로 치환되므로 그 바이트는 별도 합산.
   const clientFinalBody = useMemo(() => {
     const withAd = insertAdTag(state.body, state.isAd);
     return insertUnsubscribeFooter(withAd, state.isAd, optOutNumber);
@@ -85,42 +95,41 @@ export function SeminarComposeStep3Body({
     [clientFinalBody],
   );
   const limit = BYTE_LIMITS[state.type];
-  // {초대링크} 가 본문에 있으면 발송 시 그 위치가 URL 로 치환 → 250 바이트 추가.
-  // 없으면 backend 가 본문 끝에 자동 부착 → 동일하게 250 바이트 추가.
   const projectedBytes = bodyBytesNoUrl + URL_RESERVED_BYTES;
   const isOverLimit = projectedBytes > limit;
 
-  // 제목 바이트 (LMS 만). EUC-KR 40바이트 권장.
   const subjectBytes = useMemo(
     () => (state.subject ? countEucKrBytes(state.subject) : 0),
     [state.subject],
   );
-  const SUBJECT_BYTE_LIMIT = 40;
   const subjectOverflow = subjectBytes > SUBJECT_BYTE_LIMIT;
 
   const hasInviteVar = state.body.includes("{초대링크}");
 
-  // 첫 강좌(설명회) 날짜 — sample 말풍선의 `{날짜}` 자리 치환 참고용(선택).
+  // 첫 강좌(설명회) 날짜 — sample 의 `{날짜}` 자리 치환 참고용.
   const sampleDateLabel = useMemo(() => {
     const primary = selectedClasses[0];
     if (!primary?.held_at) return null;
     return formatKstDateTime(primary.held_at);
   }, [selectedClasses]);
 
-  // 미리보기 sample 본문 — {초대링크} → 예시 URL, {날짜} → 첫 설명회 시간.
-  // {초대링크} 가 본문에 없으면 발송 시 자동 부착되는 동작을 시각화.
-  const sampleBody = useMemo(() => {
-    let next = clientFinalBody.split("{초대링크}").join(SAMPLE_INVITE_URL);
-    if (!hasInviteVar && next.trim().length > 0) {
+  // 미리보기 본문 — (광고) 머리(insertAdTag)만 반영하고 footer(무료수신거부)는
+  // PhonePreviewCard 가 footer prop 으로 따로 렌더하므로 여기선 제외(중복 방지).
+  // {초대링크} → 예시 URL, 변수 없으면 자동 부착, {날짜} → 첫 설명회 시간.
+  const previewBody = useMemo(() => {
+    let next = insertAdTag(state.body, state.isAd)
+      .split("{초대링크}")
+      .join(SAMPLE_INVITE_URL);
+    if (!hasInviteVar && state.body.trim().length > 0) {
       next = `${next}\n신청하기: ${SAMPLE_INVITE_URL}`;
     }
     if (sampleDateLabel) {
       next = next.split("{날짜}").join(sampleDateLabel);
     }
     return next;
-  }, [clientFinalBody, hasInviteVar, sampleDateLabel]);
+  }, [state.body, state.isAd, hasInviteVar, sampleDateLabel]);
 
-  /** 변수 토큰을 미리보기 본문 textarea 의 cursor 위치에 삽입. */
+  /** 변수 토큰을 본문 textarea 의 cursor 위치에 삽입. */
   const insertInviteToken = () => {
     const ta = bodyRef.current;
     const current = state.body;
@@ -142,14 +151,7 @@ export function SeminarComposeStep3Body({
     });
   };
 
-  const onTypeChange = (type: SmsType) => {
-    if (type === "SMS") {
-      // SMS 전환 시에도 subject 는 state 에 보존 — LMS 로 다시 가면 복원.
-      onChange({ type });
-    } else {
-      onChange({ type });
-    }
-  };
+  const onTypeChange = (type: SmsType) => onChange({ type });
 
   return (
     <div className="space-y-5">
@@ -158,61 +160,125 @@ export function SeminarComposeStep3Body({
           본문 작성
         </h2>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-          오른쪽 미리보기 말풍선에서 바로 제목·본문을 작성하세요. 학생별 신청
-          URL 은 본문의 <code className="text-[12px]">{`{초대링크}`}</code> 자리에
-          자동 치환됩니다. 변수가 없으면 본문 끝에 자동 부착됩니다.
+          왼쪽 &lsquo;세정학원 문자&rsquo; 칸에 제목·본문을 작성하면 오른쪽
+          미리보기에 즉시 반영됩니다. 학생별 신청 URL 은 본문의{" "}
+          <code className="text-[12px]">{`{초대링크}`}</code> 자리에 자동 치환되고,
+          변수가 없으면 끝에 자동 부착됩니다.
         </p>
       </div>
 
-      {/* 좌: 메타 컨트롤(좁게) / 우: 미리보기 영역(넓게, 편집↔예시 좌우 배치) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-6 items-start">
-        {/* ── 좌: 메타 컨트롤 ─────────────────────────── */}
-        <div className="space-y-4 min-w-0">
-          {/* 유형 */}
-          <fieldset className="space-y-1.5">
-            <legend className="text-[12px] text-[color:var(--text-muted)]">
-              유형
-            </legend>
-            <div className="grid grid-cols-2 gap-1.5">
-              {TYPE_OPTIONS.map((opt) => {
-                const checked = state.type === opt.value;
-                return (
-                  <label
-                    key={opt.value}
-                    className={`
-                      flex items-center justify-center gap-1.5 h-9 rounded-md border cursor-pointer text-[13px]
-                      ${
-                        checked
-                          ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
-                          : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
-                      }
-                    `}
-                  >
-                    <input
-                      type="radio"
-                      name="seminar-compose-type"
-                      value={opt.value}
-                      checked={checked}
-                      onChange={() => onTypeChange(opt.value)}
-                      className="sr-only"
-                    />
-                    <span>{opt.label}</span>
-                  </label>
-                );
-              })}
-            </div>
-            <p className="text-[11px] text-[color:var(--text-dim)]">
-              설명회 안내는 본문이 길어 LMS 가 기본입니다.
-            </p>
-          </fieldset>
+      {/* ── 상단 바: 유형 · 광고성 ───────────────────────── */}
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 flex flex-col sm:flex-row sm:items-start gap-5">
+        <fieldset className="space-y-1.5">
+          <legend className="text-[12px] text-[color:var(--text-muted)]">
+            유형
+          </legend>
+          <div className="flex gap-1.5">
+            {TYPE_OPTIONS.map((opt) => {
+              const checked = state.type === opt.value;
+              return (
+                <label
+                  key={opt.value}
+                  className={`
+                    flex items-center justify-center gap-1.5 h-9 px-4 rounded-md border cursor-pointer text-[13px]
+                    ${
+                      checked
+                        ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
+                        : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
+                    }
+                  `}
+                >
+                  <input
+                    type="radio"
+                    name="seminar-compose-type"
+                    value={opt.value}
+                    checked={checked}
+                    onChange={() => onTypeChange(opt.value)}
+                    className="sr-only"
+                  />
+                  <span>{opt.label}</span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
 
-          {/* 제목 byte 카운트 (LMS) — 입력은 미리보기에서 직접. */}
+        <label className="flex items-start gap-2 cursor-pointer sm:pt-6">
+          <input
+            type="checkbox"
+            checked={state.isAd}
+            onChange={(e) => onChange({ isAd: e.target.checked })}
+            className="mt-0.5 size-4 accent-[color:var(--action)]"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-[13px] font-medium text-[color:var(--text)]">
+              광고성 문자
+            </span>
+            <span className="text-[11px] text-[color:var(--text-muted)] leading-relaxed">
+              체크 시 제목 앞 (광고), 본문 머리 (광고)·세정학원, 끝에 080
+              수신거부가 자동 삽입되고 바이트에 포함됩니다.
+            </span>
+          </span>
+        </label>
+      </div>
+
+      {state.isAd && (
+        <div
+          role="note"
+          className="flex items-start gap-2 rounded-md border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-3 py-2"
+        >
+          <Megaphone
+            className="size-3.5 mt-0.5 text-[color:var(--warning)] shrink-0"
+            strokeWidth={1.75}
+            aria-hidden
+          />
+          <p className="text-[12px] leading-relaxed text-[color:var(--text)]">
+            21시 ~ 08시 광고 발송이 차단됩니다.
+          </p>
+        </div>
+      )}
+
+      {/* ── 테스트 발송 (위로) ───────────────────────────── */}
+      <TestSendCard
+        type={state.type}
+        subject={state.subject}
+        body={state.body.trim().length === 0 ? "" : state.body}
+        isAd={state.isAd}
+        seminarClassIds={selectedClasses.map((c) => c.class_id)}
+        seminarAllowMultiple={state.allowMultiple}
+        disabled={
+          state.body.trim().length === 0 ||
+          isOverLimit ||
+          selectedClasses.length === 0
+        }
+      />
+
+      {/* ── 2박스: 세정학원 문자 / 미리보기 ──────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+        {/* 박스 1 — 세정학원 문자 작성 */}
+        <section
+          aria-label="세정학원 문자 작성"
+          className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 space-y-4"
+        >
+          <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
+            세정학원 문자
+          </h3>
+
+          {/* 제목 (LMS) */}
           {state.type === "LMS" && (
-            <div className="space-y-1">
-              <div className="flex items-baseline justify-between">
-                <span className="text-[12px] text-[color:var(--text-muted)]">
-                  제목 바이트
-                </span>
+            <div className="space-y-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <label
+                  htmlFor="seminar-subject"
+                  className="text-[13px] font-medium text-[color:var(--text)]"
+                >
+                  제목
+                  {state.isAd && (
+                    <span className="ml-1 text-[12px] font-normal text-[color:var(--text-muted)]">
+                      (광고) 자동
+                    </span>
+                  )}
+                </label>
                 <span
                   className={`text-[11px] tabular-nums ${
                     subjectOverflow
@@ -224,6 +290,15 @@ export function SeminarComposeStep3Body({
                   {subjectBytes} / {SUBJECT_BYTE_LIMIT} 바이트
                 </span>
               </div>
+              <input
+                id="seminar-subject"
+                type="text"
+                value={state.subject ?? ""}
+                onChange={(e) => onChange({ subject: e.target.value })}
+                placeholder="제목을 입력하세요"
+                maxLength={40}
+                className={INPUT_CLASS}
+              />
             </div>
           )}
 
@@ -246,11 +321,7 @@ export function SeminarComposeStep3Body({
                 "
                 aria-label="초대링크 변수 삽입"
               >
-                <LinkIcon
-                  className="size-3.5"
-                  strokeWidth={1.75}
-                  aria-hidden
-                />
+                <LinkIcon className="size-3.5" strokeWidth={1.75} aria-hidden />
                 <span
                   style={{
                     fontFamily:
@@ -261,173 +332,104 @@ export function SeminarComposeStep3Body({
                 </span>
               </button>
             </div>
-            <p className="text-[11px] text-[color:var(--text-dim)] leading-relaxed">
-              발송 시 학생별 신청 URL 로 자동 치환됩니다. 본문에 변수가 없으면
-              끝에 자동 부착돼요.
-            </p>
           </div>
 
-          {/* 광고 토글 */}
-          <label className="flex items-start gap-2 cursor-pointer pt-1">
-            <input
-              type="checkbox"
-              checked={state.isAd}
-              onChange={(e) => onChange({ isAd: e.target.checked })}
-              className="mt-0.5 size-4 accent-[color:var(--action)]"
-            />
-            <span className="flex flex-col gap-0.5">
-              <span className="text-[13px] font-medium text-[color:var(--text)]">
-                광고성 문자
-              </span>
-              <span className="text-[11px] text-[color:var(--text-muted)]">
-                체크 시 [광고] 머리말 + 080 수신거부가 자동 삽입되고 바이트
-                합계에도 포함됩니다.
-              </span>
-            </span>
-          </label>
-
-          {state.isAd && (
-            <div
-              role="note"
-              className="flex items-start gap-2 rounded-md border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-3 py-2"
-            >
-              <Megaphone
-                className="size-3.5 mt-0.5 text-[color:var(--warning)] shrink-0"
-                strokeWidth={1.75}
-                aria-hidden
-              />
-              <p className="text-[12px] leading-relaxed text-[color:var(--text)]">
-                21시 ~ 08시 광고 발송이 차단됩니다.
-              </p>
-            </div>
-          )}
-
-          {/* 바이트 안내 — URL 예약분 별도 표기. */}
-          <div className="space-y-1 pt-1">
-            <div className="flex items-baseline justify-between text-[12px]">
-              <span className="text-[color:var(--text-muted)]">
-                본문 바이트 (예상)
-              </span>
+          {/* 내용(본문) */}
+          <div className="space-y-1.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <label
+                htmlFor="seminar-body"
+                className="text-[13px] font-medium text-[color:var(--text)]"
+              >
+                내용
+              </label>
               <span
-                className={`tabular-nums ${
+                className={`text-[11px] tabular-nums ${
                   isOverLimit
                     ? "text-[color:var(--danger)] font-medium"
-                    : "text-[color:var(--text)]"
+                    : "text-[color:var(--text-dim)]"
                 }`}
                 aria-live="polite"
               >
-                {projectedBytes.toLocaleString()} / {limit.toLocaleString()}
+                {projectedBytes.toLocaleString()} / {limit.toLocaleString()}{" "}
+                바이트
               </span>
             </div>
+            <textarea
+              id="seminar-body"
+              ref={bodyRef}
+              value={state.body}
+              onChange={(e) => onChange({ body: e.target.value })}
+              placeholder="문자 본문을 입력하세요."
+              rows={10}
+              className={TEXTAREA_CLASS}
+              style={{ fontFamily: "var(--font-sans)" }}
+            />
             <p className="text-[11px] text-[color:var(--text-dim)] leading-relaxed">
-              본문 {bodyBytesNoUrl.toLocaleString()}바이트 + 학생별 URL {URL_RESERVED_BYTES}바이트
-              합산값입니다.
+              본문 {bodyBytesNoUrl.toLocaleString()}바이트 + 학생별 URL{" "}
+              {URL_RESERVED_BYTES}바이트 합산값입니다.
               {!hasInviteVar && " · 변수가 없어 끝에 자동 부착돼요."}
             </p>
+            {isOverLimit && (
+              <p
+                role="alert"
+                className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]"
+              >
+                <AlertTriangle
+                  className="size-3.5"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                현재 {state.type} 한도({limit.toLocaleString()}바이트)를 넘습니다.{" "}
+                {state.type === "SMS"
+                  ? "LMS 로 바꾸거나 본문을 줄여주세요."
+                  : "본문을 줄여주세요."}
+              </p>
+            )}
+          </div>
+        </section>
+
+        {/* 박스 2 — 미리보기 */}
+        <section
+          aria-label="미리보기"
+          className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 space-y-3"
+        >
+          <div className="flex items-baseline justify-between">
+            <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
+              미리보기
+            </h3>
+            <span className="text-[11px] text-[color:var(--text-dim)]">
+              예시 학생 기준
+            </span>
           </div>
 
-          {isOverLimit && (
-            <p
-              role="alert"
-              className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]"
-            >
-              <AlertTriangle
-                className="size-3.5"
-                strokeWidth={1.75}
-                aria-hidden
-              />
-              현재 {state.type} 한도({limit.toLocaleString()}바이트)를 넘습니다.{" "}
-              {state.type === "SMS"
-                ? "LMS 로 바꾸거나 본문을 줄여주세요."
-                : "본문을 줄여주세요."}
-            </p>
-          )}
-        </div>
-
-        {/* ── 우: 편집 미리보기 ↔ 예시 미리보기 (넓은 화면에선 좌우 배치) ── */}
-        <aside className="space-y-4 self-start min-w-0">
-          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
           <PhonePreviewCard
             type={state.type}
-            subject={state.subject}
-            body={state.body}
+            subject={state.type === "LMS" ? state.subject : null}
+            body={previewBody}
             isAd={state.isAd}
-            // 카드 footer 의 바이트 표기도 동일 기준(가공 본문 + URL 예약).
             rawBytes={projectedBytes}
             rawOverflow={isOverLimit}
             limit={limit}
-            editable
-            onSubjectChange={(next) => onChange({ subject: next })}
-            onBodyChange={(next) => onChange({ body: next })}
-            bodyTextareaRef={bodyRef}
             footer={
               state.isAd ? { unsubscribePhone: optOutNumber } : undefined
             }
           />
 
-          {/* 변수 치환 예시 — `{초대링크}` 자리에 예시 URL 박힌 결과 노출.
-              editable 모드의 본문 말풍선엔 raw 가 그대로 보이므로 보조 안내. */}
-          <div className="space-y-1.5 pt-1">
-            <p className="text-[11px] text-[color:var(--text-muted)] px-1">
-              예시 학생 기준 미리보기
-            </p>
-            <div
-              className="
-                rounded-2xl rounded-tl-md
-                border border-dashed border-[color:var(--border-strong)]
-                bg-bg-card
-                px-4 py-3 space-y-2
-              "
-              aria-label="변수 치환 예시"
-            >
-              {state.type === "LMS" && state.subject && (
-                <p className="text-[15px] font-semibold text-[color:var(--text)] leading-tight">
-                  {state.subject}
-                </p>
-              )}
-              <pre
-                className="whitespace-pre-wrap break-words text-[14px] leading-relaxed text-[color:var(--text)] font-sans"
-                style={{ fontFamily: "var(--font-sans)" }}
-              >
-                {sampleBody ||
-                  "본문을 입력하면 예시가 여기에 표시됩니다."}
-              </pre>
-            </div>
-            <p className="text-[11px] text-[color:var(--text-dim)] px-1 leading-relaxed">
-              실제 발송 시 <code>{`{초대링크}`}</code> 자리는 학생별
-              <code className="ml-1">/s/&lt;토큰&gt;</code> URL 로 치환됩니다.
-              {selectedGroup && (
-                <>
-                  {" "}대상{" "}
-                  <strong className="text-[color:var(--text-muted)]">
-                    {selectedGroup.name}
-                  </strong>
-                  {" "}· 약 {selectedGroup.recipient_count.toLocaleString()}명.
-                </>
-              )}
-            </p>
-          </div>
-          </div>
-
-          {/* 테스트 발송 — 본인 번호 1건. 설명회 모드: raw 본문(`{초대링크}` 포함)을
-              그대로 넘기면 서버가 실제 학생 토큰 URL 로 치환하고 inviteUrl 을
-              돌려준다(가짜 SAMPLE_INVITE_URL 클라 치환 X). 광고 prefix·080
-              footer 는 seminarTestSendAction 내부에서 적용됨(중복 X).
-              선택된 설명회가 0개면 서버가 classIds 를 못 받으므로 disabled. */}
-          <TestSendCard
-            type={state.type}
-            subject={state.subject}
-            body={state.body.trim().length === 0 ? "" : state.body}
-            isAd={state.isAd}
-            seminarClassIds={selectedClasses.map((c) => c.class_id)}
-            seminarAllowMultiple={state.allowMultiple}
-            disabled={
-              state.body.trim().length === 0 ||
-              isOverLimit ||
-              selectedClasses.length === 0
-            }
-          />
-        </aside>
+          <p className="text-[11px] text-[color:var(--text-dim)] leading-relaxed">
+            실제 발송 시 <code>{`{초대링크}`}</code> 자리는 학생별
+            <code className="ml-1">/s/&lt;토큰&gt;</code> URL 로 치환됩니다.
+            {selectedGroup && (
+              <>
+                {" "}대상{" "}
+                <strong className="text-[color:var(--text-muted)]">
+                  {selectedGroup.name}
+                </strong>
+                {" "}· 약 {selectedGroup.recipient_count.toLocaleString()}명.
+              </>
+            )}
+          </p>
+        </section>
       </div>
     </div>
   );
