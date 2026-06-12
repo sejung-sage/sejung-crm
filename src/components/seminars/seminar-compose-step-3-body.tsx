@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import { AlertTriangle, Link as LinkIcon, Megaphone } from "lucide-react";
 import type { ClassSignupOption, GroupListItem } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
@@ -67,7 +67,7 @@ const INPUT_CLASS = `
 `;
 
 const TEXTAREA_CLASS = `
-  w-full rounded-lg px-3 py-2.5 resize-y
+  w-full rounded-lg px-3 py-2.5 resize-none overflow-hidden min-h-[12rem]
   bg-bg-card border border-[color:var(--border)]
   text-[15px] leading-relaxed text-[color:var(--text)]
   placeholder:text-[color:var(--text-dim)]
@@ -83,6 +83,14 @@ export function SeminarComposeStep3Body({
   optOutNumber,
 }: Props) {
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  // 내용 입력칸을 스크롤 대신 내용 길이만큼 자동으로 늘린다(미리보기처럼 전체 표시).
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [state.body]);
 
   // 광고 가드를 적용한 최종 본문 — 바이트 측정과 오버플로 판정의 기준.
   const clientFinalBody = useMemo(() => {
@@ -169,58 +177,85 @@ export function SeminarComposeStep3Body({
 
       {/* ── 상단: 유형·광고성 + 테스트 발송 (한 줄) ────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
-        <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 flex flex-col sm:flex-row sm:items-start gap-5">
-        <fieldset className="space-y-1.5">
-          <legend className="text-[12px] text-[color:var(--text-muted)]">
-            유형
-          </legend>
-          <div className="flex gap-1.5">
-            {TYPE_OPTIONS.map((opt) => {
-              const checked = state.type === opt.value;
-              return (
-                <label
-                  key={opt.value}
-                  className={`
-                    flex items-center justify-center gap-1.5 h-9 px-4 rounded-md border cursor-pointer text-[13px]
-                    ${
-                      checked
-                        ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
-                        : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
-                    }
-                  `}
-                >
-                  <input
-                    type="radio"
-                    name="seminar-compose-type"
-                    value={opt.value}
-                    checked={checked}
-                    onChange={() => onTypeChange(opt.value)}
-                    className="sr-only"
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              );
-            })}
-          </div>
-        </fieldset>
+        <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 flex flex-col sm:flex-row sm:items-start gap-x-6 gap-y-4">
+          {/* 유형 */}
+          <fieldset className="space-y-1.5 shrink-0">
+            <legend className="text-[12px] text-[color:var(--text-muted)]">
+              유형
+            </legend>
+            <div className="flex gap-1.5">
+              {TYPE_OPTIONS.map((opt) => {
+                const checked = state.type === opt.value;
+                return (
+                  <label
+                    key={opt.value}
+                    className={`
+                      flex items-center justify-center gap-1.5 h-9 px-4 rounded-md border cursor-pointer text-[13px] whitespace-nowrap
+                      ${
+                        checked
+                          ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
+                          : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
+                      }
+                    `}
+                  >
+                    <input
+                      type="radio"
+                      name="seminar-compose-type"
+                      value={opt.value}
+                      checked={checked}
+                      onChange={() => onTypeChange(opt.value)}
+                      className="sr-only"
+                    />
+                    <span>{opt.label}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
 
-        <label className="flex items-start gap-2 cursor-pointer sm:pt-6">
-          <input
-            type="checkbox"
-            checked={state.isAd}
-            onChange={(e) => onChange({ isAd: e.target.checked })}
-            className="mt-0.5 size-4 accent-[color:var(--action)]"
+          {/* 세로 구분선 (sm 이상) */}
+          <div
+            className="hidden sm:block w-px self-stretch bg-[color:var(--border)]"
+            aria-hidden
           />
-          <span className="flex flex-col gap-0.5">
-            <span className="text-[13px] font-medium text-[color:var(--text)]">
-              광고성 문자
+
+          {/* 광고성 — 유형 버튼과 윗줄을 맞추려 라벨 높이만큼 빈 줄 확보 */}
+          <div className="space-y-1.5 sm:flex-1 min-w-0">
+            <span
+              className="hidden sm:block text-[12px] invisible select-none"
+              aria-hidden
+            >
+              유형
             </span>
-            <span className="text-[11px] text-[color:var(--text-muted)] leading-relaxed">
-              체크 시 제목 앞 (광고), 본문 머리 (광고)·세정학원, 끝에 080
-              수신거부가 자동 삽입되고 바이트에 포함됩니다.
-            </span>
-          </span>
-        </label>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={state.isAd}
+                onChange={(e) => onChange({ isAd: e.target.checked })}
+                className="mt-0.5 size-4 accent-[color:var(--action)]"
+              />
+              <span className="flex flex-col gap-1">
+                <span className="text-[13px] font-medium text-[color:var(--text)]">
+                  광고성 문자
+                </span>
+                <span className="text-[12px] text-[color:var(--text-muted)] leading-relaxed">
+                  체크 시 제목 앞{" "}
+                  <strong className="font-medium text-[color:var(--text)]">
+                    (광고)
+                  </strong>
+                  , 본문 머리{" "}
+                  <strong className="font-medium text-[color:var(--text)]">
+                    (광고)·세정학원
+                  </strong>
+                  , 끝에{" "}
+                  <strong className="font-medium text-[color:var(--text)]">
+                    080 수신거부
+                  </strong>
+                  가 자동 삽입되고 바이트에 포함됩니다.
+                </span>
+              </span>
+            </label>
+          </div>
         </div>
 
         {/* 테스트 발송 — 유형·광고성과 한 줄 오른쪽 */}
