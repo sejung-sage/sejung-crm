@@ -19,6 +19,7 @@
  */
 
 import { revalidatePath } from "next/cache";
+import { waitUntil } from "@vercel/functions";
 import { ZodError } from "zod";
 import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
 import { getGroup } from "@/lib/groups/get-group";
@@ -35,15 +36,15 @@ import {
 } from "@/lib/schemas/seminar";
 import { generateLinkToken } from "@/lib/seminars/generate-link-token";
 import {
-  dispatchBroadcast,
   buildInviteUrl,
-  type BroadcastRecipient,
+  INVITE_LINK_TOKEN,
+  SENDON_INVITE_PLACEHOLDER,
 } from "@/lib/seminars/dispatch-broadcast";
+import { getMessagingBaseUrl } from "@/lib/messaging/base-url";
 import { testSend } from "@/lib/messaging/test-send";
 import type { SendCampaignResult } from "@/lib/messaging/send-campaign";
 import { formatPhone } from "@/lib/phone";
 import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
-import { applyNameToken } from "@/lib/messaging/personalize";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS } from "@/lib/schemas/template";
 import {
@@ -51,7 +52,10 @@ import {
   insertUnsubscribeFooter,
   checkQuietHours,
 } from "@/lib/messaging/guards";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  createSupabaseServiceClient,
+} from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
@@ -90,10 +94,12 @@ export type CreateSeminarBroadcastActionResult =
   | {
       status: "success";
       campaign_id: string;
-      invitation_count: number;
-      sent: number;
-      failed: number;
-      total_cost: number;
+      /**
+       * 발송 큐에 적재된 건수(=대상 학생 수). 실제 발송은 백그라운드 드레인 워커가
+       * 청크씩 진행하므로, 즉시 반환 시점엔 성공/실패 카운트가 아직 0이다.
+       * 진행률은 캠페인 상세(CampaignProgressPoller)에서 확인한다.
+       */
+      queued: number;
     }
   | { status: "blocked"; reason: string }
   | { status: "failed"; reason: string }
@@ -286,12 +292,10 @@ export async function cancelSignupAction(
 //     전 finalBody 단계에서 처리해 EUC-KR 바이트 검증이 가공 후 본문 기준이 되도록.
 //   - `is_ad=false` (기본) 면 종전과 동일 — 정보성 안내로 가공 없음.
 
-/** 본문에 학생별 URL 을 박을 변수 토큰 (운영자 시각). */
-const INVITE_TOKEN = "{초대링크}";
-/** sendon SDK 가 인식하는 치환 src — Receiver.name 슬롯에 매핑됨. */
-const SENDON_INVITE_PLACEHOLDER = "#{이름}";
 /** 1회 발송 상한 — send-campaign 과 동일 정책. */
 const MAX_INVITATION_RECIPIENTS = 10_000;
+/** invitation / messages 벌크 INSERT 청크. Supabase request size 한도 회피. */
+const BROADCAST_INSERT_CHUNK = 1_000;
 /** invitation.link_token UNIQUE 충돌 시 재시도 한도. */
 const INVITATION_TOKEN_RETRY = 3;
 
@@ -583,8 +587,8 @@ export async function createSeminarBroadcastAction(
     };
   }
 
-  let finalBody = trimmed.includes(INVITE_TOKEN)
-    ? trimmed.split(INVITE_TOKEN).join(SENDON_INVITE_PLACEHOLDER)
+  let finalBody = trimmed.includes(INVITE_LINK_TOKEN)
+    ? trimmed.split(INVITE_LINK_TOKEN).join(SENDON_INVITE_PLACEHOLDER)
     : `${trimmed}\n\n신청: ${SENDON_INVITE_PLACEHOLDER}`;
 
   // 광고 prefix / footer (헬퍼가 isAd=false 면 no-op).
@@ -660,45 +664,71 @@ export async function createSeminarBroadcastAction(
   }
   const campaignId = campaignInserted.id;
 
-  // 7) 학생당 invitation + items INSERT. 토큰 UNIQUE 충돌 시 재시도(최대 3회).
+  // 7) invitation 벌크 INSERT (학생당 1행, 1,000건 청크).
+  //    기존엔 학생당 1건씩 순차 INSERT 해 5,000명 발송 시 Server Action 타임아웃
+  //    (약 5분)에 걸려 발송이 통째로 죽었다(2026-06-11). 청크 벌크 INSERT 로 왕복
+  //    N회 → ceil(N/1000)회로 줄여 수만 명도 수 초 안에 적재한다.
+  //    link_token UNIQUE(23505) 충돌은 해당 청크를 새 토큰으로 재시도.
+  const fromNumber = process.env.SENDON_FROM_NUMBER;
+  if (!fromNumber || fromNumber.length === 0) {
+    await safeMarkCampaignFailed(supabase, campaignId);
+    return {
+      status: "failed",
+      reason: "SENDON_FROM_NUMBER 환경변수가 설정되지 않았습니다",
+    };
+  }
+
   const invitationByStudent = new Map<string, { id: string; token: string }>();
-  for (const s of filtered) {
-    let inserted: { id: string; token: string } | null = null;
+  for (let i = 0; i < filtered.length; i += BROADCAST_INSERT_CHUNK) {
+    const slice = filtered.slice(i, i + BROADCAST_INSERT_CHUNK);
+    let chunkDone = false;
     let lastError: string | null = null;
-    for (let attempt = 0; attempt < INVITATION_TOKEN_RETRY; attempt += 1) {
-      const token = generateLinkToken();
-      const { data: invRow, error: invError } = (await (
-        supabase.from("crm_class_signup_invitations") as unknown as {
-          insert: (v: Record<string, unknown>) => {
-            select: (cols: string) => {
-              single: () => Promise<{
-                data: { id: string } | null;
-                error: { message: string; code?: string } | null;
-              }>;
-            };
-          };
-        }
-      )
-        .insert({
+    for (
+      let attempt = 0;
+      attempt < INVITATION_TOKEN_RETRY && !chunkDone;
+      attempt += 1
+    ) {
+      const tokenByStudent = new Map<string, string>();
+      const rows = slice.map((s) => {
+        const token = generateLinkToken();
+        tokenByStudent.set(s.id, token);
+        return {
           branch: parsed.branch,
           student_id: s.id,
           link_token: token,
           campaign_id: campaignId,
           created_by: auth.user.user_id,
-          // 0087: 위저드 "중복 신청 허용" 체크박스 값. false 면 claim_signup_item 이
-          //       두 번째 카드부터 'limit_reached' 로 차단. 기본 true(Zod default).
+          // 0087: 위저드 "중복 신청 허용" 체크박스 값. 기본 true(Zod default).
           allow_multiple: parsed.allow_multiple,
-        })
-        .select("id")
-        .single()) as {
-        data: { id: string } | null;
+        };
+      });
+      const { data: invRows, error: invError } = (await (
+        supabase.from("crm_class_signup_invitations") as unknown as {
+          insert: (v: Record<string, unknown>[]) => {
+            select: (cols: string) => Promise<{
+              data: Array<{ id: string; student_id: string }> | null;
+              error: { message: string; code?: string } | null;
+            }>;
+          };
+        }
+      )
+        .insert(rows)
+        .select("id, student_id")) as {
+        data: Array<{ id: string; student_id: string }> | null;
         error: { message: string; code?: string } | null;
       };
-      if (!invError && invRow) {
-        inserted = { id: invRow.id, token };
+
+      if (!invError && invRows) {
+        for (const r of invRows) {
+          const token = tokenByStudent.get(r.student_id);
+          if (token) {
+            invitationByStudent.set(r.student_id, { id: r.id, token });
+          }
+        }
+        chunkDone = true;
         break;
       }
-      // 23505 = UNIQUE 위반 — 토큰 재시도.
+      // 23505 = link_token UNIQUE 충돌 — 청크 전체를 새 토큰으로 재시도.
       if (invError?.code === "23505") {
         lastError = "토큰 충돌";
         continue;
@@ -706,19 +736,16 @@ export async function createSeminarBroadcastAction(
       lastError = invError?.message ?? "알 수 없는 오류";
       break;
     }
-    if (!inserted) {
-      // 토큰 재시도 모두 실패 또는 다른 에러 → 캠페인 실패 처리 후 종료.
+    if (!chunkDone) {
       await safeMarkCampaignFailed(supabase, campaignId);
       return {
         status: "failed",
         reason: `invitation 생성 실패: ${lastError ?? "알 수 없는 오류"}`,
       };
     }
-    invitationByStudent.set(s.id, inserted);
   }
 
-  // 7-2) invitation_items 일괄 INSERT (학생 × signup_page 매트릭스).
-  //      0084: seminar_id 컬럼 → signup_page_id. 페이지는 위 2-2 에서 확보.
+  // 7-2) invitation_items 벌크 INSERT (학생 × signup_page 매트릭스), 1,000건 청크.
   const itemRows: Array<{
     invitation_id: string;
     signup_page_id: string;
@@ -735,86 +762,91 @@ export async function createSeminarBroadcastAction(
       });
     }
   }
-  const { error: itemsError } = (await (
-    supabase.from("crm_class_signup_items") as unknown as {
-      insert: (v: Record<string, unknown>[]) => Promise<{
-        error: { message: string } | null;
-      }>;
-    }
-  ).insert(itemRows)) as { error: { message: string } | null };
-  if (itemsError) {
-    await safeMarkCampaignFailed(supabase, campaignId);
-    return {
-      status: "failed",
-      reason: `invitation 카드 생성 실패: ${itemsError.message}`,
-    };
-  }
-
-  // 8) sendon batch 발송.
-  const fromNumber = process.env.SENDON_FROM_NUMBER;
-  if (!fromNumber || fromNumber.length === 0) {
-    await safeMarkCampaignFailed(supabase, campaignId);
-    return {
-      status: "failed",
-      reason: "SENDON_FROM_NUMBER 환경변수가 설정되지 않았습니다",
-    };
-  }
-  const broadcastRecipients: BroadcastRecipient[] = filtered.map((s) => {
-    const inv = invitationByStudent.get(s.id);
-    // 위 루프에서 모든 학생에 inv 가 있음을 보장 — 방어로 빈 토큰 fallback.
-    return {
-      invitation_id: inv?.id ?? "",
-      student_id: s.id,
-      student_name: applyNameToken("{이름}", s.name), // '학부모님' fallback 포함.
-      parent_phone: s.parent_phone,
-      link_token: inv?.token ?? "",
-    };
-  });
-
-  const dispatchResult = await dispatchBroadcast(supabase, {
-    campaignId,
-    recipients: broadcastRecipients,
-    body: finalBody,
-    subject: parsed.subject,
-    type: parsed.type,
-    fromNumber,
-  });
-
-  // 9) campaign 최종 상태 + 비용 UPDATE.
-  const finalStatus = dispatchResult.sent > 0 ? "완료" : "실패";
-  await (
-    supabase.from("crm_campaigns") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        eq: (
-          col: string,
-          val: string,
-        ) => Promise<{ error: { message: string } | null }>;
+  for (let i = 0; i < itemRows.length; i += BROADCAST_INSERT_CHUNK) {
+    const slice = itemRows.slice(i, i + BROADCAST_INSERT_CHUNK);
+    const { error: itemsError } = (await (
+      supabase.from("crm_class_signup_items") as unknown as {
+        insert: (v: Record<string, unknown>[]) => Promise<{
+          error: { message: string } | null;
+        }>;
+      }
+    ).insert(slice)) as { error: { message: string } | null };
+    if (itemsError) {
+      await safeMarkCampaignFailed(supabase, campaignId);
+      return {
+        status: "failed",
+        reason: `invitation 카드 생성 실패: ${itemsError.message}`,
       };
     }
-  )
-    .update({
-      status: finalStatus,
-      total_cost: Math.round(dispatchResult.totalCost),
-    })
-    .eq("id", campaignId);
+  }
+
+  // 8) crm_messages(상태 '대기') 벌크 적재 — 실제 발송은 드레인 워커가 청크씩.
+  //    학생별 초대 URL 은 드레인의 "초대링크 모드"가 (campaign_id, student_id)로
+  //    link_token 을 조회해 sendon name 슬롯에 주입한다(drain-campaign 참조).
+  const nowIso = new Date().toISOString();
+  for (let i = 0; i < filtered.length; i += BROADCAST_INSERT_CHUNK) {
+    const slice = filtered.slice(i, i + BROADCAST_INSERT_CHUNK);
+    const messageRows = slice.map((s) => ({
+      campaign_id: campaignId,
+      student_id: s.id,
+      phone: s.parent_phone,
+      status: "대기" as const,
+      vendor_message_id: null,
+      cost: 0,
+      sent_at: null,
+      delivered_at: null,
+      failed_reason: null,
+      is_test: false,
+      created_at: nowIso,
+    }));
+    const { error: msgErr } = (await (
+      supabase.from("crm_messages") as unknown as {
+        insert: (v: Record<string, unknown>[]) => Promise<{
+          error: { message: string } | null;
+        }>;
+      }
+    ).insert(messageRows)) as { error: { message: string } | null };
+    if (msgErr) {
+      await safeMarkCampaignFailed(supabase, campaignId);
+      return {
+        status: "failed",
+        reason: `메시지 큐 적재 실패: ${msgErr.message}`,
+      };
+    }
+  }
+
+  // 9) 드레인 워커 킥 — fire-and-forget. 즉시 반환하고 백그라운드에서 발송 진행.
+  //    (send-campaign runImmediateSend 와 동일 패턴 — 일관성·진행률 폴링 공유.)
+  const drainSecret = process.env.DRAIN_SECRET;
+  if (!drainSecret) {
+    await safeMarkCampaignFailed(supabase, campaignId);
+    return {
+      status: "failed",
+      reason: "DRAIN_SECRET 환경변수가 설정되어 있지 않습니다",
+    };
+  }
+  waitUntil(
+    fetch(`${getMessagingBaseUrl()}/api/messaging/drain`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-drain-secret": drainSecret,
+      },
+      body: JSON.stringify({ campaignId }),
+      keepalive: true,
+    }).catch(() => {
+      // 첫 킥 실패는 무시 — 캠페인은 '발송중' 으로 남고 sweep/수동 재킥으로 회복.
+    }),
+  );
 
   revalidatePath("/seminars/compose");
   revalidatePath("/campaigns");
-
-  if (dispatchResult.sent === 0) {
-    return {
-      status: "failed",
-      reason: dispatchResult.failedReason ?? "발송에 실패했습니다",
-    };
-  }
+  revalidatePath(`/campaigns/${campaignId}`);
 
   return {
     status: "success",
     campaign_id: campaignId,
-    invitation_count: filtered.length,
-    sent: dispatchResult.sent,
-    failed: dispatchResult.failed,
-    total_cost: Math.round(dispatchResult.totalCost),
+    queued: filtered.length,
   };
 }
 
@@ -1093,8 +1125,8 @@ export async function seminarTestSendAction(
 
   // 8) 본문 치환: {초대링크} 전부 → inviteUrl. 없으면 끝에 부착(위저드 미리보기와 일치).
   const rawBody = input.body;
-  const finalBody = rawBody.includes(INVITE_TOKEN)
-    ? rawBody.split(INVITE_TOKEN).join(inviteUrl)
+  const finalBody = rawBody.includes(INVITE_LINK_TOKEN)
+    ? rawBody.split(INVITE_LINK_TOKEN).join(inviteUrl)
     : `${rawBody}\n\n신청: ${inviteUrl}`;
 
   // 9) testSend() 코어 재사용 — 단건이라 name-slot 개인화 불필요(평문 본문 그대로).
@@ -1136,6 +1168,47 @@ export async function claimInvitationItemAction(
       return { status: "failed", reason: zodErrorToReason(e) };
     }
     return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  // ── 크로스-invitation 중복 신청 차단 ─────────────────────────
+  // class ↔ signup_page 는 1:1(UNIQUE class_id) 이라 "같은 설명회 중복"은
+  // "같은 signup_page 에 같은 학생이 이미 signed" 인지로 판정한다. 같은 학생에게
+  // 발송이 2번 나가 invitation(링크)이 2개여도, 한 번 신청하면 다른 링크는 막힌다.
+  // 학부모(anon)는 RLS 로 이 테이블을 못 읽으므로 service client 로 읽기만 확인.
+  const svc = createSupabaseServiceClient();
+  const { data: invMeta } = (await svc
+    .from("crm_class_signup_invitations")
+    .select("student_id")
+    .eq("link_token", parsed.token)
+    .maybeSingle()) as { data: { student_id: string } | null };
+
+  if (invMeta?.student_id) {
+    const { data: studentInvs } = (await svc
+      .from("crm_class_signup_invitations")
+      .select("id")
+      .eq("student_id", invMeta.student_id)) as {
+      data: { id: string }[] | null;
+    };
+    const invIds = (studentInvs ?? []).map((r) => r.id);
+    if (invIds.length > 0) {
+      const { data: dupRows } = (await svc
+        .from("crm_class_signup_items")
+        .select("id")
+        .eq("signup_page_id", parsed.signup_page_id)
+        .eq("status", "signed")
+        .in("invitation_id", invIds)
+        .limit(1)) as { data: { id: string }[] | null };
+      if (dupRows && dupRows.length > 0) {
+        console.log(
+          `[seminars/claim] 중복 차단 token=${parsed.token.slice(0, 4)}**** page=${parsed.signup_page_id}`,
+        );
+        return {
+          status: "already_signed",
+          itemId: dupRows[0].id,
+          reason: null,
+        };
+      }
+    }
   }
 
   const supabase = await createSupabaseServerClient();

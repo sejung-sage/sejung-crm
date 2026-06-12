@@ -43,6 +43,11 @@ import {
   hasNameToken,
   toSendonNameSyntax,
 } from "./personalize";
+import {
+  buildInviteUrl,
+  INVITE_LINK_TOKEN,
+  SENDON_INVITE_PLACEHOLDER,
+} from "@/lib/seminars/dispatch-broadcast";
 import type {
   CampaignRow,
   CampaignStatus,
@@ -79,6 +84,18 @@ export interface DrainChunkResult {
   campaignDone: boolean;
 }
 
+/**
+ * 설명회 발송 본문에 학생별 신청 URL 자리(sendon name 슬롯)를 만든다.
+ *  - 본문에 {초대링크} 가 있으면 그 자리를 #{이름} 로 전부 치환.
+ *  - 없으면 본문 끝에 "신청: #{이름}" 을 부착.
+ * createSeminarBroadcastAction 의 finalBody 합성과 동일 규칙(순수 함수, 테스트용 export).
+ */
+export function applyInviteLinkToken(body: string): string {
+  return body.includes(INVITE_LINK_TOKEN)
+    ? body.split(INVITE_LINK_TOKEN).join(SENDON_INVITE_PLACEHOLDER)
+    : `${body}\n\n신청: ${SENDON_INVITE_PLACEHOLDER}`;
+}
+
 export async function drainCampaignChunk(
   campaignId: string,
 ): Promise<DrainChunkResult> {
@@ -103,16 +120,42 @@ export async function drainCampaignChunk(
     parseDateOrNull(campaign.scheduled_at) ??
     parseDateOrNull(campaign.sent_at) ??
     new Date();
-  const guardedBody = applyDateToken(
-    insertUnsubscribeFooter(
-      insertAdTag(campaign.body, campaign.is_ad),
-      campaign.is_ad,
-    ),
-    personalizationDate,
-  );
-  const hasName = hasNameToken(guardedBody);
-  // 본문은 hasName 일 때만 sendon 치환 문법으로 변환 — 외 경우 그대로 송출.
-  const sendBody = hasName ? toSendonNameSyntax(guardedBody) : guardedBody;
+
+  // 초대링크 모드 — 설명회 발송(createSeminarBroadcastAction)이 적재한 캠페인은
+  // 학생별 고유 신청 URL 을 sendon name 슬롯에 박는다. campaign.body 토큰에
+  // 의존하지 않고 "이 캠페인에 invitation 이 있는가"로 판정한다(그룹/엑셀 발송은
+  // invitation 이 없어 자동으로 일반 경로 → 회귀 안전).
+  const inviteMode = await hasInvitations(supabase, campaignId);
+  const inviteUrlMap = inviteMode
+    ? await loadInviteUrlMap(supabase, campaignId)
+    : null;
+
+  let hasName: boolean;
+  let sendBody: string;
+  if (inviteMode) {
+    // {초대링크} → #{이름}(sendon name 슬롯). 없으면 "신청: #{이름}" 부착 —
+    // createSeminarBroadcastAction 의 finalBody 합성과 동일 규칙.
+    const withPlaceholder = applyInviteLinkToken(campaign.body);
+    sendBody = applyDateToken(
+      insertUnsubscribeFooter(
+        insertAdTag(withPlaceholder, campaign.is_ad),
+        campaign.is_ad,
+      ),
+      personalizationDate,
+    );
+    hasName = true; // name 슬롯 사용(값은 학생 이름이 아니라 초대 URL)
+  } else {
+    const guardedBody = applyDateToken(
+      insertUnsubscribeFooter(
+        insertAdTag(campaign.body, campaign.is_ad),
+        campaign.is_ad,
+      ),
+      personalizationDate,
+    );
+    hasName = hasNameToken(guardedBody);
+    // 본문은 hasName 일 때만 sendon 치환 문법으로 변환 — 외 경우 그대로 송출.
+    sendBody = hasName ? toSendonNameSyntax(guardedBody) : guardedBody;
+  }
   const adapter = createSmsAdapter();
   const fromNumber = readFromNumber(adapter.name);
   if (!fromNumber) {
@@ -146,6 +189,8 @@ export async function drainCampaignChunk(
       isAd: campaign.is_ad,
       campaignId,
       hasName,
+      inviteMode,
+      inviteUrlMap,
     });
     totalAttempted += result.attempted;
     totalSent += result.sent;
@@ -199,6 +244,10 @@ async function processOneBatch(args: {
   isAd: boolean;
   campaignId: string;
   hasName: boolean;
+  /** 초대링크 모드 — name 슬롯에 학생 이름 대신 신청 페이지 URL 을 박는다. */
+  inviteMode: boolean;
+  /** 초대링크 모드일 때 student_id → 신청 URL 맵 (drainCampaignChunk 가 1회 로드). */
+  inviteUrlMap: Map<string, string> | null;
 }): Promise<{
   attempted: number;
   sent: number;
@@ -216,6 +265,8 @@ async function processOneBatch(args: {
     isAd,
     campaignId,
     hasName,
+    inviteMode,
+    inviteUrlMap,
   } = args;
 
   const nowIso = new Date().toISOString();
@@ -224,9 +275,25 @@ async function processOneBatch(args: {
   let failed = 0;
   let addedCost = 0;
 
-  // hasName 일 때만 이름 매핑 — 그 외 경로는 한 쿼리 절약.
+  // name 슬롯 채우기:
+  //  - 초대링크 모드 → 학생별 신청 URL (inviteUrlMap).
+  //  - 일반 {이름} 모드 → 학생 이름 (없으면 '학부모님').
+  //  - 둘 다 아니면 매핑 불필요 (string[] 경로).
   let recipients: SmsBatchRecipient[] | null = null;
-  if (hasName) {
+  if (inviteMode) {
+    const map = inviteUrlMap ?? new Map<string, string>();
+    recipients = pending.map((p) => ({
+      phone: p.phone,
+      // URL 누락 시(있을 수 없는 케이스) name 빈값 — sendon 측 빈 치환. 경고만.
+      name: (p.student_id ? map.get(p.student_id) ?? "" : "") || "",
+    }));
+    const missing = recipients.filter((r) => r.name === "").length;
+    if (missing > 0) {
+      console.warn(
+        `[drain] 초대링크 누락 ${missing}건 (campaign=${campaignId}) — 토큰 매핑 확인 필요`,
+      );
+    }
+  } else if (hasName) {
     const studentIds = Array.from(
       new Set(
         pending
@@ -297,6 +364,57 @@ async function loadStudentNames(
   const out = new Map<string, string>();
   for (const r of rows) {
     if (r.name) out.set(r.id, r.name);
+  }
+  return out;
+}
+
+/**
+ * 이 캠페인이 설명회 초대 발송인지 — invitation 행 존재 여부로 판정.
+ * head+count 로 1행도 안 읽고 존재만 확인. (그룹/엑셀 발송은 0 → false.)
+ */
+async function hasInvitations(
+  supabase: SrvClient,
+  campaignId: string,
+): Promise<boolean> {
+  const { count, error } = await supabase
+    .from("crm_class_signup_invitations")
+    .select("id", { count: "exact", head: true })
+    .eq("campaign_id", campaignId);
+  if (error) return false;
+  return (count ?? 0) > 0;
+}
+
+/**
+ * 초대링크 모드용 student_id → 신청 페이지 URL 맵.
+ *
+ * `.in("student_id", ids)` 는 1,000개 UUID 가 Cloudflare 8KB URL 한도를 넘겨
+ * 414 가 나므로, campaign_id 로만 필터하고 range 페이지네이션(1,000행)으로
+ * 캠페인의 모든 invitation 을 끌어와 맵을 만든다. drainCampaignChunk 가 1회만 호출.
+ */
+async function loadInviteUrlMap(
+  supabase: SrvClient,
+  campaignId: string,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const PAGE = 1_000;
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from("crm_class_signup_invitations")
+      .select("student_id, link_token")
+      .eq("campaign_id", campaignId)
+      .order("id", { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) break;
+    const rows = (data ?? []) as Array<{
+      student_id: string | null;
+      link_token: string | null;
+    }>;
+    for (const r of rows) {
+      if (r.student_id && r.link_token) {
+        out.set(r.student_id, buildInviteUrl(r.link_token));
+      }
+    }
+    if (rows.length < PAGE) break;
   }
   return out;
 }

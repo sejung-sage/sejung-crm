@@ -215,6 +215,16 @@ export async function dispatchBroadcast(
 }
 
 /**
+ * 운영자 본문에 학생별 신청 페이지 링크를 박는 사용자 토큰.
+ * sendon Replace 슬롯이 1개(name)뿐이라, 발송 직전 이 토큰을 `#{이름}` 으로
+ * 변환해 name 슬롯에 학생별 URL 을 채운다 (createSeminarBroadcastAction /
+ * drain-campaign 초대링크 모드 공용).
+ */
+export const INVITE_LINK_TOKEN = "{초대링크}";
+/** sendon SDK 가 인식하는 치환 src — Receiver.name 슬롯에 매핑됨. */
+export const SENDON_INVITE_PLACEHOLDER = "#{이름}";
+
+/**
  * 학생 페이지 URL 구성. APP_BASE_URL / VERCEL_PROJECT_PRODUCTION_URL fallback 체인.
  * 본 함수가 반환하는 URL 이 학부모 SMS 본문에 박힌다.
  */

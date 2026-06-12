@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Send, AlertTriangle, CheckCircle2, Calendar, MapPin } from "lucide-react";
 import type { ClassSignupOption, GroupListItem } from "@/types/database";
@@ -30,9 +31,7 @@ type SendUiResult =
   | {
       kind: "success";
       campaignId: string;
-      invitationCount: number;
-      sent: number;
-      failed: number;
+      queued: number;
     }
   | { kind: "blocked"; reason: string }
   | { kind: "dev_seed_mode"; reason: string }
@@ -45,6 +44,7 @@ export function SeminarComposeStep4Send({
   branch,
   onBackToBody,
 }: Props) {
+  const router = useRouter();
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [result, setResult] = useState<SendUiResult | null>(null);
@@ -70,13 +70,14 @@ export function SeminarComposeStep4Send({
 
       switch (res.status) {
         case "success":
+          // 비동기 발송 — 큐 적재만 끝났고 실제 발송은 백그라운드 드레인이 진행한다.
+          // 캠페인 상세로 바로 이동해 진행률(발송됨 X/N)을 실시간으로 보여준다.
           setResult({
             kind: "success",
             campaignId: res.campaign_id,
-            invitationCount: res.invitation_count,
-            sent: res.sent,
-            failed: res.failed,
+            queued: res.queued,
           });
+          router.push(`/campaigns/${res.campaign_id}`);
           break;
         case "blocked":
           setResult({
@@ -190,13 +191,13 @@ export function SeminarComposeStep4Send({
               aria-hidden
             />
             <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
-              발송이 완료되었습니다
+              발송을 시작했습니다
             </h3>
           </div>
           <p className="text-[13px] text-[color:var(--text-muted)] tabular-nums">
-            초대 {result.invitationCount.toLocaleString()}건 ·
-            성공 {result.sent.toLocaleString()}건 ·
-            실패 {result.failed.toLocaleString()}건
+            {result.queued.toLocaleString()}건이 발송 대기열에 적재되었습니다.
+            실제 발송은 백그라운드에서 진행되며, 진행 상황은 캠페인 상세에서
+            실시간으로 확인할 수 있습니다.
           </p>
           <Link
             href={`/campaigns/${result.campaignId}`}
@@ -208,7 +209,7 @@ export function SeminarComposeStep4Send({
               transition-colors
             "
           >
-            발송 내역 보기
+            발송 진행 상황 보기
           </Link>
         </div>
       )}

@@ -86,14 +86,19 @@ vi.mock("@/lib/messaging/unsubscribed-phones", () => ({
   getUnsubscribedPhones: vi.fn(async () => [] as string[]),
 }));
 
-// sendon 디스패치: 항상 1건 성공 (실 발송 X).
+// dispatch-broadcast: 새 비동기 흐름에선 액션이 dispatchBroadcast 를 더 이상
+// 호출하지 않지만(큐 적재 후 드레인 워커가 발송), 액션이 import 하는 상수·헬퍼는
+// 실제 값이 필요하다. 상수는 그대로 제공하고 dispatchBroadcast 는 미사용 stub.
 vi.mock("@/lib/seminars/dispatch-broadcast", () => ({
-  dispatchBroadcast: vi.fn(async () => ({
-    sent: 1,
-    failed: 0,
-    totalCost: 7,
-    failedReason: null,
-  })),
+  dispatchBroadcast: vi.fn(),
+  buildInviteUrl: (token: string) => `https://crm.sejung.test/s/${token}`,
+  INVITE_LINK_TOKEN: "{초대링크}",
+  SENDON_INVITE_PLACEHOLDER: "#{이름}",
+}));
+
+// 드레인 워커 킥(waitUntil(fetch(...)))은 테스트에서 no-op.
+vi.mock("@vercel/functions", () => ({
+  waitUntil: vi.fn(),
 }));
 
 // Supabase 서버 클라이언트: 강좌 검증·페이지 find-or-create·campaign/invitation/
@@ -232,12 +237,15 @@ describe("createSeminarBroadcastAction · {이름} 본문 변수 잔존 가드",
     process.env.NEXT_PUBLIC_SUPABASE_URL = "https://stub-not-real.invalid";
     process.env.SENDON_FROM_NUMBER = "0212345678";
     process.env.APP_BASE_URL = "https://crm.sejung.test";
+    // 비동기 발송: 큐 적재 후 드레인 워커 킥에 DRAIN_SECRET 필요.
+    process.env.DRAIN_SECRET = "test-drain-secret";
     vi.clearAllMocks();
   });
 
   afterEach(() => {
     delete process.env.SENDON_FROM_NUMBER;
     delete process.env.APP_BASE_URL;
+    delete process.env.DRAIN_SECRET;
   });
 
   describe("정상 케이스 (가드에 걸리지 않아야 함)", () => {

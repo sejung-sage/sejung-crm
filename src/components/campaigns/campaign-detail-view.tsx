@@ -53,8 +53,9 @@ export function CampaignDetailView({
 
   return (
     <div className="max-w-7xl space-y-6">
-      {/* 발송중일 때만 폴링 — status 변경 시 자동 중단 */}
-      <CampaignProgressPoller status={campaign.status} />
+      {/* 발송중일 때만 폴링 — status 변경 시 자동 중단. 진행률이 더 또렷하게
+          갱신되도록 3초 간격(대량 발송이 수십 초~분 단위로 끝남). */}
+      <CampaignProgressPoller status={campaign.status} intervalMs={3000} />
 
       {/* 브레드크럼 */}
       <Link
