@@ -131,9 +131,29 @@ async function fetchPrefillFromStudent(
  * 주의: getClassDetail 은 dev-seed 모드에서 null 반환하므로
  * dev-seed 환경에서는 강좌 prefill 자체가 동작하지 않음 (의도적 — 강좌 시드 부재).
  */
+/**
+ * 명단 화면 체크박스 선택 결과. include 가 있으면 그 id 만, 없고 exclude 가 있으면
+ * 그 id 를 뺀다. (둘 다 없으면 전원.) ClassRoster 가 URL 길이를 줄이려 더 짧은 쪽만
+ * 싣는다.
+ */
+interface RosterFilter {
+  include?: Set<string>;
+  exclude?: Set<string>;
+}
+
+function applyRosterFilter(
+  recipients: PrefillRecipient[],
+  f: RosterFilter,
+): PrefillRecipient[] {
+  if (f.include) return recipients.filter((r) => f.include!.has(r.id));
+  if (f.exclude) return recipients.filter((r) => !f.exclude!.has(r.id));
+  return recipients;
+}
+
 async function fetchPrefillFromClass(
   classId: string,
   filter: ClassPrefillFilter,
+  rosterFilter: RosterFilter,
 ): Promise<Prefill | null> {
   const detail = await getClassDetail(classId);
   if (!detail) return null;
@@ -154,17 +174,19 @@ async function fetchPrefillFromClass(
       ? `${detail.class.name} 미등록 재등록 안내`
       : `${detail.class.name} 일회성`;
 
-  return {
-    branch: detail.class.branch,
-    groupName,
-    recipients: selected.map((s) => ({
+  const recipients = applyRosterFilter(
+    selected.map((s) => ({
       id: s.id,
       name: s.name,
       parent_phone: s.parent_phone,
       school: s.school,
       grade: s.grade,
     })),
-  };
+    rosterFilter,
+  );
+  if (recipients.length === 0) return null;
+
+  return { branch: detail.class.branch, groupName, recipients };
 }
 
 /**
@@ -175,6 +197,7 @@ async function fetchPrefillFromClass(
 async function fetchPrefillFromClassSession(
   classId: string,
   date: string,
+  rosterFilter: RosterFilter,
 ): Promise<Prefill | null> {
   const detail = await getClassDetail(classId);
   if (!detail) return null;
@@ -183,15 +206,18 @@ async function fetchPrefillFromClassSession(
   const session = sessions.find((s) => s.date === date);
   if (!session) return null;
 
-  const recipients: PrefillRecipient[] = session.students
-    .filter((s): s is typeof s & { id: string } => s.id !== null)
-    .map((s) => ({
-      id: s.id,
-      name: s.name,
-      parent_phone: s.parent_phone,
-      school: s.school,
-      grade: (s.grade as Grade | null) ?? null,
-    }));
+  const recipients: PrefillRecipient[] = applyRosterFilter(
+    session.students
+      .filter((s): s is typeof s & { id: string } => s.id !== null)
+      .map((s) => ({
+        id: s.id,
+        name: s.name,
+        parent_phone: s.parent_phone,
+        school: s.school,
+        grade: (s.grade as Grade | null) ?? null,
+      })),
+    rosterFilter,
+  );
   if (recipients.length === 0) return null;
 
   const m = Number(date.slice(5, 7));
@@ -219,15 +245,37 @@ export default async function NewGroupPage({
   // student prefill 또는 prefill 없음 진입에선 무시됨 (fetchPrefillFromClass 만 사용).
   const classFilter = ClassPrefillFilterSchema.parse(raw.filter);
 
+  // 명단 화면 체크박스 선택 → include/exclude(콤마 구분 id). include 우선.
+  const parseIdSet = (
+    v: string | string[] | undefined,
+  ): Set<string> | undefined => {
+    if (typeof v !== "string" || v.trim().length === 0) return undefined;
+    const ids = v
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return ids.length > 0 ? new Set(ids) : undefined;
+  };
+  const includeIds = parseIdSet(raw.include);
+  const excludeIds = parseIdSet(raw.exclude);
+  const rosterFilter: RosterFilter = {
+    include: includeIds,
+    exclude: includeIds ? undefined : excludeIds,
+  };
+
   // 학생 prefill 우선 — 학생 단건이 강좌보다 더 specific.
   // 동시 지정은 비정상 흐름이지만 학생 우선으로 안전 처리.
   let prefill: Prefill | null = null;
   if (studentId) {
     prefill = await fetchPrefillFromStudent(studentId);
   } else if (classId && sessionDate) {
-    prefill = await fetchPrefillFromClassSession(classId, sessionDate);
+    prefill = await fetchPrefillFromClassSession(
+      classId,
+      sessionDate,
+      rosterFilter,
+    );
   } else if (classId) {
-    prefill = await fetchPrefillFromClass(classId, classFilter);
+    prefill = await fetchPrefillFromClass(classId, classFilter, rosterFilter);
   }
 
   const branch = prefill?.branch ?? (await resolveDefaultBranch());

@@ -4,13 +4,12 @@ import type { ClassDetail } from "@/types/database";
 import { isLapsedStudent } from "@/lib/schemas/group";
 import { ClassDetailHeader } from "@/components/classes/class-detail-header";
 import { ClassKpiCards } from "@/components/classes/class-kpi-cards";
-import { ClassStudentsPanel } from "@/components/classes/class-students-panel";
+import { ClassRoster } from "@/components/classes/class-roster";
 import { ClassLapsedPanel } from "@/components/classes/class-lapsed-panel";
 import { ClassAttendanceGrid } from "@/components/classes/class-attendance-grid";
 import { ClassSignupPageSection } from "@/components/seminars/class-signup-page-section";
 import { SeminarRosterPanels } from "@/components/seminars/seminar-roster-panels";
 import { SeminarRosterExportButton } from "@/components/seminars/seminar-roster-export-button";
-import { ClassSessionRoster } from "@/components/classes/class-session-roster";
 import type { ClassSignupPageDetail } from "@/lib/seminars/get-class-signup-page";
 import type { ClassSessionsResult } from "@/lib/classes/get-class-sessions";
 
@@ -123,25 +122,19 @@ export function ClassDetailView({
           />
         </section>
       ) : (
-        // 일반 강좌: 기존 수강생 명단 테이블.
+        // 일반 강좌: 수강생 명단 (전체 + 회차 통합, 발송 대상 체크).
         <section className="space-y-3" aria-label="수강생 명단">
           <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
             수강생 명단
           </h2>
-          <ClassStudentsPanel
-            students={detail.students}
+          <ClassRoster
+            allStudents={detail.students}
+            sessions={sessions ?? { sessions: [], totalSessions: 0 }}
+            classId={detail.class.id}
+            canSend={canSendToClass}
             canRevealPhone={canRevealPhone}
           />
         </section>
-      )}
-
-      {/* 회차(날짜)별 수강 명단 — 일반 강좌 + 회차 티켓이 있을 때만(컴포넌트 self-hide). */}
-      {!isSeminar && sessions && (
-        <ClassSessionRoster
-          sessions={sessions}
-          classId={detail.class.id}
-          canSend={canSendToClass}
-        />
       )}
 
       {lapsedStudents.length > 0 && (
