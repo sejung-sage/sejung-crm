@@ -1,6 +1,7 @@
 import { listAccounts, ACCOUNTS_PAGE_SIZE } from "@/lib/accounts/list-accounts";
 import { AccountListQuerySchema } from "@/lib/schemas/auth";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { AccountsToolbar } from "@/components/accounts/accounts-toolbar";
 import { AccountsTable } from "@/components/accounts/accounts-table";
@@ -49,6 +50,8 @@ export default async function AccountsPage({
 
   const result = await listAccounts(effectiveQuery);
   const devMode = isDevSeedMode();
+  // 마스터 전용 평문 비밀번호 맵 (app_metadata.pw). 운영자 요청에 따른 의도적 평문 보관.
+  const passwords = devMode ? {} : await loadAccountPasswords();
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -92,6 +95,7 @@ export default async function AccountsPage({
       <AccountsTable
         rows={result.items}
         currentUserId={currentUser.user_id}
+        passwords={passwords}
       />
 
       {/* 페이지네이션 */}
@@ -102,6 +106,30 @@ export default async function AccountsPage({
       />
     </div>
   );
+}
+
+// ─── 평문 비밀번호 맵 로드 ─────────────────────────────────
+//
+// app_metadata.pw 에 저장된 평문 비밀번호를 user_id → pw 로 모은다(마스터 노출용).
+// 운영자(원장) 요청에 따른 의도적 평문 보관. 페이지가 master 전용이라 노출 범위는
+// 마스터로 한정된다. 값이 없는 계정(기능 도입 전 생성·비번 미재설정)은 null.
+async function loadAccountPasswords(): Promise<Record<string, string | null>> {
+  const map: Record<string, string | null> = {};
+  try {
+    const svc = createSupabaseServiceClient();
+    const { data, error } = await svc.auth.admin.listUsers({
+      page: 1,
+      perPage: 1000,
+    });
+    if (error || !data) return map;
+    for (const u of data.users) {
+      const pw = (u.app_metadata as { pw?: unknown } | null)?.pw;
+      map[u.id] = typeof pw === "string" ? pw : null;
+    }
+  } catch {
+    // service role 미구성 등 — 평문 컬럼을 비워 graceful 처리.
+  }
+  return map;
 }
 
 // ─── 권한 없음 카드 ────────────────────────────────────────

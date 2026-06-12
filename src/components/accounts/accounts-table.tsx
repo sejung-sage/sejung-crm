@@ -26,6 +26,11 @@ interface Props {
   rows: AccountListItem[];
   /** 본인 계정 비활성화 차단을 위해 필요. */
   currentUserId: string;
+  /**
+   * user_id → 평문 비밀번호 (마스터 노출용, 의도적 평문 보관).
+   * 값이 없으면(기존 계정 등) '— (재설정 필요)' 로 표시.
+   */
+  passwords?: Record<string, string | null>;
 }
 
 type PendingAction =
@@ -46,7 +51,11 @@ type PendingAction =
  *
  * 디자인은 GroupsTable 패턴을 그대로 따름(흑백 미니멀 · 헤더 muted 13px).
  */
-export function AccountsTable({ rows, currentUserId }: Props) {
+export function AccountsTable({
+  rows,
+  currentUserId,
+  passwords = {},
+}: Props) {
   const router = useRouter();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [pending, setPending] = useState<PendingAction | null>(null);
@@ -129,6 +138,7 @@ export function AccountsTable({ rows, currentUserId }: Props) {
             <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
               <Th>이름</Th>
               <Th>이메일</Th>
+              <Th className="w-36">비밀번호</Th>
               <Th className="w-24">권한</Th>
               <Th className="w-20">분원</Th>
               <Th className="w-24">상태</Th>
@@ -192,6 +202,17 @@ export function AccountsTable({ rows, currentUserId }: Props) {
                     >
                       {r.email ?? "—"}
                     </span>
+                  </Td>
+                  <Td onClickStop>
+                    {passwords[r.user_id] ? (
+                      <span className="font-mono text-[13px] text-[color:var(--text)] select-all break-all">
+                        {passwords[r.user_id]}
+                      </span>
+                    ) : (
+                      <span className="text-[12px] text-[color:var(--text-dim)]">
+                        — (재설정 필요)
+                      </span>
+                    )}
                   </Td>
                   <Td>
                     <RoleBadge role={r.role} />

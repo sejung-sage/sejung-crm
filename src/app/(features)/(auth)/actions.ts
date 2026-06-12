@@ -297,6 +297,17 @@ export async function changePasswordAction(
   //    service role 클라이언트로 우회. 변경 컬럼은 must_change_password 한정 —
   //    role/branch/active 등 권한 컬럼은 절대 손대지 않는다.
   const svc = createSupabaseServiceClient();
+
+  // 5-0) app_metadata.pw 에 평문 비밀번호 보관 — 마스터 계정관리 화면 노출용(의도적).
+  //      best-effort: 실패해도 비번 변경 자체는 이미 성공이므로 흐름을 막지 않는다.
+  const { error: pwMetaErr } = await svc.auth.admin.updateUserById(user.id, {
+    app_metadata: { pw: newPassword },
+  });
+  if (pwMetaErr) {
+    console.warn(
+      `[auth/changePassword] app_metadata.pw 저장 실패 user=${user.id.slice(0, 8)}: ${pwMetaErr.message}`,
+    );
+  }
   const { error: flagErr, data: flagRows } = await (
     svc.from("crm_users_profile") as unknown as {
       update: (v: Record<string, unknown>) => {

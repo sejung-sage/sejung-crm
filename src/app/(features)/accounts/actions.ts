@@ -149,11 +149,14 @@ export async function createAccountAction(
   }
 
   // 5) Service role 로 계정 직접 생성 (초대 메일 없이 비밀번호 즉시 발급)
+  //    ⚠️ app_metadata.pw 에 평문 비밀번호를 보관한다(마스터 계정관리 화면 노출용).
+  //    운영자(원장) 요청에 따른 의도적 평문 저장 — 유출 시 전 계정 탈취 위험을 감수.
   const svc = createSupabaseServiceClient();
   const { data, error } = await svc.auth.admin.createUser({
     email: payload.email,
     password: payload.password,
     email_confirm: true,
+    app_metadata: { pw: payload.password },
   });
 
   if (error || !data.user) {
@@ -346,9 +349,11 @@ export async function adminResetPasswordAction(
   if (!target.ok) return { status: "failed", reason: target.reason };
 
   // 6) Supabase Admin API 로 비밀번호 갱신
+  //    app_metadata.pw 도 함께 갱신 — 마스터 계정관리 화면에서 평문 노출(의도적).
   const svc = createSupabaseServiceClient();
   const { error: authErr } = await svc.auth.admin.updateUserById(userId, {
     password: newPassword,
+    app_metadata: { pw: newPassword },
   });
 
   if (authErr) {
