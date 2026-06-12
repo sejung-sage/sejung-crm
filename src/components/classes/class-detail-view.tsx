@@ -10,7 +10,9 @@ import { ClassAttendanceGrid } from "@/components/classes/class-attendance-grid"
 import { ClassSignupPageSection } from "@/components/seminars/class-signup-page-section";
 import { SeminarRosterPanels } from "@/components/seminars/seminar-roster-panels";
 import { SeminarRosterExportButton } from "@/components/seminars/seminar-roster-export-button";
+import { ClassSessionRoster } from "@/components/classes/class-session-roster";
 import type { ClassSignupPageDetail } from "@/lib/seminars/get-class-signup-page";
+import type { ClassSessionsResult } from "@/lib/classes/get-class-sessions";
 
 interface Props {
   detail: ClassDetail;
@@ -27,6 +29,11 @@ interface Props {
    * 그 외 강좌면 null — 섹션 자체 미렌더.
    */
   signupPageDetail?: ClassSignupPageDetail | null;
+  /**
+   * 일반 강좌의 회차(날짜)별 수강 명단(aca_tickets 기준). 회차가 없으면 빈 결과 →
+   * 섹션 자체 미렌더. 설명회는 빈 결과로 전달된다.
+   */
+  sessions?: ClassSessionsResult;
 }
 
 /**
@@ -44,6 +51,7 @@ export function ClassDetailView({
   canRevealPhone = false,
   canSendToClass = false,
   signupPageDetail = null,
+  sessions,
 }: Props) {
   // 다음 시즌 미등록(이탈) 학생 — 추가 fetch 없이 detail.students 를
   // status 술어(isLapsedStudent: status !== '재원생')로 거른다.
@@ -125,6 +133,15 @@ export function ClassDetailView({
             canRevealPhone={canRevealPhone}
           />
         </section>
+      )}
+
+      {/* 회차(날짜)별 수강 명단 — 일반 강좌 + 회차 티켓이 있을 때만(컴포넌트 self-hide). */}
+      {!isSeminar && sessions && (
+        <ClassSessionRoster
+          sessions={sessions}
+          classId={detail.class.id}
+          canSend={canSendToClass}
+        />
       )}
 
       {lapsedStudents.length > 0 && (

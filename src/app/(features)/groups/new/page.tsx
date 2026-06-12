@@ -3,6 +3,7 @@ import { countRecipients } from "@/lib/groups/count-recipients";
 import { getSchoolOptions } from "@/lib/groups/school-options";
 import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { getClassDetail } from "@/lib/classes/get-class-detail";
+import { getClassSessions } from "@/lib/classes/get-class-sessions";
 import { listClassOptions } from "@/lib/classes/list-class-options";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -166,6 +167,42 @@ async function fetchPrefillFromClass(
   };
 }
 
+/**
+ * 강좌 + 회차(날짜)로 진입한 케이스. aca_tickets 기준으로 그 날 수업 듣는 학생만
+ * prefill (8회 중 7회 학생은 안 듣는 날짜에서 제외). 그룹은 crm_students.id 단위라
+ * 매핑된 학생만 담는다(미매핑 학생은 연락처도 없어 발송 불가).
+ */
+async function fetchPrefillFromClassSession(
+  classId: string,
+  date: string,
+): Promise<Prefill | null> {
+  const detail = await getClassDetail(classId);
+  if (!detail) return null;
+
+  const { sessions } = await getClassSessions(detail.class.aca_class_id);
+  const session = sessions.find((s) => s.date === date);
+  if (!session) return null;
+
+  const recipients: PrefillRecipient[] = session.students
+    .filter((s): s is typeof s & { id: string } => s.id !== null)
+    .map((s) => ({
+      id: s.id,
+      name: s.name,
+      parent_phone: s.parent_phone,
+      school: s.school,
+      grade: (s.grade as Grade | null) ?? null,
+    }));
+  if (recipients.length === 0) return null;
+
+  const m = Number(date.slice(5, 7));
+  const d = Number(date.slice(8, 10));
+  return {
+    branch: detail.class.branch,
+    groupName: `${detail.class.name} ${m}월 ${d}일 회차`,
+    recipients,
+  };
+}
+
 export default async function NewGroupPage({
   searchParams,
 }: {
@@ -175,6 +212,9 @@ export default async function NewGroupPage({
   const studentId =
     typeof raw.student === "string" ? raw.student.trim() : "";
   const classId = typeof raw.class === "string" ? raw.class.trim() : "";
+  // 회차(날짜) prefill — class 와 함께 오면 그 회차 수강생만 담는다.
+  const sessionDate =
+    typeof raw.sessionDate === "string" ? raw.sessionDate.trim() : "";
   // 강좌 prefill 의 'all' | 'lapsed'. 미지정/오타/빈 값은 catch 로 'all' 폴백.
   // student prefill 또는 prefill 없음 진입에선 무시됨 (fetchPrefillFromClass 만 사용).
   const classFilter = ClassPrefillFilterSchema.parse(raw.filter);
@@ -184,6 +224,8 @@ export default async function NewGroupPage({
   let prefill: Prefill | null = null;
   if (studentId) {
     prefill = await fetchPrefillFromStudent(studentId);
+  } else if (classId && sessionDate) {
+    prefill = await fetchPrefillFromClassSession(classId, sessionDate);
   } else if (classId) {
     prefill = await fetchPrefillFromClass(classId, classFilter);
   }
