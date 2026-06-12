@@ -67,8 +67,11 @@ export function ComposeStep4Send({
   // 실제 액션. 되돌릴 수 없는 작업이라 명시적 확인 필수.
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  // 예약 모드일 때 datetime-local 의 min 값 (현재 시각 + 1분)
-  const minScheduleAt = useMemo(() => toLocalDatetimeInput(new Date(Date.now() + 60_000)), []);
+  // 예약 모드일 때 datetime-local 의 min 값 — sendon 최소 예약 간격(30분 후).
+  const minScheduleAt = useMemo(
+    () => toLocalDatetimeInput(new Date(Date.now() + 30 * 60_000)),
+    [],
+  );
 
   // backend 가 내려준 발송 카운트(있을 때만). 실제 발송 건수 표기에 사용.
   const dedupeCounts = useMemo(() => extractDedupeCounts(preview), [preview]);
@@ -242,8 +245,8 @@ export function ComposeStep4Send({
               strokeWidth={1.75}
               aria-hidden
             />
-            예약한 시각이 되면 자동으로 발송됩니다(약 5분 간격으로 점검).
-            발송 전까지는 캠페인 상세에서 예약을 취소할 수 있어요.
+            예약한 시각에 자동 발송됩니다. 최소 30분 이후로 예약할 수 있고,
+            발송 약 10분 전까지 캠페인 상세에서 예약을 취소할 수 있어요.
           </div>
         </div>
       )}

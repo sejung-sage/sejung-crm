@@ -214,15 +214,16 @@ export async function scheduleAction(
     return { status: "failed", reason: "예약 시각이 설정되지 않았습니다" };
   }
 
-  // 과거 시각 방지
+  // 과거 시각 방지 + sendon 최소 예약 간격(30분) 검증.
   const scheduledAt = new Date(parsed.scheduleAt);
   if (Number.isNaN(scheduledAt.getTime())) {
     return { status: "failed", reason: "예약 시각 형식이 올바르지 않습니다" };
   }
-  if (scheduledAt.getTime() <= Date.now()) {
+  // sendon 제약: 예약은 현재로부터 최소 30분 이후만 가능.
+  if (scheduledAt.getTime() < Date.now() + 30 * 60_000) {
     return {
       status: "failed",
-      reason: "예약 시각은 현재 이후여야 합니다",
+      reason: "예약 시각은 지금부터 최소 30분 이후여야 합니다",
     };
   }
 

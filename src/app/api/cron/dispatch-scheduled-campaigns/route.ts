@@ -1,8 +1,11 @@
 /**
- * Vercel Cron entrypoint — 예약 발송 디스패치.
+ * Vercel Cron entrypoint — 예약 캠페인 상태 정리.
  *
- * vercel.json 의 crons 항목으로 5분마다 호출됨 ('asia/tokyo' 리전 기준 UTC).
- * Authorization 헤더 검증 후 dispatchScheduledCampaigns 실행.
+ * 2026-06: 예약 발송은 sendon 네이티브 reservation 으로 전환되어 cron 은 더 이상
+ * 발송하지 않는다(이중 발송 방지). 본 cron 은 예약 시각이 지난 '예약됨' 캠페인을
+ * '완료' 로 정리만 한다(상태 hygiene).
+ *
+ * vercel.json 의 crons 항목으로 5분마다 호출됨. Authorization 헤더 검증 후 실행.
  *
  * 보안:
  *   - Vercel 은 cron 호출 시 자동으로 `Authorization: Bearer ${CRON_SECRET}`

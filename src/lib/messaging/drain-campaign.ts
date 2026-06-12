@@ -121,6 +121,15 @@ export async function drainCampaignChunk(
     parseDateOrNull(campaign.sent_at) ??
     new Date();
 
+  // 예약 발송(sendon 네이티브) — scheduled_at 이 미래면 sendon reservation 으로
+  // 접수한다. 이 경우 우리는 발송을 진행하지 않고 sendon 이 그 시각에 발송하며,
+  // 캠페인은 '완료' 가 아니라 '예약됨' 으로 마감한다(우리 cron 은 발송하지 않음).
+  const reservationDatetime =
+    campaign.scheduled_at &&
+    new Date(campaign.scheduled_at).getTime() > Date.now()
+      ? new Date(campaign.scheduled_at).toISOString()
+      : undefined;
+
   // 초대링크 모드 — 설명회 발송(createSeminarBroadcastAction)이 적재한 캠페인은
   // 학생별 고유 신청 URL 을 sendon name 슬롯에 박는다. campaign.body 토큰에
   // 의존하지 않고 "이 캠페인에 invitation 이 있는가"로 판정한다(그룹/엑셀 발송은
@@ -191,6 +200,7 @@ export async function drainCampaignChunk(
       hasName,
       inviteMode,
       inviteUrlMap,
+      reservationDatetime,
     });
     totalAttempted += result.attempted;
     totalSent += result.sent;
@@ -203,7 +213,15 @@ export async function drainCampaignChunk(
 
   let campaignDone = false;
   if (!hasMore) {
-    const finalStatus = await determineFinalStatus(supabase, campaignId);
+    // 즉시: 발송 결과로 완료/실패.
+    // 예약(sendon reservation): 접수 성공분이 있으면 '예약됨'(아직 발송 전),
+    // 전부 접수 실패면 '실패'. (30분 미만 등 sendon 거절 시 '실패' 로 드러남)
+    const base = await determineFinalStatus(supabase, campaignId);
+    const finalStatus = reservationDatetime
+      ? base === "완료"
+        ? "예약됨"
+        : "실패"
+      : base;
     await updateCampaignStatus(supabase, campaignId, finalStatus);
     campaignDone = true;
   }
@@ -248,6 +266,8 @@ async function processOneBatch(args: {
   inviteMode: boolean;
   /** 초대링크 모드일 때 student_id → 신청 URL 맵 (drainCampaignChunk 가 1회 로드). */
   inviteUrlMap: Map<string, string> | null;
+  /** 예약 발송 시각(ISO). 있으면 sendon reservation 으로 접수(즉시 발송 X). */
+  reservationDatetime?: string;
 }): Promise<{
   attempted: number;
   sent: number;
@@ -267,6 +287,7 @@ async function processOneBatch(args: {
     hasName,
     inviteMode,
     inviteUrlMap,
+    reservationDatetime,
   } = args;
 
   const nowIso = new Date().toISOString();
@@ -318,6 +339,7 @@ async function processOneBatch(args: {
     fromNumber,
     isAd,
     hasNamePlaceholder: hasName,
+    reservationDatetime,
   });
 
   if (batchResult.status === "queued") {

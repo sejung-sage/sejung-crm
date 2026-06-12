@@ -175,24 +175,15 @@ export async function sendCampaign(
 
   const supabase = await createSupabaseServerClient();
 
-  // 4) 예약 발송 처리 (campaigns 만 INSERT)
-  if (input.scheduledAt !== null) {
-    return await insertScheduledCampaign({
-      supabase,
-      input,
-      branch: group.branch,
-      preview,
-      userId: user.user_id,
-    });
-  }
-
-  // 5) 즉시 발송
+  // 4) 발송 — 즉시(scheduledAt=null) / 예약(미래) 모두 동일 경로.
+  //    예약이면 drain 이 sendon reservation 으로 접수하고 캠페인을 '예약됨' 마감.
   return await runImmediateSend({
     supabase,
     input,
     branch: group.branch,
     preview,
     userId: user.user_id,
+    scheduledAt: input.scheduledAt,
   });
 }
 
@@ -216,8 +207,10 @@ async function runImmediateSend(args: {
   branch: string;
   preview: PreviewResult;
   userId: string;
+  /** 미래 시각이면 sendon 예약 발송(drain 이 reservation 으로 접수). null=즉시. */
+  scheduledAt: Date | null;
 }): Promise<SendCampaignResult> {
-  const { supabase, input, branch, preview, userId } = args;
+  const { supabase, input, branch, preview, userId, scheduledAt } = args;
   void preview;
 
   const targets = resolveSendTargets(input);
@@ -233,7 +226,7 @@ async function runImmediateSend(args: {
     dedupeByPhone: input.dedupeByPhone,
     sendToParent: targets.sendToParent,
     sendToStudent: targets.sendToStudent,
-    scheduledAt: new Date(),
+    scheduledAt: scheduledAt ?? new Date(),
   });
 
   // eligible 이 0 이어도 수신거부 실패 행은 남길 가치가 있으나, 발송 가능한
@@ -251,8 +244,8 @@ async function runImmediateSend(args: {
     title: input.title,
     template_id: input.templateId,
     group_id: input.groupId,
-    scheduled_at: null,
-    sent_at: new Date().toISOString(),
+    scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
+    sent_at: scheduledAt ? null : new Date().toISOString(),
     status: "발송중",
     total_recipients: totalRecipients,
     total_cost: 0, // 드레인 워커가 누적 갱신
@@ -375,6 +368,16 @@ async function runImmediateSend(args: {
   revalidatePath("/campaigns");
   revalidatePath(`/campaigns/${campaignId}`);
 
+  // 예약 발송: drain 이 sendon reservation 으로 접수하고 캠페인을 '예약됨' 으로
+  // 마감한다. 호출자(UI)에는 scheduled 결과를 돌려준다.
+  if (scheduledAt) {
+    return {
+      status: "scheduled",
+      campaignId,
+      scheduledAt: scheduledAt.toISOString(),
+    };
+  }
+
   return {
     status: "success",
     campaignId,
@@ -383,58 +386,6 @@ async function runImmediateSend(args: {
     // 수신거부는 발송 시도 없이 즉시 실패 행으로 적재되므로 failed 에 반영.
     failed: unsubscribed.length,
     cost: 0,
-  };
-}
-
-// ─── 예약 발송 ──────────────────────────────────────────────
-
-async function insertScheduledCampaign(args: {
-  supabase: SupabaseSrv;
-  input: SendCampaignInput;
-  branch: string;
-  preview: PreviewResult;
-  userId: string;
-}): Promise<SendCampaignResult> {
-  const { supabase, input, branch, preview, userId } = args;
-  const scheduledAt = input.scheduledAt;
-  if (!scheduledAt) {
-    return { status: "failed", reason: "예약 시각이 비어 있습니다" };
-  }
-  const targets = resolveSendTargets(input);
-
-  // 0027 마이그 후 발송 payload 를 같이 영속화 — cron 디스패처가 이걸 읽어 발송.
-  const insertPayload: Record<string, unknown> = {
-    title: input.title,
-    template_id: input.templateId,
-    group_id: input.groupId,
-    scheduled_at: scheduledAt.toISOString(),
-    sent_at: null,
-    status: "예약됨",
-    // 레그 확장·dedupe 후 실제 발송 예정 건수. cron 시점 재계산되지만 미리보기 표시용.
-    total_recipients: preview.dedupe.actualMessages,
-    total_cost: 0,
-    created_by: userId,
-    branch,
-    is_test: input.isTest,
-    body: input.body,
-    subject: input.subject,
-    type: input.type,
-    is_ad: input.isAd,
-    dedupe_by_phone: input.dedupeByPhone,
-    send_to_parent: targets.sendToParent,
-    send_to_student: targets.sendToStudent,
-  };
-
-  const inserted = await insertCampaign(supabase, insertPayload);
-  if (!inserted.ok) {
-    return { status: "failed", reason: inserted.reason };
-  }
-
-  revalidatePath("/campaigns");
-  return {
-    status: "scheduled",
-    campaignId: inserted.id,
-    scheduledAt: scheduledAt.toISOString(),
   };
 }
 
