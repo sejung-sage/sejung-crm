@@ -41,6 +41,7 @@ import type {
   SmsBatchRecipient,
   SmsBatchSendRequest,
   SmsBatchSendResult,
+  SmsCancelResult,
   SmsSendRequest,
   SmsSendResult,
   SmsStatusQueryResult,
@@ -100,6 +101,13 @@ export function createSendonAdapter(opts: SendonAdapterOptions): SmsAdapter {
         };
       }
       return await queryStatusLive(vendorMessageId, opts);
+    },
+
+    async cancel(vendorMessageId: string): Promise<SmsCancelResult> {
+      if (mode === "mock") {
+        return { status: "cancelled" };
+      }
+      return await cancelLive(vendorMessageId, opts);
     },
   };
 }
@@ -172,6 +180,12 @@ async function sendLive(
       req.subject && req.subject.trim().length > 0
         ? req.subject.trim()
         : req.body.slice(0, 20);
+  }
+  // 예약 발송 — sendon `reservation.datetime` (ISO 8601). 지정 시 그 시각에 발송.
+  if (req.reservationDatetime) {
+    (payload as { reservation?: { datetime: string } }).reservation = {
+      datetime: req.reservationDatetime,
+    };
   }
 
   try {
@@ -279,6 +293,12 @@ async function sendBatchLive(
       replaces: [{ src: "#{이름}", dst: "CONTACTS_MEMBER_NAME" }],
     };
     payload.userParameters = userParameters;
+  }
+  // 예약 발송 — sendon `reservation.datetime` (ISO 8601). 지정 시 그 시각에 발송.
+  if (req.reservationDatetime) {
+    (payload as { reservation?: { datetime: string } }).reservation = {
+      datetime: req.reservationDatetime,
+    };
   }
 
   try {
@@ -411,6 +431,42 @@ async function queryStatusLive(
     return {
       status: "queued",
       failedReason: safe || "sendon 상태 조회 실패",
+    };
+  }
+}
+
+// ─── live 예약 취소 ─────────────────────────────────────────
+
+async function cancelLive(
+  vendorMessageId: string,
+  opts: SendonAdapterOptions,
+): Promise<SmsCancelResult> {
+  if (!opts.userId || !opts.apiKey) {
+    return { status: "failed", reason: "sendon 인증 정보가 설정되지 않았습니다" };
+  }
+  let client: Sendon;
+  try {
+    client = new Sendon({ id: opts.userId, apikey: opts.apiKey, debug: false });
+  } catch {
+    return { status: "failed", reason: "sendon 클라이언트 초기화 실패" };
+  }
+  try {
+    const result = await client.sms.cancel(vendorMessageId);
+    if (result.code === 200) {
+      return { status: "cancelled" };
+    }
+    const reason = sanitizeErrorMessage(result.message ?? `code ${result.code}`);
+    return {
+      status: "failed",
+      reason: reason
+        ? `sendon 예약 취소 실패 (코드 ${result.code}): ${reason}`
+        : `sendon 예약 취소 실패 (코드 ${result.code})`,
+    };
+  } catch (e: unknown) {
+    const safe = sanitizeErrorMessage(extractErrorMessage(e));
+    return {
+      status: "failed",
+      reason: safe ? `sendon 예약 취소 실패: ${safe}` : "sendon 예약 취소에 실패했습니다",
     };
   }
 }

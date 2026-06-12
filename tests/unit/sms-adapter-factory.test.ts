@@ -126,6 +126,28 @@ describe("sendon mock 모드 · send()", () => {
       /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/,
     );
   });
+
+  it("cancel(mock) → 'cancelled'", async () => {
+    vi.stubEnv("SMS_ADAPTER_MODE", "mock");
+    const a = createSmsAdapter();
+    const r = await a.cancel("group-id");
+    expect(r.status).toBe("cancelled");
+  });
+
+  it("send(mock) + reservationDatetime → queued (예약 접수)", async () => {
+    vi.stubEnv("SMS_ADAPTER_MODE", "mock");
+    const a = createSmsAdapter();
+    const r = await a.send({
+      to: "01012345678",
+      body: "예약 테스트",
+      subject: null,
+      type: "SMS",
+      fromNumber: "0212345678",
+      isAd: false,
+      reservationDatetime: "2026-12-31T00:00:00Z",
+    });
+    expect(r.status).toBe("queued");
+  });
 });
 
 describe("sendon live 모드 · 가드 + 시크릿 미노출", () => {

@@ -77,6 +77,12 @@ export type SmsSendRequest = {
    * 정보성/광고성 분리를 위해 호출자(=drain-campaign 등) 가 반드시 채워서 전달할 것.
    */
   isAd: boolean;
+  /**
+   * 예약 발송 시각 (ISO 8601). 지정하면 sendon `reservation.datetime` 으로 전달돼
+   * 해당 시각에 sendon 이 직접 발송한다. 미지정(undefined) 이면 즉시 발송.
+   * sendon 제약: 현재로부터 최소 30분 이후.
+   */
+  reservationDatetime?: string;
 };
 
 export type SmsSendResult =
@@ -130,6 +136,12 @@ export type SmsBatchSendRequest = {
    * userParameters 를 함께 전달한다.
    */
   hasNamePlaceholder?: boolean;
+  /**
+   * 예약 발송 시각 (ISO 8601). 지정 시 sendon `reservation.datetime` 으로 전달돼
+   * 해당 시각에 sendon 이 직접 발송한다. 미지정이면 즉시 발송.
+   * sendon 제약: 현재로부터 최소 30분 이후.
+   */
+  reservationDatetime?: string;
 };
 
 /**
@@ -155,6 +167,15 @@ export type SmsStatusQueryResult =
       failedReason?: string;
     };
 
+/**
+ * 예약 발송 취소 결과.
+ *  - cancelled : sendon 예약이 정상 취소됨.
+ *  - failed    : 취소 실패(이미 발송됨/발송 10분 전 경과/네트워크 등).
+ */
+export type SmsCancelResult =
+  | { status: "cancelled" }
+  | { status: "failed"; reason: string };
+
 export interface SmsAdapter {
   readonly name: "sendon";
   send(req: SmsSendRequest): Promise<SmsSendResult>;
@@ -164,6 +185,11 @@ export interface SmsAdapter {
    */
   sendBatch(req: SmsBatchSendRequest): Promise<SmsBatchSendResult>;
   queryStatus(vendorMessageId: string): Promise<SmsStatusQueryResult>;
+  /**
+   * 예약 발송 취소. groupId(vendorMessageId) 로 sendon 예약을 취소한다.
+   * sendon 제약: 예약 발송 시각 10분 전까지만 가능.
+   */
+  cancel(vendorMessageId: string): Promise<SmsCancelResult>;
 }
 
 /**
