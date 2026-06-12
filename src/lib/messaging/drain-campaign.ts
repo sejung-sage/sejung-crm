@@ -35,7 +35,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { createSmsAdapter } from "./adapters";
 import type { SmsBatchRecipient } from "./adapters/types";
-import { insertAdTag } from "./guards/insert-ad-tag";
+import { insertAdTag, insertAdSubjectTag } from "./guards/insert-ad-tag";
 import { insertUnsubscribeFooter } from "./guards/insert-unsubscribe-footer";
 import { calculateCost } from "./calculate-cost";
 import {
@@ -183,7 +183,7 @@ export async function drainCampaignChunk(
       pending,
       adapter,
       sendBody,
-      subject: campaign.subject,
+      subject: insertAdSubjectTag(campaign.subject, campaign.is_ad),
       type,
       fromNumber,
       isAd: campaign.is_ad,

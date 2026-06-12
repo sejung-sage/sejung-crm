@@ -20,7 +20,11 @@ import {
   type Recipient,
 } from "./filter-recipients";
 
-export { insertAdTag } from "./insert-ad-tag";
+export {
+  insertAdTag,
+  insertAdSubjectTag,
+  AD_SENDER_NAME,
+} from "./insert-ad-tag";
 export { insertUnsubscribeFooter } from "./insert-unsubscribe-footer";
 export { checkQuietHours } from "./check-quiet-hours";
 export type { QuietHoursResult } from "./check-quiet-hours";

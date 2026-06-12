@@ -3,6 +3,7 @@
 import { useMemo, type Ref } from "react";
 import { AlertTriangle } from "lucide-react";
 import type { TemplateTypeLiteral } from "@/lib/schemas/template";
+import { AD_SENDER_NAME } from "@/lib/messaging/guards/insert-ad-tag";
 
 /**
  * 핸드폰(iOS 메시지 앱 풍) 미리보기 카드.
@@ -74,9 +75,7 @@ export interface PhonePreviewCardProps {
    * editable=true 면 footer 자리도 input 으로 바뀐다.
    */
   footer?: {
-    academyName: string;
     unsubscribePhone: string;
-    onAcademyNameChange?: (next: string) => void;
     onUnsubscribePhoneChange?: (next: string) => void;
   };
 
@@ -226,14 +225,17 @@ export function PhonePreviewCard({
                 value={subject ?? ""}
                 editable={editable}
                 onChange={onSubjectChange}
+                adPrefix={isAd}
               />
             )}
-            {/* editable && isAd → (광고) inline 라벨로 prefix 명시.
-                read-only 모드에선 body 문자열에 prefix 가 이미 박혀 있어 생략. */}
+            {/* editable && isAd → 본문 머리에 (광고) + 발신 브랜드명을 명시.
+                실제 발송 본문도 첫 줄 (광고) / 둘째 줄 세정학원 으로 나간다.
+                read-only 모드에선 body 문자열에 이미 박혀 있어 생략. */}
             {editable && isAd && (
-              <p className="text-[15px] leading-relaxed text-[color:var(--text-muted)] select-none">
-                (광고)
-              </p>
+              <div className="text-[15px] leading-relaxed text-[color:var(--text-muted)] select-none">
+                <p>(광고)</p>
+                <p>{AD_SENDER_NAME}</p>
+              </div>
             )}
             <BodyField
               value={body}
@@ -287,10 +289,8 @@ export function PhonePreviewCard({
               `}
             >
               <FooterField
-                academyName={footer.academyName}
                 unsubscribePhone={footer.unsubscribePhone}
                 editable={editable}
-                onAcademyNameChange={footer.onAcademyNameChange}
                 onUnsubscribePhoneChange={footer.onUnsubscribePhoneChange}
               />
             </div>
@@ -351,35 +351,56 @@ function SubjectField({
   value,
   editable,
   onChange,
+  adPrefix = false,
 }: {
   value: string;
   editable: boolean;
   onChange?: (next: string) => void;
+  /** 광고 메시지면 제목 앞에 (광고) 가 자동으로 붙음을 표시. */
+  adPrefix?: boolean;
 }) {
   if (editable && onChange) {
+    // 제목 입력칸은 본문과 헷갈리지 않게 라벨 + 배경 + 테두리로 명확히 구분.
     return (
-      <input
-        type="text"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="제목을 입력하세요"
-        maxLength={40}
-        aria-label="미리보기 제목 편집"
+      <div
         className="
-          block w-full bg-transparent
-          text-[15px] font-semibold text-[color:var(--text)]
-          leading-tight
-          placeholder:text-[color:var(--text-dim)]
-          focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)]
-          rounded-sm px-1 -mx-1
+          rounded-lg border border-[color:var(--border-strong)]
+          bg-[color:var(--bg-muted)] px-2.5 py-1.5
+          focus-within:ring-2 focus-within:ring-[color:var(--border-strong)]
         "
-      />
+      >
+        <span className="block text-[10px] font-semibold tracking-wide text-[color:var(--text-muted)] mb-0.5">
+          제목
+        </span>
+        <div className="flex items-baseline gap-1">
+          {adPrefix && (
+            <span className="text-[15px] font-semibold text-[color:var(--text-muted)] select-none shrink-0">
+              (광고)
+            </span>
+          )}
+          <input
+            type="text"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="제목을 입력하세요"
+            maxLength={40}
+            aria-label="미리보기 제목 편집"
+            className="
+              block w-full bg-transparent
+              text-[15px] font-semibold text-[color:var(--text)]
+              leading-tight
+              placeholder:text-[color:var(--text-dim)]
+              focus:outline-none
+            "
+          />
+        </div>
+      </div>
     );
   }
   if (!value) return null;
   return (
     <p className="text-[15px] font-semibold text-[color:var(--text)] leading-tight">
-      {value}
+      {adPrefix ? `(광고) ${value}` : value}
     </p>
   );
 }
@@ -434,36 +455,20 @@ function BodyField({
 }
 
 function FooterField({
-  academyName,
   unsubscribePhone,
   editable,
-  onAcademyNameChange,
   onUnsubscribePhoneChange,
 }: {
-  academyName: string;
   unsubscribePhone: string;
   editable: boolean;
-  onAcademyNameChange?: (next: string) => void;
   onUnsubscribePhoneChange?: (next: string) => void;
 }) {
-  if (editable && onAcademyNameChange && onUnsubscribePhoneChange) {
+  // 발신 브랜드명(세정학원)은 본문 머리(광고 아래)로 이동했으므로 footer 는
+  // 무료수신거부 안내만 노출한다.
+  if (editable && onUnsubscribePhoneChange) {
     return (
-      <div className="space-y-0.5">
-        <input
-          type="text"
-          value={academyName}
-          onChange={(e) => onAcademyNameChange(e.target.value)}
-          aria-label="발신 학원명 편집"
-          placeholder="세정학원"
-          maxLength={20}
-          className="
-            block w-full bg-transparent
-            text-[13px] text-[color:var(--text-muted)]
-            placeholder:text-[color:var(--text-dim)]
-            focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)]
-            rounded-sm px-1 -mx-1
-          "
-        />
+      <div className="flex items-baseline gap-1 text-[13px] text-[color:var(--text-muted)]">
+        <span className="shrink-0">무료수신거부</span>
         <input
           type="text"
           value={unsubscribePhone}
@@ -484,7 +489,6 @@ function FooterField({
   }
   return (
     <div className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
-      <div>{academyName}</div>
       <div className="tabular-nums">무료수신거부 {unsubscribePhone}</div>
     </div>
   );

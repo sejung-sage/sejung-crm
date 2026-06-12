@@ -72,7 +72,6 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
   // 광고 footer — 운영팀이 미리보기에서 편집 가능. 템플릿 DB 에는 저장 X
   // (캠페인 메타 단위 정책이며, 컬럼 추가 시 영구 저장으로 옮길 예정).
   const [footerUseDefault, setFooterUseDefault] = useState(true);
-  const [academyName, setAcademyName] = useState(DEFAULT_ACADEMY_NAME);
   const [unsubscribePhone, setUnsubscribePhone] = useState(
     DEFAULT_UNSUBSCRIBE_PHONE,
   );
@@ -88,10 +87,9 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
   const overflow = progress.bytes > progress.limit;
   const subjectRequired = type === "LMS";
 
-  /** footer "기본값 사용" 토글이 켜져 있으면 footer state 를 기본값으로 강제 동기. */
+  /** footer "기본값 사용" 토글이 켜져 있으면 수신거부 번호를 기본값으로 강제 동기. */
   useEffect(() => {
     if (footerUseDefault) {
-      setAcademyName(DEFAULT_ACADEMY_NAME);
       setUnsubscribePhone(DEFAULT_UNSUBSCRIBE_PHONE);
     }
   }, [footerUseDefault]);
@@ -102,17 +100,12 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
    *
    * 단, 바이트 계산은 실 발송본 기준이므로 footer 까지 포함해서 셈한다.
    */
-  const bubbleBody = useMemo(() => {
-    if (!isAd) return body;
-    const trimmed = body.trimEnd();
-    return `${AD_PREFIX} ${trimmed}`;
-  }, [body, isAd]);
-
   const finalSendBody = useMemo(() => {
     if (!isAd) return body;
     const trimmed = body.trimEnd();
-    return `${AD_PREFIX} ${trimmed}\n${academyName}\n무료수신거부 ${unsubscribePhone}`;
-  }, [body, isAd, academyName, unsubscribePhone]);
+    // 실제 발송 insertAdTag 와 동일: 첫 줄 (광고) / 둘째 줄 세정학원 / 본문 / 무료수신거부.
+    return `${AD_PREFIX}\n${DEFAULT_ACADEMY_NAME}\n${trimmed}\n무료수신거부 ${unsubscribePhone}`;
+  }, [body, isAd, unsubscribePhone]);
 
   const previewBytes = useMemo(
     () => countEucKrBytes(finalSendBody),
@@ -489,8 +482,8 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
                   광고 푸터 편집
                 </h3>
                 <p className="mt-0.5 text-[12px] text-[color:var(--text-muted)] leading-relaxed">
-                  광고 캠페인 말미에 붙는 학원명·수신거부 번호입니다.
-                  미리보기 말풍선 하단에 동일한 모습으로 표시됩니다.
+                  광고 캠페인 말미에 붙는 무료수신거부 번호입니다. 발신
+                  학원명(세정학원)은 본문 머리 (광고) 아래에 자동으로 들어갑니다.
                 </p>
               </div>
               <label className="flex items-center gap-2 shrink-0 cursor-pointer">
@@ -507,32 +500,6 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label
-                  htmlFor="tpl-footer-name"
-                  className="text-[13px] text-[color:var(--text-muted)]"
-                >
-                  학원명
-                </label>
-                <input
-                  id="tpl-footer-name"
-                  type="text"
-                  value={academyName}
-                  onChange={(e) => setAcademyName(e.target.value)}
-                  disabled={footerUseDefault}
-                  maxLength={20}
-                  className="
-                    w-full h-10 rounded-lg px-3
-                    bg-bg-card border border-[color:var(--border-strong)]
-                    text-[14px] text-[color:var(--text)]
-                    placeholder:text-[color:var(--text-dim)]
-                    focus:outline-none focus:border-[color:var(--action)]
-                    disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-dim)]
-                    disabled:cursor-not-allowed
-                    transition-colors
-                  "
-                />
-              </div>
               <div className="space-y-1">
                 <label
                   htmlFor="tpl-footer-phone"
@@ -609,7 +576,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
         <PhonePreviewCard
           type={type}
           subject={subjectRequired ? subject : null}
-          body={bubbleBody}
+          body={body}
           isAd={isAd}
           rawBytes={previewBytes}
           rawOverflow={previewOverflow}
@@ -618,29 +585,11 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           onSubjectChange={
             subjectRequired ? (next) => setSubject(next) : undefined
           }
-          onBodyChange={(next) => {
-            // bubbleBody 는 (광고) prefix 가 붙은 상태. 사용자가 미리보기 textarea
-            // 에서 편집할 때는 prefix 를 그대로 보존하고, 그 뒤 본문만 setBody.
-            if (isAd) {
-              // prefix 가 "(광고) " (공백 1개) 형태로 시작한다고 가정.
-              const stripped = next.startsWith(`${AD_PREFIX} `)
-                ? next.slice(AD_PREFIX.length + 1)
-                : next.startsWith(AD_PREFIX)
-                  ? next.slice(AD_PREFIX.length)
-                  : next;
-              setBody(stripped);
-            } else {
-              setBody(next);
-            }
-          }}
+          onBodyChange={(next) => setBody(next)}
           footer={
             isAd
               ? {
-                  academyName,
                   unsubscribePhone,
-                  onAcademyNameChange: footerUseDefault
-                    ? undefined
-                    : (v) => setAcademyName(v),
                   onUnsubscribePhoneChange: footerUseDefault
                     ? undefined
                     : (v) => setUnsubscribePhone(v),

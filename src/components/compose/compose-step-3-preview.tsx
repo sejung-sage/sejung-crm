@@ -670,12 +670,7 @@ export function ComposeStep3Preview({
             onBodyChange={(next) => onStep2Change({ ...step2, body: next })}
             bodyTextareaRef={bodyRef}
             footer={
-              step2.isAd
-                ? {
-                    academyName: "세정학원",
-                    unsubscribePhone: optOutNumber,
-                  }
-                : undefined
+              step2.isAd ? { unsubscribePhone: optOutNumber } : undefined
             }
             samples={sampleValues}
             recipientCount={preview?.recipientCount}

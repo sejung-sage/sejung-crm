@@ -32,7 +32,7 @@ describe("applyAllGuards · 광고 낮 시간 정상 케이스", () => {
       unsubscribedPhones: [],
       optOutNumber: "080-111-2222",
     });
-    expect(out.finalBody.startsWith("(광고) ")).toBe(true);
+    expect(out.finalBody.startsWith("(광고)\n세정학원\n")).toBe(true);
     expect(out.finalBody).toContain("여름 특강 모집");
     expect(out.finalBody).toContain("무료수신거부 080-111-2222");
     expect(out.allowedToSend).toBe(true);
@@ -56,7 +56,7 @@ describe("applyAllGuards · 광고 야간 차단", () => {
     expect(out.blockReason).toBeTruthy();
     expect(out.blockReason).toContain("야간");
     // 본문 변환은 야간이어도 진행됨(차단은 발송 여부만 결정)
-    expect(out.finalBody.startsWith("(광고) ")).toBe(true);
+    expect(out.finalBody.startsWith("(광고)\n세정학원\n")).toBe(true);
   });
 });
 

@@ -15,7 +15,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createSmsAdapter } from "./adapters";
-import { applyAllGuards, type Recipient } from "./guards";
+import { applyAllGuards, insertAdSubjectTag, type Recipient } from "./guards";
 import { calculateCost } from "./calculate-cost";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -237,7 +237,7 @@ export async function resendFailedMessages(
         return adapter.send({
           to: r.phone,
           body,
-          subject: template.subject,
+          subject: insertAdSubjectTag(template.subject, template.is_ad),
           type: template.type,
           fromNumber,
           isAd: template.is_ad,

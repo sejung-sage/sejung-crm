@@ -164,8 +164,8 @@ export function SeminarComposeStep3Body({
         </p>
       </div>
 
-      {/* 2 column — 좌: 메타 컨트롤 / 우: editable 미리보기(sticky) */}
-      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_480px] gap-6 items-start">
+      {/* 좌: 메타 컨트롤(좁게) / 우: 미리보기 영역(넓게, 편집↔예시 좌우 배치) */}
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-6 items-start">
         {/* ── 좌: 메타 컨트롤 ─────────────────────────── */}
         <div className="space-y-4 min-w-0">
           {/* 유형 */}
@@ -344,8 +344,9 @@ export function SeminarComposeStep3Body({
           )}
         </div>
 
-        {/* ── 우: editable 미리보기 (sticky) ────────── */}
-        <aside className="space-y-2 lg:sticky lg:top-4 self-start">
+        {/* ── 우: 편집 미리보기 ↔ 예시 미리보기 (넓은 화면에선 좌우 배치) ── */}
+        <aside className="space-y-4 self-start min-w-0">
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
           <PhonePreviewCard
             type={state.type}
             subject={state.subject}
@@ -360,12 +361,7 @@ export function SeminarComposeStep3Body({
             onBodyChange={(next) => onChange({ body: next })}
             bodyTextareaRef={bodyRef}
             footer={
-              state.isAd
-                ? {
-                    academyName: "세정학원",
-                    unsubscribePhone: optOutNumber,
-                  }
-                : undefined
+              state.isAd ? { unsubscribePhone: optOutNumber } : undefined
             }
           />
 
@@ -410,6 +406,7 @@ export function SeminarComposeStep3Body({
                 </>
               )}
             </p>
+          </div>
           </div>
 
           {/* 테스트 발송 — 본인 번호 1건. 설명회 모드: raw 본문(`{초대링크}` 포함)을

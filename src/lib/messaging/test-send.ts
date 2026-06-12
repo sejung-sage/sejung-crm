@@ -15,7 +15,7 @@
 
 import { createSmsAdapter } from "./adapters";
 import type { SmsSendResult } from "./adapters/types";
-import { applyAllGuards } from "./guards";
+import { applyAllGuards, insertAdSubjectTag } from "./guards";
 import { applyDateToken, applyNameToken } from "./personalize";
 import { calculateCost } from "./calculate-cost";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
@@ -159,7 +159,7 @@ export async function testSend(
     result = await adapter.send({
       to: phone,
       body: personalizedBody,
-      subject: input.subject,
+      subject: insertAdSubjectTag(input.subject, input.isAd),
       type: input.type,
       fromNumber,
       isAd: input.isAd,

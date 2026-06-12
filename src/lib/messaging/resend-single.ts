@@ -32,7 +32,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createSmsAdapter } from "./adapters";
-import { applyAllGuards, type Recipient } from "./guards";
+import { applyAllGuards, insertAdSubjectTag, type Recipient } from "./guards";
 import { calculateCost } from "./calculate-cost";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -271,7 +271,7 @@ export async function resendSingleMessage(
     adapter.send({
       to: recipient.phone,
       body: personalizedBody,
-      subject: campaign.subject,
+      subject: insertAdSubjectTag(campaign.subject, campaign.is_ad),
       type: campaignType,
       fromNumber,
       isAd: campaign.is_ad,
