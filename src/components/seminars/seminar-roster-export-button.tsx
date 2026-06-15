@@ -28,6 +28,11 @@ const HEADERS = ["순번", "이름", "학교", "학년", "전화번호"] as cons
 const GAP = 1; // 묶음 사이 빈 열
 const STRIDE = HEADERS.length + GAP; // 묶음 하나가 차지하는 열 수(6)
 
+// A3 인쇄 시 50행이 한 면에 들어가도록 한 행 높이(pt). 11pt 글꼴 기준 가독성 유지.
+const ROW_TITLE = 22; // 제목 배너
+const ROW_HEADER = 18; // 헤더(순번·이름…)
+const ROW_DATA = 14; // 데이터 행 (50행이 A3 한 면에 들어가도록 약간 컴팩트)
+
 /**
  * 설명회 명단(아카 등록 + CRM 신청)을 A3/B4 인쇄용 엑셀로 내려받는 버튼.
  *
@@ -65,6 +70,25 @@ export function SeminarRosterExportButton({
       ws["!merges"] = [
         { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, usedCols - 1) } },
       ];
+
+      // A3 한 면에 50행이 다 들어가도록 — 행 높이를 약간 줄이고 여백을 좁힌다.
+      // (xlsx-js-style 은 page fit-to 설정을 못 써서, 행 높이·여백으로 맞춘다.
+      //  기본 여백 상하 1.9cm 씩을 0.25" 로 줄이면 행을 5~6개 더 넣을 수 있다.)
+      ws["!rows"] = aoa.map((_, r) =>
+        r === 0
+          ? { hpt: ROW_TITLE }
+          : r === 1
+            ? { hpt: ROW_HEADER }
+            : { hpt: ROW_DATA },
+      );
+      ws["!margins"] = {
+        left: 0.2,
+        right: 0.2,
+        top: 0.25,
+        bottom: 0.25,
+        header: 0.1,
+        footer: 0.1,
+      };
 
       // 2) 셀 스타일 — 제목/헤더/번호칸 색 + 테두리.
       applyStyles(XLSX, ws, aoa, usedCols);
