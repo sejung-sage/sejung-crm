@@ -119,7 +119,6 @@ export function ClassDetailView({
           <SeminarRosterPanels
             acaStudents={detail.students}
             crmSignups={signupPageDetail?.signed_parents ?? []}
-            canManage={canSendToClass}
           />
         </section>
       ) : (
