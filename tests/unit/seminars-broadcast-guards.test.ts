@@ -9,6 +9,7 @@ import type {
   CreateBroadcastInput,
   ClaimInvitationItemInput,
 } from "@/lib/schemas/seminar";
+import { GroupFiltersSchema } from "@/lib/schemas/group";
 
 /**
  * F5 · 설명회 invitation 모델 (0084/0085) · Server Action 가드 단위 테스트.
@@ -31,7 +32,7 @@ const validUuid2 = "22222222-2222-4222-8222-222222222222";
 
 const validBroadcast: CreateBroadcastInput = {
   class_ids: [validUuid],
-  group_id: validUuid2, // 그룹 id (414 회피 predicate)
+  filters: GroupFiltersSchema.parse({}), // 그룹 없이 필터로 직접 발송 (Phase 1) — 빈 필터 = 전체 모집단
   body: "[설명회 안내] 1차",
   subject: null,
   type: "SMS",
@@ -114,15 +115,12 @@ describe("seminar invitation Server Actions · Zod 검증 (dev-seed OFF)", () =>
       }
     });
 
-    it("group_id 가 잘못된 uuid → failed (Zod)", async () => {
+    it("filters 가 잘못된 형태(허용되지 않은 학년) → failed (Zod)", async () => {
       const r = await createSeminarBroadcastAction({
         ...validBroadcast,
-        group_id: "not-a-uuid",
+        filters: { grades: ["없는학년"] } as unknown as CreateBroadcastInput["filters"],
       });
       expect(r.status).toBe("failed");
-      if (r.status === "failed") {
-        expect(r.reason).toMatch(/그룹|유효하지/);
-      }
     });
 
     it("body 공백만이면 → failed (Zod)", async () => {

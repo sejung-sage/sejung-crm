@@ -21,8 +21,7 @@
 import { revalidatePath } from "next/cache";
 import { waitUntil } from "@vercel/functions";
 import { ZodError } from "zod";
-import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
-import { getGroup } from "@/lib/groups/get-group";
+import { loadRecipientsByFilters } from "@/lib/groups/load-all-group-recipients";
 
 import {
   CancelSignupInputSchema,
@@ -766,7 +765,7 @@ export async function createSeminarBroadcastAction(
   input: CreateBroadcastInput,
 ): Promise<CreateSeminarBroadcastActionResult> {
   // dev-seed: 가짜 결과로 UI 흐름만 확인 — 실 발송·DB 쓰기 X.
-  // (group_id 만 받으니 실제 학생 수는 알 수 없음 — placeholder 1)
+  // (filters 만 받으니 실제 학생 수는 알 수 없음 — placeholder 1)
   if (isDevSeedMode()) {
     return {
       status: "dev_seed_mode",
@@ -874,24 +873,15 @@ export async function createSeminarBroadcastAction(
   }
   const signupPageIds = pagesResult.signupPageIds;
 
-  // 3) 그룹 권한·분원 격리 검증.
-  const group = await getGroup(parsed.group_id);
-  if (!group) {
-    return { status: "failed", reason: "발송 그룹을 찾을 수 없습니다" };
-  }
-  if (group.branch !== parsed.branch) {
-    return {
-      status: "failed",
-      reason: "다른 분원의 발송 그룹은 사용할 수 없습니다",
-    };
-  }
-
-  // 4) 그룹 → 학생 펼침. 수신거부·탈퇴·branch 격리는 `loadAllGroupRecipients`
+  // 3) 필터 → 학생 펼침. 수신거부·탈퇴·branch 격리는 `loadRecipientsByFilters`
   //    가 SQL 단에서 모두 처리 (청크/페이지네이션 내장 — URL 한도 안전).
   //    client→server 로 student_ids 를 왕복 전달하지 않아 Cloudflare 414 회피.
-  const recipients = await loadAllGroupRecipients(
+  //    분원 격리는 입력 branch 기준(권한 가드 assertSeminarWrite(parsed.branch) 통과)
+  //    — 그룹(crm_groups) 의존을 제거하고 일반 SMS 발송과 동일한 filters 경로 사용.
+  const recipients = await loadRecipientsByFilters(
     supabase,
-    parsed.group_id,
+    parsed.filters,
+    parsed.branch,
     MAX_INVITATION_RECIPIENTS,
   );
   if (recipients.length === 0) {
@@ -910,8 +900,8 @@ export async function createSeminarBroadcastAction(
     branch: string;
     status: string;
   };
-  // student.id 기준 dedupe — `loadAllGroupRecipients` 가 JOIN 경로 따라 중복을
-  // 흘릴 수 있다(예: 같은 학생이 그룹 조건의 여러 갈래에서 매칭). 중복이 있으면
+  // student.id 기준 dedupe — `loadRecipientsByFilters` 가 JOIN 경로 따라 중복을
+  // 흘릴 수 있다(예: 같은 학생이 필터 조건의 여러 갈래에서 매칭). 중복이 있으면
   // invitation 이 학생당 N개 INSERT 되고 invitationByStudent.set 이 마지막만
   // 보존해, items INSERT 에서 (invitation_id, signup_page_id) UNIQUE 가 깨진다
   // (`class_signup_items_unique_pair`). 여기서 한 번 잘라낸다.
@@ -924,7 +914,7 @@ export async function createSeminarBroadcastAction(
       id: r.id,
       name: r.name,
       parent_phone: r.parent_phone,
-      branch: parsed.branch, // 그룹 branch 일치 보장됨(위 가드)
+      branch: parsed.branch, // loadRecipientsByFilters 가 branch 격리(SQL eq)
       status: r.status,
     });
   }

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
 import type { CreateBroadcastInput } from "@/lib/schemas/seminar";
+import { GroupFiltersSchema } from "@/lib/schemas/group";
 
 /**
  * F5 · 설명회 발송 · `{이름}` 본문 변수 잔존 가드 회귀 테스트.
@@ -26,7 +27,6 @@ import type { CreateBroadcastInput } from "@/lib/schemas/seminar";
  */
 
 const validUuid = "11111111-1111-4111-8111-111111111111";
-const validUuid2 = "22222222-2222-4222-8222-222222222222";
 
 // ─── 의존성 모킹 ────────────────────────────────────────────
 //
@@ -51,26 +51,11 @@ vi.mock("@/lib/auth/current-user", () => ({
   })),
 }));
 
-// 그룹 조회: 분원 일치하는 그룹 1개 반환 (getGroup 직접 호출 가드용).
-vi.mock("@/lib/groups/get-group", () => ({
-  getGroup: vi.fn(async (id: string) => ({
-    id,
-    name: "테스트 그룹",
-    branch: "대치",
-    filters: {},
-    recipient_count: 1,
-    last_sent_at: null,
-    last_message_preview: null,
-    created_by: null,
-    created_at: "2026-06-02T00:00:00Z",
-    updated_at: "2026-06-02T00:00:00Z",
-    creator_name: null,
-  })),
-}));
-
-// 그룹 펼침: 학부모 번호가 있는 학생 1명.
+// 필터 펼침: 학부모 번호가 있는 학생 1명 (그룹 없이 필터로 직접 발송 · Phase 1).
+//   액션은 더 이상 getGroup/loadAllGroupRecipients 를 호출하지 않고
+//   loadRecipientsByFilters(supabase, filters, branch, max) 를 직접 호출한다.
 vi.mock("@/lib/groups/load-all-group-recipients", () => ({
-  loadAllGroupRecipients: vi.fn(async () => [
+  loadRecipientsByFilters: vi.fn(async () => [
     {
       id: "student-1",
       name: "김민준",
@@ -222,7 +207,7 @@ async function loadAction() {
 
 const base: CreateBroadcastInput = {
   class_ids: [validUuid],
-  group_id: validUuid2,
+  filters: GroupFiltersSchema.parse({}), // 그룹 없이 필터로 직접 발송 (Phase 1)
   body: "[설명회 안내]",
   subject: null,
   type: "SMS",

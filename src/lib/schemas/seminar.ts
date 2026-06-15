@@ -17,6 +17,7 @@
  */
 
 import { z } from "zod";
+import { GroupFiltersSchema } from "./group";
 
 // ─── 설명회 enum (DB CHECK 와 1:1) ─────────────────────────────
 
@@ -64,7 +65,9 @@ export type ClaimInvitationStatus = z.infer<typeof ClaimInvitationStatusSchema>;
 /**
  * 발송 액션(=invitation 일괄 생성 + SMS 발송) 입력.
  *
- * 단순화: 학생 id 배열로 직접 받는다. (그룹 기반 → 학생 id 펼침은 호출부 책임)
+ * 단순화(Phase 1): 그룹(crm_groups) 대신 필터(GroupFilters)로 직접 발송한다.
+ * 학생 목록을 client→server 로 왕복 전달하지 않고 filters + branch 만 받아
+ * 서버가 `loadRecipientsByFilters` 로 직접 펼친다(일반 SMS 발송과 동일 경로).
  * branch 는 RLS 격리 — admin 은 본인 분원 강제, master 는 사이드바 선택값.
  */
 export const CreateBroadcastInputSchema = z
@@ -75,12 +78,13 @@ export const CreateBroadcastInputSchema = z
       .array(z.string().uuid("강좌 ID 가 유효하지 않습니다"))
       .min(1, "설명회 강좌를 1개 이상 선택해 주세요"),
     /**
-     * 발송 그룹 ID — 학생 목록을 client→server 로 왕복 전달하지 않고
-     * 그룹만 받아 서버가 `loadAllGroupRecipients` 로 직접 펼친다.
+     * 발송 대상 필터 (그룹 없이 필터로 직접 발송 · Phase 1).
+     * 학생 목록을 client→server 로 왕복 전달하지 않고 filters + branch 만 받아
+     * 서버가 `loadRecipientsByFilters` 로 직접 펼친다.
      * (client 가 풀어서 `student_ids[]` 로 재전송하면 PostgREST `.in()` 의
      *  URL 길이 폭발로 Cloudflare 414 → predicate 방식으로 우회.)
      */
-    group_id: z.string().uuid("발송 그룹 ID 가 유효하지 않습니다"),
+    filters: GroupFiltersSchema,
     body: z.string().trim().min(1, "본문은 필수입니다"),
     subject: z
       .union([z.string(), z.null(), z.undefined()])

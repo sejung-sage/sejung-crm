@@ -48,7 +48,7 @@ describe("ClaimInvitationStatusSchema", () => {
 describe("CreateBroadcastInputSchema", () => {
   const validBase = {
     class_ids: ["a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"],
-    group_id: "b1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
+    filters: {}, // 그룹 없이 필터로 직접 발송 (Phase 1) — 빈 필터는 default 로 채워짐
     body: "[설명회 안내] 1차",
     subject: null,
     type: "SMS" as const,
@@ -60,7 +60,8 @@ describe("CreateBroadcastInputSchema", () => {
     expect(r.type).toBe("SMS");
     expect(r.subject).toBeNull();
     expect(r.class_ids).toHaveLength(1);
-    expect(typeof r.group_id).toBe("string");
+    // filters 는 GroupFiltersSchema default 로 채워진다.
+    expect(Array.isArray(r.filters.grades)).toBe(true);
   });
 
   it("seminar_ids 가 빈 배열이면 거부", () => {
@@ -69,9 +70,12 @@ describe("CreateBroadcastInputSchema", () => {
     ).toThrow();
   });
 
-  it("group_id 가 잘못된 UUID 이면 거부", () => {
+  it("filters 가 잘못된 형태(허용되지 않은 학년)이면 거부", () => {
     expect(() =>
-      CreateBroadcastInputSchema.parse({ ...validBase, group_id: "not-uuid" }),
+      CreateBroadcastInputSchema.parse({
+        ...validBase,
+        filters: { grades: ["없는학년"] },
+      }),
     ).toThrow();
   });
 

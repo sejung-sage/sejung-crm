@@ -78,11 +78,13 @@ export function SeminarComposeStep4Send({
         ? new Date(scheduleAt).toISOString()
         : null;
     startTransition(async () => {
-      // backend `createSeminarBroadcastAction` — group_id 만 전달.
-      // 학생 펼침은 서버 내부 `loadAllGroupRecipients` 가 처리 (URL 414 회피).
+      // backend `createSeminarBroadcastAction` — filters + branch 전달(그룹 없이
+      // 필터로 직접 발송 · Phase 1). 학생 펼침은 서버 내부 `loadRecipientsByFilters`
+      // 가 처리 (URL 414 회피). 현재는 선택 그룹의 filters 를 그대로 넘겨 동작 보존
+      // — frontend-dev 가 다음 단계에서 그룹 선택을 필터 UI 로 교체한다.
       const res = await createSeminarBroadcastAction({
         class_ids: state.selectedClassIds,
-        group_id: selectedGroup.id,
+        filters: selectedGroup.filters,
         body: state.body,
         subject: state.type === "LMS" ? state.subject : null,
         type: state.type,
