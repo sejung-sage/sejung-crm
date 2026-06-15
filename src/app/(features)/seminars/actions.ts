@@ -398,6 +398,75 @@ export async function setSignupsRosterAddedAction(
   return { status: "success" };
 }
 
+// ─── cancelSignupsAction (여러 신청 한번에 취소/삭제) ──────────
+//
+// 체크한 CRM 신청 여러 건을 한 번에 취소(status='cancelled')한다. 소프트 삭제라
+// 행은 보존(cancelled_at/by 기록)되며 명단(signed)에서만 사라진다 — 테스트 신청
+// 정리 등에 사용. 단건 cancelSignupAction 의 배치 버전.
+export type CancelSignupsActionResult =
+  | { status: "success"; cancelled: number }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
+
+export async function cancelSignupsAction(
+  itemIds: string[],
+): Promise<CancelSignupsActionResult> {
+  if (isDevSeedMode()) return { status: "dev_seed_mode" };
+  if (!Array.isArray(itemIds) || itemIds.length === 0) {
+    return { status: "failed", reason: "선택된 신청이 없습니다" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  type Row = { id: string; invitation: { branch: string } | null };
+  const { data: items, error: fetchError } = (await supabase
+    .from("crm_class_signup_items")
+    .select(`id, invitation:crm_class_signup_invitations!inner(branch)`)
+    .in("id", itemIds)) as unknown as {
+    data: Row[] | null;
+    error: { message: string } | null;
+  };
+  if (fetchError) {
+    return { status: "failed", reason: `신청 조회 실패: ${fetchError.message}` };
+  }
+  const rows = (items ?? []).filter((r) => r.invitation);
+  if (rows.length === 0) {
+    return { status: "failed", reason: "존재하지 않는 신청입니다" };
+  }
+  const branches = new Set(rows.map((r) => r.invitation!.branch));
+  if (branches.size !== 1) {
+    return { status: "failed", reason: "분원이 섞여 있어 처리할 수 없습니다" };
+  }
+  const auth = await assertSeminarWrite([...branches][0]);
+  if (!auth.ok) return { status: "failed", reason: auth.reason };
+
+  const ids = rows.map((r) => r.id);
+  const { error: upErr } = (await (
+    supabase.from("crm_class_signup_items") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        in: (
+          col: string,
+          vals: string[],
+        ) => Promise<{ error: { message: string } | null }>;
+      };
+    }
+  )
+    .update({
+      status: "cancelled",
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: auth.user.user_id,
+      // signed_at 은 CHECK 제약(signed 일 때만 NOT NULL) — cancelled 전이 시 NULL.
+      signed_at: null,
+    })
+    .in("id", ids)) as { error: { message: string } | null };
+  if (upErr) {
+    return { status: "failed", reason: `신청 삭제 처리 실패: ${upErr.message}` };
+  }
+
+  revalidatePath("/seminars/compose");
+  return { status: "success", cancelled: ids.length };
+}
+
 // ─── addManualSignupAction (운영자 수동 신청 추가) ──────────
 //
 // 설명회 명단에서 운영자가 학생을 'CRM 신청생'에 직접 추가(전체 데이터 → 신청).

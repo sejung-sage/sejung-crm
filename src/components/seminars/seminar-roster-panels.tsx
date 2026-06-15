@@ -2,12 +2,22 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Link2, GraduationCap, ArrowRight, Undo2, Loader2 } from "lucide-react";
+import {
+  Link2,
+  GraduationCap,
+  ArrowRight,
+  Undo2,
+  Trash2,
+  Loader2,
+} from "lucide-react";
 import type { ClassStudentRow } from "@/types/database";
 import type { ClassSignupParentRow } from "@/lib/seminars/get-class-signup-page";
 import { formatPhone } from "@/lib/phone";
 import { formatKstDateTime } from "@/lib/datetime";
-import { setSignupsRosterAddedAction } from "@/app/(features)/seminars/actions";
+import {
+  setSignupsRosterAddedAction,
+  cancelSignupsAction,
+} from "@/app/(features)/seminars/actions";
 import { useToast } from "@/components/ui/toast";
 
 interface Props {
@@ -46,6 +56,7 @@ export function SeminarRosterPanels({
   const [isPending, startTransition] = useTransition();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [undoBusyId, setUndoBusyId] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const acaStudentIds = useMemo(
     () => new Set(acaStudents.map((s) => s.id)),
@@ -134,6 +145,24 @@ export function SeminarRosterPanels({
     });
   };
 
+  const deleteSelected = () => {
+    const ids = pending.map((p) => p.item_id).filter((id) => selected.has(id));
+    if (ids.length === 0) return;
+    startTransition(async () => {
+      const r = await cancelSignupsAction(ids);
+      setConfirmingDelete(false);
+      if (r.status === "success") {
+        show("success", `${r.cancelled}명의 신청을 삭제했어요.`);
+        setSelected(new Set());
+        router.refresh();
+      } else if (r.status === "dev_seed_mode") {
+        show("error", "개발 시드 모드라 반영되지 않습니다.");
+      } else {
+        show("error", r.reason);
+      }
+    });
+  };
+
   const undoOne = (itemId: string) => {
     setUndoBusyId(itemId);
     startTransition(async () => {
@@ -180,6 +209,22 @@ export function SeminarRosterPanels({
                   전체 선택
                 </label>
                 <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(true)}
+                  disabled={selectedCount === 0 || isPending}
+                  className="
+                    inline-flex items-center gap-1.5 h-8 px-3 rounded-md
+                    border border-[color:var(--danger)] bg-bg-card
+                    text-[13px] font-medium text-[color:var(--danger)]
+                    hover:bg-[color:var(--danger-bg)]
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    transition-colors
+                  "
+                >
+                  <Trash2 className="size-4" strokeWidth={1.75} aria-hidden />
+                  삭제
+                </button>
                 <button
                   type="button"
                   onClick={moveSelected}
@@ -291,9 +336,71 @@ export function SeminarRosterPanels({
 
       {canManage && (
         <p className="lg:col-span-2 text-[12px] text-[color:var(--text-muted)]">
-          왼쪽에서 체크한 신청을 &lsquo;전체 명단에 추가&rsquo;로 한번에 옮깁니다.
-          추가한 항목은 ↩ 로 되돌릴 수 있고, 신청 자체는 삭제되지 않습니다.
+          왼쪽에서 체크한 신청을 &lsquo;전체 명단에 추가&rsquo;로 옮기거나
+          &lsquo;삭제&rsquo;로 신청 명단에서 제거할 수 있어요. (삭제해도 기록은
+          보존돼 복구 가능합니다.)
         </p>
+      )}
+
+      {confirmingDelete && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="signup-delete-title"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/20"
+          onClick={(e) => {
+            if (e.target === e.currentTarget && !isPending)
+              setConfirmingDelete(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" && !isPending) setConfirmingDelete(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-xl bg-bg-card border border-[color:var(--border)] shadow-lg p-6 space-y-4">
+            <h3
+              id="signup-delete-title"
+              className="text-[18px] font-semibold text-[color:var(--text)]"
+            >
+              선택한 신청을 삭제할까요?
+            </h3>
+            <p className="text-[14px] text-[color:var(--text-muted)] leading-relaxed">
+              선택한{" "}
+              <span className="font-medium text-[color:var(--text)] tabular-nums">
+                {selectedCount}명
+              </span>
+              의 신청이 명단에서 제거됩니다. 기록은 보존돼 필요하면 복구할 수
+              있어요.
+            </p>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setConfirmingDelete(false)}
+                disabled={isPending}
+                className="
+                  inline-flex items-center h-10 px-4 rounded-lg
+                  border border-[color:var(--border)] bg-bg-card
+                  text-[14px] text-[color:var(--text)]
+                  hover:bg-[color:var(--bg-hover)] disabled:opacity-50 transition-colors
+                "
+              >
+                돌아가기
+              </button>
+              <button
+                type="button"
+                onClick={deleteSelected}
+                disabled={isPending}
+                className="
+                  inline-flex items-center gap-1.5 h-10 px-5 rounded-lg
+                  bg-[color:var(--danger)] text-white
+                  text-[14px] font-medium hover:opacity-90 disabled:opacity-50
+                  transition-colors
+                "
+              >
+                {isPending ? "삭제 중..." : "삭제"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
