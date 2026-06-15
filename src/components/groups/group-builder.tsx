@@ -12,7 +12,7 @@ import {
   X,
 } from "lucide-react";
 import type { GroupFilters, GroupKind } from "@/lib/schemas/group";
-import type { Grade, StudentStatus, Subject } from "@/types/database";
+import type { Grade, StudentStatus } from "@/types/database";
 import type {
   CountRecipientsResult,
   DiffRecipientsResult,
@@ -21,16 +21,19 @@ import {
   countRecipientsAction,
   createGroupAction,
   diffRecipientsAction,
-  groupBuilderFilterOptionsAction,
-  listClassOptionsAction,
   searchStudentsAction,
   updateGroupAction,
 } from "@/app/(features)/groups/actions";
 import type { ClassOption } from "@/lib/classes/list-class-options";
 import type { StudentSearchHit } from "@/lib/profile/search-students-for-group";
-import { MultiSelectDropdown } from "@/components/shell/multi-select-dropdown";
+import {
+  Chip,
+  Field,
+  FilterChipPanel,
+  SUBJECT_OPTIONS,
+  type FilterSubject,
+} from "@/components/groups/filter-chip-panel";
 import { BRANCHES } from "@/config/branches";
-import { REGION_OPTIONS } from "@/config/regions";
 import { formatPhone, maskPhone } from "@/lib/phone";
 import { BranchBadge } from "@/components/students/branch-badge";
 import { useToast } from "@/components/ui/toast";
@@ -110,106 +113,9 @@ interface Props {
   availableRegions?: string[];
 }
 
-/**
- * 0012 정규화 enum 9종에 맞춘 학년 옵션.
- * - 1차 옵션: 학교급 토글(중/고/전체) + 빈도 높은 9종 중 7종.
- * - 졸업·미정은 expand 영역(체크박스)으로 분리. 대량 발송에서 운영 의도가
- *   강한 만큼 노출을 한 단계 숨겨 오·발송을 줄임.
- */
-const GRADE_OPTIONS_HIGH: Grade[] = ["고1", "고2", "고3", "재수"];
-const GRADE_OPTIONS_MID: Grade[] = ["중1", "중2", "중3"];
-const GRADE_OPTIONS_ELEM: Grade[] = ["초등"];
-const GRADE_OPTIONS_HIDDEN: Grade[] = ["졸업", "미정"];
-// 학년 칩 — 항상 모든 학교급(초+중+고) 노출. 학교급 세그먼트는 시각 분류 보조용.
-const GRADE_OPTIONS_ALL: Grade[] = [
-  ...GRADE_OPTIONS_ELEM,
-  ...GRADE_OPTIONS_MID,
-  ...GRADE_OPTIONS_HIGH,
-];
-// 발송 그룹 필터 UI 가 노출하는 과목 — 7종. DB Subject 는 '설명회' 포함 8종이지만
-// 필터는 정규 과목만 보여준다(설명회 강좌만 듣는 학생은 status='수강이력자'·'수강 x'
-// 정책으로 별도 처리됨, 0058). 좁은 const 튜플로 좁힌 타입을 그대로 GroupFilters
-// subjects 와 일치시킨다.
-const SUBJECT_OPTIONS = [
-  "국어",
-  "영어",
-  "수학",
-  "과탐",
-  "사탐",
-  "컨설팅",
-  "기타",
-] as const;
-type FilterSubject = (typeof SUBJECT_OPTIONS)[number];
-
-/**
- * 발송 그룹의 재원 상태 옵션 (다중 선택).
- * 학생 명단의 4종 토글과 달리 빈 배열 = default '재원생' 시맨틱 — 수신자
- * 산정 단(count-recipients · apply-filters)에서 빈 배열을 ['재원생']로 대체.
- * 탈퇴는 안전 정책상 어떤 경우에도 자동 제외 → 옵션에서 노출하지 않는다.
- */
-const STATUS_OPTIONS: StudentStatus[] = ["재원생", "수강이력자", "수강 x"];
-
-// 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용 —
-// 학생 명단·그룹 빌더·매핑 admin 모두 동일 출처.
-const LEVEL_SEGMENTS: ReadonlyArray<{
-  value: "전체" | "초" | "중" | "고";
-  label: string;
-}> = [
-  { value: "전체", label: "전체" },
-  { value: "고", label: "고등" },
-  { value: "중", label: "중등" },
-  { value: "초", label: "초등" },
-];
+// 필터/카운트 디바운스 간격. 칩 옵션·학교급 추론 등 'filter' 칩 UI 관련
+// 상수·헬퍼는 공용 FilterChipPanel 로 이동했다.
 const DEBOUNCE_MS = 300;
-
-/**
- * 학교명에서 학교급(고/중/초) 추론.
- *  - 끝 "고" 또는 "여고" / "고등학교" → 고
- *  - 끝 "중" 또는 "여중" → 중
- *  - 끝 "초" 또는 "초등" 포함 → 초
- *  - 그 외 → 기타
- */
-function inferSchoolLevel(school: string): "고" | "중" | "초" | "기타" {
-  const s = school.trim();
-  if (s.endsWith("고") || s.endsWith("여고") || s.includes("고등학교")) return "고";
-  if (s.endsWith("초") || s.includes("초등")) return "초";
-  if (s.endsWith("중") || s.endsWith("여중")) return "중";
-  return "기타";
-}
-
-/**
- * 학년 선택값에서 허용 학교급 set 추론.
- *  - 학년 미선택 → null (필터 없음, 모든 학교 노출)
- *  - 고1/고2/고3/재수/졸업/미정 포함 → "고"
- *  - 중1/중2/중3 포함 → "중"
- *  - 초등 포함 → "초"
- *  - 기타 학교급은 항상 함께 노출 (level 추론 실패한 안전망)
- */
-function gradesToSchoolLevels(
-  grades: Grade[],
-): Array<"고" | "중" | "초" | "기타"> | null {
-  if (grades.length === 0) return null;
-  const levels = new Set<"고" | "중" | "초" | "기타">();
-  for (const g of grades) {
-    if (
-      g === "고1" ||
-      g === "고2" ||
-      g === "고3" ||
-      g === "재수" ||
-      g === "졸업" ||
-      g === "미정"
-    ) {
-      levels.add("고");
-    } else if (g === "중1" || g === "중2" || g === "중3") {
-      levels.add("중");
-    } else if (g === "초등") {
-      levels.add("초");
-    }
-  }
-  // level 추론 실패한 학교는 안전상 항상 포함.
-  levels.add("기타");
-  return Array.from(levels);
-}
 
 /**
  * F2-02 · 발송 그룹 세그먼트 빌더 (Client Component).
@@ -293,11 +199,6 @@ export function GroupBuilder({
     prefilledExcludeClasses ?? [],
   );
 
-  // '졸업·미정' 학년 영역 expand. 초기값은 현재 선택된 grades 에 포함되면 펼침.
-  const [showHiddenGrades, setShowHiddenGrades] = useState<boolean>(() =>
-    initial.filters.grades.some((g) => GRADE_OPTIONS_HIDDEN.includes(g)),
-  );
-
   // 실시간 프리뷰
   const [preview, setPreview] = useState<SamplePreview>(initialPreview);
   const [previewLoading, setPreviewLoading] = useState<boolean>(false);
@@ -326,44 +227,8 @@ export function GroupBuilder({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const requestIdRef = useRef<number>(0);
 
-  // 학교/학년/지역 옵션 — branch 와 statuses 에 매칭되는 학생을 가진 것만.
-  // 초기값은 prop. branch/statuses 변경 시 server action 으로 재페치 → 좁힘.
-  const [dynamicSchoolOptions, setDynamicSchoolOptions] =
-    useState<string[]>(schoolOptions);
-  // 학교를 지역 그룹으로 묶은 결과. region 칩 토글 시 client 단 좁힘에 사용.
-  const [dynamicSchoolGroups, setDynamicSchoolGroups] = useState<
-    Array<{ region: string; schools: string[] }>
-  >([]);
-  const [dynamicGrades, setDynamicGrades] = useState<Grade[] | undefined>(
-    availableGrades,
-  );
-  const [dynamicRegions, setDynamicRegions] = useState<string[] | undefined>(
-    availableRegions,
-  );
-  const optionsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const optionsReqIdRef = useRef<number>(0);
-
-  // 강좌별 제외 드롭다운 후보 — branch 변경 시 재페치 (master 분원 이동 대응).
-  // 초기값은 prop(classOptions). 첫 마운트는 페이지 prefetch 와 동일하므로 스킵.
-  const [dynamicClassOptions, setDynamicClassOptions] =
-    useState<ClassOption[]>(classOptions);
-  const classOptionsReqIdRef = useRef<number>(0);
-  const classOptionsBranchRef = useRef<string>(initial.branch);
-
-  // 선택된 region 으로 좁힌 학교 옵션. region 미선택 시 dynamicSchoolOptions 전체.
-  // server 라운드트립 없이 즉시 반영 — schoolGroups 매핑이 이미 client 에 있음.
-  const visibleSchoolOptions = useMemo(() => {
-    if (regions.length === 0 || dynamicSchoolGroups.length === 0) {
-      return dynamicSchoolOptions;
-    }
-    const set = new Set<string>();
-    for (const g of dynamicSchoolGroups) {
-      if (regions.includes(g.region)) {
-        for (const s of g.schools) set.add(s);
-      }
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
-  }, [regions, dynamicSchoolOptions, dynamicSchoolGroups]);
+  // 학교/학년/지역·강좌 옵션의 동적 좁힘(branch/statuses 변경 시 재페치)은
+  // 공용 FilterChipPanel 내부로 이동했다 — 여기서는 초기 prop 만 그대로 넘긴다.
 
   // 실제 서버로 보낼 filters.
   // excludeStudentIds 는 그룹 상세 화면의 "개별 학생 제거" 액션이 관리 →
@@ -412,44 +277,6 @@ export function GroupBuilder({
       mappedSchool,
     ],
   );
-
-  // branch / statuses 변경 시 학교·학년·지역 옵션 재페치 (디바운스).
-  // 옵션 좁힘: 그 분원에서 그 status 학생이 다니는 학교/학년/지역만 노출.
-  // 다른 필터(grades/schools/regions) 는 자기 자신 좁힘 방지로 미적용.
-  useEffect(() => {
-    if (!branch) return;
-    if (optionsDebounceRef.current) clearTimeout(optionsDebounceRef.current);
-    optionsDebounceRef.current = setTimeout(async () => {
-      const myReq = ++optionsReqIdRef.current;
-      const result = await groupBuilderFilterOptionsAction(branch, statuses);
-      if (myReq !== optionsReqIdRef.current) return;
-      if (result.status === "success") {
-        setDynamicSchoolOptions(result.data.schools);
-        setDynamicSchoolGroups(result.data.schoolGroups);
-        setDynamicGrades(result.data.availableGrades);
-        setDynamicRegions(result.data.availableRegions);
-      }
-    }, DEBOUNCE_MS);
-    return () => {
-      if (optionsDebounceRef.current) clearTimeout(optionsDebounceRef.current);
-    };
-  }, [branch, statuses]);
-
-  // branch 변경 시 강좌별 제외 후보 재페치.
-  // 첫 마운트는 prop(classOptions) 와 동일하므로 스킵 (불필요 라운드트립 회피).
-  useEffect(() => {
-    if (!branch) return;
-    if (classOptionsBranchRef.current === branch) return;
-    classOptionsBranchRef.current = branch;
-    const myReq = ++classOptionsReqIdRef.current;
-    (async () => {
-      const result = await listClassOptionsAction(branch);
-      if (myReq !== classOptionsReqIdRef.current) return;
-      if (result.status === "success") {
-        setDynamicClassOptions(result.data);
-      }
-    })();
-  }, [branch]);
 
   // filters/branch 변경 시 디바운스 카운트 호출
   useEffect(() => {
@@ -716,207 +543,38 @@ export function GroupBuilder({
             </section>
           )}
 
-          {/* 필터 — 'filter' 종류에서만 노출 (조건 동기화 그룹). */}
+          {/* 필터 — 'filter' 종류에서만 노출 (조건 동기화 그룹).
+              칩 UI 는 공용 FilterChipPanel 로 추출 (/compose 인라인 발송과 공유). */}
           {!isCustom && (
-          <section className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-5">
-            <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-              수신자 조건
-            </h2>
-
-            <Field
-              label="학년"
-              hint={grades.length === 0 ? "선택 안 함 = 전 학년" : undefined}
-            >
-              <div className="space-y-2.5">
-                {/* 학년 칩 — 분원 매칭 학생 있는 학년만 (availableGrades) ∩ 7종.
-                    현재 선택된 grade 는 매칭 없어도 유지 (해제 가능). */}
-                <div className="flex flex-wrap gap-1.5">
-                  {GRADE_OPTIONS_ALL.filter(
-                    (g) =>
-                      !dynamicGrades ||
-                      dynamicGrades.includes(g) ||
-                      grades.includes(g),
-                  ).map((g) => (
-                    <Chip
-                      key={g}
-                      label={g}
-                      active={grades.includes(g)}
-                      onClick={() =>
-                        toggleFromList(grades, g, (next) => setGrades(next))
-                      }
-                    />
-                  ))}
-                </div>
-
-                {/* 졸업·미정 expand — dynamicGrades 에 졸업/미정 있을 때만 노출 */}
-                {(!dynamicGrades ||
-                  GRADE_OPTIONS_HIDDEN.some(
-                    (g) => dynamicGrades.includes(g) || grades.includes(g),
-                  )) && (
-                  <div className="pt-1">
-                    <button
-                      type="button"
-                      onClick={() => setShowHiddenGrades((v) => !v)}
-                      aria-expanded={showHiddenGrades}
-                      className="
-                        inline-flex items-center gap-1
-                        text-[12px] text-[color:var(--text-muted)]
-                        hover:text-[color:var(--text)]
-                        transition-colors
-                      "
-                    >
-                      {showHiddenGrades ? "− 졸업·미정 숨기기" : "+ 졸업·미정 포함"}
-                    </button>
-                    {showHiddenGrades && (
-                      <div className="mt-2 flex flex-wrap gap-1.5">
-                        {GRADE_OPTIONS_HIDDEN.filter(
-                          (g) =>
-                            !dynamicGrades ||
-                            dynamicGrades.includes(g) ||
-                            grades.includes(g),
-                        ).map((g) => (
-                          <Chip
-                            key={g}
-                            label={g}
-                            active={grades.includes(g)}
-                            onClick={() =>
-                              toggleFromList(grades, g, (next) =>
-                                setGrades(next),
-                              )
-                            }
-                          />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </Field>
-
-            <Field
-              label="학교"
-              hint={schools.length === 0 ? "선택 안 함 = 전 학교" : undefined}
-            >
-              <div className="space-y-2">
-                {/* 학교 등록/미등록 토글 — 학생 명단과 동일 로직. */}
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    aria-pressed={mappedSchool}
-                    onClick={() => {
-                      setMappedSchool((v) => !v);
-                      if (!mappedSchool) setUnmappedSchool(false);
-                    }}
-                    className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[13px] font-medium border transition-colors ${
-                      mappedSchool
-                        ? "bg-[color:var(--bg-hover)] text-[color:var(--text)] border-[color:var(--border-strong)]"
-                        : "bg-bg-card text-[color:var(--text-muted)] border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
-                    }`}
-                  >
-                    학교 등록만
-                  </button>
-                  <button
-                    type="button"
-                    aria-pressed={unmappedSchool}
-                    onClick={() => {
-                      setUnmappedSchool((v) => !v);
-                      if (!unmappedSchool) setMappedSchool(false);
-                    }}
-                    title="학교 정보가 비어 있거나 '고/중/고등학교' 같이 학교명이 정확하지 않은 학생만"
-                    className={`inline-flex items-center gap-1.5 h-8 px-3 rounded-full text-[13px] font-medium border transition-colors ${
-                      unmappedSchool
-                        ? "bg-[color:var(--bg-hover)] text-[color:var(--text)] border-[color:var(--border-strong)]"
-                        : "bg-bg-card text-[color:var(--text-muted)] border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
-                    }`}
-                  >
-                    학교 미등록만
-                  </button>
-                </div>
-                <GroupSchoolSearchPanel
-                  schoolOptions={visibleSchoolOptions}
-                  selected={schools}
-                  grades={grades}
-                  onToggle={(s) =>
-                    toggleFromList(schools, s, (next) => setSchools(next))
-                  }
-                  onSelectMany={(list) =>
-                    setSchools((prev) =>
-                      Array.from(new Set([...prev, ...list])),
-                    )
-                  }
-                  onClearMany={(list) => {
-                    const remove = new Set(list);
-                    setSchools((prev) => prev.filter((s) => !remove.has(s)));
-                  }}
-                />
-              </div>
-            </Field>
-
-            <Field
-              label="재원 상태"
-              hint={
-                statuses.length === 0
-                  ? "선택 안 함 = 재원생 (기본)"
-                  : statuses.join(" · ")
-              }
-            >
-              <div className="flex flex-wrap gap-1.5">
-                {STATUS_OPTIONS.map((s) => (
-                  <Chip
-                    key={s}
-                    label={s}
-                    active={statuses.includes(s)}
-                    onClick={() =>
-                      toggleFromList(statuses, s, (next) => setStatuses(next))
-                    }
-                  />
-                ))}
-              </div>
-            </Field>
-
-            <Field
-              label="지역"
-              hint={regions.length === 0 ? "선택 안 함 = 전 지역" : undefined}
-            >
-              <div className="flex flex-wrap gap-1.5">
-                {REGION_OPTIONS.filter(
-                  (r) =>
-                    !dynamicRegions ||
-                    dynamicRegions.includes(r) ||
-                    regions.includes(r),
-                ).map((r) => (
-                  <Chip
-                    key={r}
-                    label={r}
-                    active={regions.includes(r)}
-                    onClick={() =>
-                      toggleFromList(regions, r, (next) => setRegions(next))
-                    }
-                  />
-                ))}
-              </div>
-            </Field>
-
-            <Field
-              label="과목"
-              hint={subjects.length === 0 ? "선택 안 함 = 전 과목" : undefined}
-            >
-              <div className="flex flex-wrap gap-1.5">
-                {SUBJECT_OPTIONS.map((s) => (
-                  <Chip
-                    key={s}
-                    label={s}
-                    active={subjects.includes(s)}
-                    onClick={() =>
-                      toggleFromList(subjects, s, (next) =>
-                        setSubjects(next),
-                      )
-                    }
-                  />
-                ))}
-              </div>
-            </Field>
-          </section>
+            <FilterChipPanel
+              value={{
+                grades,
+                schools,
+                subjects,
+                regions,
+                statuses,
+                excludeSchools,
+                excludeClasses,
+                unmappedSchool,
+                mappedSchool,
+              }}
+              onChange={(next) => {
+                setGrades(next.grades);
+                setSchools(next.schools);
+                setSubjects(next.subjects);
+                setRegions(next.regions);
+                setStatuses(next.statuses);
+                setExcludeSchools(next.excludeSchools);
+                setExcludeClasses(next.excludeClasses);
+                setUnmappedSchool(next.unmappedSchool);
+                setMappedSchool(next.mappedSchool);
+              }}
+              branch={branch}
+              schoolOptions={schoolOptions}
+              classOptions={classOptions}
+              availableGrades={availableGrades}
+              availableRegions={availableRegions}
+            />
           )}
 
           {/* 담긴 학생 명단 — 'custom' 종류에서만 노출.
@@ -987,76 +645,6 @@ export function GroupBuilder({
                 이전 화면에서 다시 학생을 골라 담아 주세요.
               </p>
             )}
-          </section>
-          )}
-
-          {/* 제외 조건 — 위 조건으로 잡힌 수신자에서 빼는 영역.
-              포함 영역과 시각적으로 명확히 구분 (빨강/취소선 톤).
-              'filter' 종류에서만 노출 (custom 은 고정 명단이라 조건 제외 무의미). */}
-          {!isCustom && (
-          <section className="rounded-xl border border-danger/40 bg-[color:var(--danger-bg)] p-6 space-y-5">
-            <div className="space-y-1">
-              <h2 className="flex items-center gap-1.5 text-[16px] font-semibold text-[color:var(--danger)]">
-                <MinusCircle className="size-4" strokeWidth={2} aria-hidden />
-                제외 조건
-              </h2>
-              <p className="text-[13px] text-[color:var(--text-muted)]">
-                위 조건으로 잡힌 수신자 중, 아래에 해당하는 학생은 발송에서
-                빠집니다.
-              </p>
-            </div>
-
-            <Field
-              label="이 학교 제외"
-              hint={
-                excludeSchools.length === 0
-                  ? "선택한 학교의 학생은 발송 대상에서 제외됩니다"
-                  : `${excludeSchools.length}개 학교 제외`
-              }
-            >
-              <ExcludeSchoolPanel
-                schoolOptions={visibleSchoolOptions}
-                selected={excludeSchools}
-                onToggle={(s) =>
-                  toggleFromList(excludeSchools, s, (next) =>
-                    setExcludeSchools(next),
-                  )
-                }
-                onRemove={(s) =>
-                  setExcludeSchools((prev) => prev.filter((x) => x !== s))
-                }
-                onClearMany={(list) => {
-                  const remove = new Set(list);
-                  setExcludeSchools((prev) =>
-                    prev.filter((x) => !remove.has(x)),
-                  );
-                }}
-              />
-            </Field>
-
-            <Field
-              label="이 강좌 수강생 제외"
-              hint={
-                excludeClasses.length === 0
-                  ? "선택한 강좌를 듣는 학생은 발송 대상에서 제외됩니다"
-                  : `${excludeClasses.length}개 강좌 수강생 제외`
-              }
-            >
-              <ExcludeClassPicker
-                options={dynamicClassOptions}
-                selected={excludeClasses}
-                onToggle={(c) =>
-                  setExcludeClasses((prev) =>
-                    prev.find((x) => x.id === c.id)
-                      ? prev.filter((x) => x.id !== c.id)
-                      : [...prev, c],
-                  )
-                }
-                onRemove={(id) =>
-                  setExcludeClasses((prev) => prev.filter((x) => x.id !== id))
-                }
-              />
-            </Field>
           </section>
           )}
 
@@ -1313,207 +901,8 @@ export function GroupBuilder({
 }
 
 // ─── 내부 소 컴포넌트 ───────────────────────────────────────
-
-function Field({
-  label,
-  required,
-  hint,
-  children,
-}: {
-  label: string;
-  required?: boolean;
-  hint?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <label className="text-[13px] font-medium text-[color:var(--text)]">
-          {label}
-          {required && (
-            <span className="ml-0.5 text-[color:var(--danger)]" aria-hidden>
-              *
-            </span>
-          )}
-        </label>
-        {hint && (
-          <span className="text-[12px] text-[color:var(--text-dim)]">
-            {hint}
-          </span>
-        )}
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function Chip({
-  label,
-  active,
-  onClick,
-}: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={`
-        inline-flex items-center h-8 px-3 rounded-full
-        text-[14px] font-medium
-        border transition-colors
-        ${
-          active
-            ? "bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]"
-            : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
-        }
-      `}
-    >
-      {label}
-    </button>
-  );
-}
-
-/**
- * 발송 그룹 학교 검색·선택 패널.
- *
- * 학교 후보가 수백 개(448개)라 칩-wall 로 펼치면 페이지를 잡아먹어,
- * 강사 선택과 동일한 MultiSelectDropdown(평소 접힘 → 클릭 → 검색·스크롤·체크)
- * 으로 전환했다. 선택된 학교는 드롭다운 아래 칩(검정 active 톤)으로 노출하며
- * 칩의 X 로 개별 해제할 수 있다.
- *
- * 학년 선택에 맞춰 후보를 고/중/초 학교급으로 좁히는 로직은 유지
- * (선택된 학교는 학년과 무관히 항상 후보에 남겨 해제 가능).
- * 선택된 학교가 옵션에 없어도(학년·지역 좁힘으로 빠짐) 칩과 드롭다운에서 유지.
- */
-// 선택 칩을 개별로 깔지, 요약 텍스트로 접을지 결정하는 임계값.
-// 이 수를 초과하면 460개 학교 칩-wall 을 막기 위해 "N개 선택됨" 요약으로 대체.
-const SCHOOL_CHIP_LIMIT = 20;
-
-function GroupSchoolSearchPanel({
-  schoolOptions,
-  selected,
-  grades,
-  onToggle,
-  onSelectMany,
-  onClearMany,
-}: {
-  schoolOptions: string[];
-  selected: string[];
-  grades: Grade[];
-  onToggle: (s: string) => void;
-  /** 드롭다운 "전체 선택" — 현재 보이는 옵션 목록을 일괄 추가. */
-  onSelectMany: (schools: string[]) => void;
-  /** 드롭다운 "전체 해제" — 현재 보이는 옵션 목록을 일괄 해제. */
-  onClearMany: (schools: string[]) => void;
-}) {
-  // 선택된 학교는 옵션에 없어도 후보에 머지해 해제 가능하게 유지.
-  const merged = useMemo(() => {
-    const set = new Set(schoolOptions);
-    for (const s of selected) set.add(s);
-    return Array.from(set);
-  }, [schoolOptions, selected]);
-  // 학년 선택에 맞춰 학교 후보 좁히기 — 고/중/초 학교명 끝글자로 추론.
-  // 선택된 학교는 학년과 무관히 항상 노출 (탈선 방지).
-  const allowedLevels = useMemo(() => gradesToSchoolLevels(grades), [grades]);
-  const dropdownOptions = useMemo(() => {
-    const list =
-      allowedLevels === null
-        ? merged
-        : merged.filter(
-            (s) =>
-              selected.includes(s) ||
-              allowedLevels.includes(inferSchoolLevel(s)),
-          );
-    return [...list].sort((a, b) => a.localeCompare(b, "ko"));
-  }, [merged, allowedLevels, selected]);
-
-  // 선택 수가 많으면 개별 칩 대신 요약 (460개 칩-wall 방지).
-  const tooMany = selected.length > SCHOOL_CHIP_LIMIT;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <MultiSelectDropdown
-          label="학교 선택"
-          options={dropdownOptions}
-          selected={selected}
-          onToggle={onToggle}
-          onSelectAll={(visible) => onSelectMany(visible)}
-          onClearAll={(visible) => onClearMany(visible)}
-          searchable
-          searchPlaceholder="학교명 검색 (예: 휘문, 단대부)"
-          emptyHint="표시할 학교가 없습니다"
-        />
-        <span className="text-[12px] text-[color:var(--text-muted)]">
-          총 {dropdownOptions.length.toLocaleString()}개 학교
-          {selected.length > 0 && (
-            <>
-              <span className="mx-1.5 text-[color:var(--text-dim)]">·</span>
-              <span>선택 {selected.length}개</span>
-            </>
-          )}
-        </span>
-      </div>
-
-      {/* 선택된 학교 표시.
-          - 적으면(임계값 이하) 개별 칩(검정 active 톤) — X 로 개별 해제.
-          - 많으면 "N개 선택됨" 요약 + "전체 해제" — 칩-wall 방지. */}
-      {selected.length > 0 &&
-        (tooMany ? (
-          <div className="inline-flex items-center gap-2 h-8 pl-3 pr-1.5 rounded-full bg-[color:var(--bg-muted)] text-[13px] font-medium text-[color:var(--text)] border border-[color:var(--border)]">
-            <span>학교 {selected.length.toLocaleString()}개 선택됨</span>
-            <button
-              type="button"
-              onClick={() => onClearMany(selected)}
-              className="ml-0.5 inline-flex items-center h-6 px-2 rounded-full text-[12px] text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
-            >
-              전체 해제
-            </button>
-          </div>
-        ) : (
-          <div className="flex flex-wrap gap-1.5">
-            {selected.map((s) => (
-              <SelectedSchoolChip
-                key={s}
-                label={s}
-                onRemove={() => onToggle(s)}
-              />
-            ))}
-          </div>
-        ))}
-    </div>
-  );
-}
-
-/**
- * 포함 학교 선택 칩 — 검정 active 톤, X 로 개별 해제.
- * (제외 칩 ExcludeSchoolPanel 의 빨강·취소선 톤과 시각적으로 구분.)
- */
-function SelectedSchoolChip({
-  label,
-  onRemove,
-}: {
-  label: string;
-  onRemove: () => void;
-}) {
-  return (
-    <span className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full bg-[color:var(--bg-muted)] text-[13px] font-medium text-[color:var(--text)] border border-[color:var(--border)]">
-      <span className="truncate max-w-[12rem]">{label}</span>
-      <button
-        type="button"
-        onClick={onRemove}
-        aria-label={`${label} 제거`}
-        className="ml-0.5 size-5 inline-flex items-center justify-center rounded-full text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
-      >
-        <X className="size-3.5" strokeWidth={1.75} aria-hidden />
-      </button>
-    </span>
-  );
-}
+// 필터 칩(Chip)·필드 래퍼(Field)·학교/제외 패널은 공용 FilterChipPanel 로
+// 이동했다. 여기서는 그 둘을 import 해 기본정보·custom 명단 섹션에서 재사용한다.
 
 /**
  * 담긴 학생 명단 검토 컴포넌트 (read-only review).
@@ -1853,195 +1242,6 @@ function IncludeStudentReview({
   );
 }
 
-/**
- * 학교별 제외 패널 (0076).
- *
- * 포함(schools) 과 동일하게 학교 후보가 수백 개라, 칩-wall 대신 강사 선택과
- * 같은 MultiSelectDropdown(평소 접힘 → 클릭 → 검색·스크롤·체크)으로 전환했다.
- * 단 "빼기" 의미가 한눈에 보이도록 선택된 학교는 드롭다운 아래에 빨강 테두리 +
- * 취소선 칩으로 노출하고 X 로 개별 해제한다.
- *
- * include 패널(검정 active 칩)과 시각적으로 명확히 구분된다.
- */
-function ExcludeSchoolPanel({
-  schoolOptions,
-  selected,
-  onToggle,
-  onRemove,
-  onClearMany,
-}: {
-  schoolOptions: string[];
-  selected: string[];
-  onToggle: (s: string) => void;
-  onRemove: (s: string) => void;
-  /** 드롭다운 "전체 해제" — 현재 보이는 옵션 목록을 일괄 해제. */
-  onClearMany: (schools: string[]) => void;
-}) {
-  // 선택된 학교는 옵션에 없어도 후보에 머지해 해제 가능하게 유지.
-  const dropdownOptions = useMemo(() => {
-    const set = new Set(schoolOptions);
-    for (const s of selected) set.add(s);
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "ko"));
-  }, [schoolOptions, selected]);
-
-  // 제외 영역은 "전체 선택"(전원 제외)이 의미 없으므로 onSelectAll 미전달.
-  // "전체 해제"만 노출해 일괄 취소만 돕는다.
-  const tooMany = selected.length > SCHOOL_CHIP_LIMIT;
-
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2">
-        <MultiSelectDropdown
-          label="제외할 학교 선택"
-          options={dropdownOptions}
-          selected={selected}
-          onToggle={onToggle}
-          onClearAll={(visible) => onClearMany(visible)}
-          searchable
-          searchPlaceholder="제외할 학교명 검색 (예: 휘문, 단대부)"
-          emptyHint="표시할 학교가 없습니다"
-        />
-        {selected.length > 0 && (
-          <span className="text-[12px] text-[color:var(--text-muted)]">
-            {selected.length}개 학교 제외
-          </span>
-        )}
-      </div>
-
-      {/* 선택된 제외 학교 표시 — 많으면 요약(빨강 톤) + 전체 해제 */}
-      {selected.length > 0 && tooMany && (
-        <div className="inline-flex items-center gap-2 h-8 pl-3 pr-1.5 rounded-full border border-[color:var(--danger)] bg-bg-card text-[13px] font-medium text-[color:var(--danger)]">
-          <span>학교 {selected.length.toLocaleString()}개 제외</span>
-          <button
-            type="button"
-            onClick={() => onClearMany(selected)}
-            className="ml-0.5 inline-flex items-center h-6 px-2 rounded-full text-[12px] text-[color:var(--danger)] hover:bg-[color:var(--danger-bg)]"
-          >
-            전체 해제
-          </button>
-        </div>
-      )}
-
-      {/* 선택된 제외 학교 칩 (빨강·취소선) — 적을 때만 개별 노출 */}
-      {selected.length > 0 && !tooMany && (
-        <div className="flex flex-wrap gap-1.5">
-          {selected.map((s) => (
-            <span
-              key={s}
-              className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full border border-[color:var(--danger)] bg-bg-card text-[13px] font-medium text-[color:var(--danger)]"
-            >
-              <span className="line-through truncate max-w-[12rem]">{s}</span>
-              <button
-                type="button"
-                onClick={() => onRemove(s)}
-                aria-label={`${s} 제외 해제`}
-                className="ml-0.5 size-5 inline-flex items-center justify-center rounded-full text-[color:var(--danger)] hover:bg-[color:var(--danger-bg)]"
-              >
-                <X className="size-3.5" strokeWidth={2} aria-hidden />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * 강좌별 제외 선택기 (0076).
- *
- * 검색 가능한 다중 선택 드롭다운(MultiSelectDropdown)으로 강좌를 고르고,
- * 선택된 강좌는 아래에 빨강 테두리 칩으로 표시한다 (강좌명 + 강사 보조 라벨).
- *
- * MultiSelectDropdown 은 string[] 기반이라, 라벨("반명 · 강사") → ClassOption
- * 역매핑 테이블을 만들어 onToggle 시 id 메타를 복원한다.
- */
-function ExcludeClassPicker({
-  options,
-  selected,
-  onToggle,
-  onRemove,
-}: {
-  options: ClassOption[];
-  selected: ClassOption[];
-  onToggle: (c: ClassOption) => void;
-  onRemove: (id: string) => void;
-}) {
-  // 드롭다운 라벨 생성 — 동명 반 구분을 위해 강사명을 붙인다.
-  const labelOf = (c: ClassOption) =>
-    c.teacher_name ? `${c.name} · ${c.teacher_name}` : c.name;
-
-  // 선택된 강좌가 진행 중 options 에서 빠졌어도(종강 등) 드롭다운에 보여 해제 가능.
-  const merged = useMemo(() => {
-    const byId = new Map<string, ClassOption>();
-    for (const c of options) byId.set(c.id, c);
-    for (const c of selected) if (!byId.has(c.id)) byId.set(c.id, c);
-    return Array.from(byId.values());
-  }, [options, selected]);
-
-  // 라벨 → ClassOption 역매핑. 라벨 충돌 시 먼저 들어온 것을 유지.
-  const optionByLabel = useMemo(() => {
-    const m = new Map<string, ClassOption>();
-    for (const c of merged) {
-      const label = labelOf(c);
-      if (!m.has(label)) m.set(label, c);
-    }
-    return m;
-  }, [merged]);
-
-  const labelOptions = useMemo(
-    () =>
-      Array.from(optionByLabel.keys()).sort((a, b) => a.localeCompare(b, "ko")),
-    [optionByLabel],
-  );
-  const selectedLabels = useMemo(
-    () => selected.map(labelOf),
-    [selected],
-  );
-
-  return (
-    <div className="space-y-2">
-      <MultiSelectDropdown
-        label="제외할 강좌 선택"
-        options={labelOptions}
-        selected={selectedLabels}
-        onToggle={(label) => {
-          const c = optionByLabel.get(label);
-          if (c) onToggle(c);
-        }}
-        searchable
-        searchPlaceholder="강좌명·강사 검색..."
-        emptyHint="이 분원에 진행 중 강좌가 없습니다"
-      />
-
-      {selected.length > 0 && (
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {selected.map((c) => (
-            <span
-              key={c.id}
-              className="inline-flex items-center gap-1 h-8 pl-3 pr-1.5 rounded-full border border-[color:var(--danger)] bg-bg-card text-[13px] font-medium text-[color:var(--danger)]"
-            >
-              <span className="line-through">{c.name}</span>
-              {c.teacher_name && (
-                <span className="text-[11px] text-[color:var(--text-muted)] no-underline">
-                  {c.teacher_name}
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => onRemove(c.id)}
-                aria-label={`${c.name} 제외 해제`}
-                className="ml-0.5 size-5 inline-flex items-center justify-center rounded-full text-[color:var(--danger)] hover:bg-[color:var(--danger-bg)]"
-              >
-                <X className="size-3.5" strokeWidth={2} aria-hidden />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
 
 /**
  * 선택 요약 패널 (우측 컬럼, 수신자 미리보기 카드 아래).

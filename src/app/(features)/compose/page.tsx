@@ -1,50 +1,29 @@
 import Link from "next/link";
-// headers 는 Phase 2-B-3 prefill 제거 후 미사용.
 import { ChevronLeft } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
-import { listGroups } from "@/lib/groups/list-groups";
+import { getSchoolOptions } from "@/lib/groups/school-options";
+import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
+import { listClassOptions } from "@/lib/classes/list-class-options";
 import { listTemplates } from "@/lib/templates/list-templates";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
-import { ComposeWizard } from "@/components/compose/compose-wizard";
-// getSeminar 폐기 (Phase 2-B-3): 설명회 prefill 은 전용 위저드(/seminars/compose)
-// 가 담당. /compose 의 ?seminarId 옵션은 더 이상 사용되지 않는다.
-// countEucKrBytes 는 Phase 2-B-3 prefill 제거 후 본 페이지에서 미사용.
-// formatKstDateTime 는 Phase 2-B-3 prefill 제거 후 미사용.
-import type { GroupListItem, TemplateRow } from "@/types/database";
+import { ComposeInline } from "@/components/compose/compose-inline";
+import type { TemplateRow } from "@/types/database";
 
 /**
- * F3 Part B · 새 발송 작성 (/compose)
+ * F3 · 새 발송 작성 (/compose)
  *
- * Server Component 래퍼. 그룹/템플릿 목록을 미리 로드해
- * 클라이언트 위저드(`<ComposeWizard>`) 에 전달한다.
+ * Server Component 래퍼. 인라인 발송(필터로 대상 선택 → 바로 발송) UI 에 필요한
+ * 칩 옵션(학교/학년/지역·강좌)·템플릿을 분원 기준으로 prefetch 해
+ * 클라이언트 <ComposeInline> 에 넘긴다.
  *
- * - 권한: master / admin / manager 만. viewer 는 안내 카드.
- * - searchParams: ?groupId=... ?templateId=... 로 초기값 주입 가능
- *   (그룹 상세 / 캠페인 페이지에서 컨텍스트 넘겨받기 위함).
- *
- * 다음 단계:
- *   - Step1: 그룹 선택
- *   - Step2: 템플릿 선택 또는 직접 작성
- *   - Step3: 미리보기 · 비용 · 테스트 발송
- *   - Step4: 즉시 / 예약
+ * 권한: master / admin / manager 만 발송. viewer 는 안내 카드.
+ * 분원: master 는 사이드바 선택 분원, 그 외 본인 분원 고정 (클라이언트에서 칩 잠금).
  */
-export default async function ComposePage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const raw = await searchParams;
-  const pick = (v: string | string[] | undefined): string | undefined =>
-    Array.isArray(v) ? v[0] : v;
-  const initialGroupId = pick(raw.groupId) ?? null;
-  const initialTemplateIdParam = pick(raw.templateId) ?? null;
-  // initialSeminarId 옵션은 Phase 2-B-3 에서 제거됨.
-
+export default async function ComposePage() {
   const currentUser = await getCurrentUser();
   const devMode = isDevSeedMode();
 
-  // 권한 게이트
   if (!currentUser) {
     return (
       <div className="max-w-3xl space-y-4">
@@ -85,29 +64,25 @@ export default async function ComposePage({
     );
   }
 
-  // 그룹 / 템플릿 미리 로드 (드롭다운용 — 첫 페이지 50건).
-  // 분원 격리: master 는 사이드바에서 선택한 분원(cookie) 만, non-master 는
-  // 본인 분원만. RLS 가 2차 방어이지만 UI 드롭다운에서도 다른 분원 노출 차단.
-  const branchFilter =
+  // 분원 결정: master 는 사이드바 선택 분원(없으면 본인), 그 외 본인 분원.
+  const branch =
     currentUser.role === "master"
-      ? ((await getSelectedBranch()) ?? "")
+      ? ((await getSelectedBranch()) ?? currentUser.branch)
       : currentUser.branch;
+  const canPickBranch = currentUser.role === "master";
 
-  const [groupsResult, templatesResult] = await Promise.all([
-    listGroups({ q: "", branch: branchFilter, page: 1 }),
-    listTemplates({ q: "", branch: branchFilter || undefined, page: 1 }),
-  ]);
+  const [schoolOptions, filterOptions, classOptions, templatesResult] =
+    await Promise.all([
+      getSchoolOptions(branch),
+      listStudentFilterOptions({ branch, includeHidden: true }),
+      listClassOptions(branch),
+      listTemplates({ q: "", branch: branch || undefined, page: 1 }),
+    ]);
 
-  const groups: GroupListItem[] = groupsResult.items;
-  let templates: TemplateRow[] = templatesResult.items;
-
-  // 옛 ?seminarId prefill 은 Phase 2-B-3 에서 제거됨 — 설명회 발송은 전용
-  // 위저드(/seminars/compose) 가 처리한다. 일반 SMS 발송 화면(/compose)은
-  // 그룹·템플릿 기반으로만 동작.
-  const initialTemplateId: string | null = initialTemplateIdParam;
+  const templates: TemplateRow[] = templatesResult.items;
 
   return (
-    <div className="max-w-6xl space-y-6">
+    <div className="max-w-7xl space-y-6">
       <Link
         href="/campaigns"
         className="inline-flex items-center gap-1 text-[13px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
@@ -121,7 +96,7 @@ export default async function ComposePage({
           새 발송 작성
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-          그룹 → 템플릿 → 미리보기 → 발송 순서로 진행합니다.
+          왼쪽에서 문자를 작성하고, 오른쪽에서 조건으로 대상을 골라 바로 발송하세요.
         </p>
       </header>
 
@@ -135,12 +110,16 @@ export default async function ComposePage({
         </div>
       )}
 
-      <ComposeWizard
-        initialGroupId={initialGroupId}
-        initialTemplateId={initialTemplateId}
-        groups={groups}
+      <ComposeInline
+        branch={branch}
+        canPickBranch={canPickBranch}
+        schoolOptions={schoolOptions}
+        classOptions={classOptions}
+        availableGrades={filterOptions.availableGrades}
+        availableRegions={filterOptions.availableRegions}
         templates={templates}
         optOutNumber={process.env.SMS_OPT_OUT_NUMBER?.trim() || "080-123-4567"}
+        devMode={devMode}
       />
     </div>
   );
