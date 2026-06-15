@@ -338,6 +338,66 @@ export async function setSignupRosterAddedAction(
   return { status: "success" };
 }
 
+// ─── setSignupsRosterAddedAction (여러 건 한번에 편입/되돌리기) ──
+//
+// 체크한 CRM 신청 여러 건을 한 번에 전체 명단으로 편입(added=true)하거나
+// 되돌린다(false). 단일 토글과 동일하게 비파괴(신청 status 불변).
+export async function setSignupsRosterAddedAction(
+  itemIds: string[],
+  added: boolean,
+): Promise<SetRosterAddedActionResult> {
+  if (isDevSeedMode()) return { status: "dev_seed_mode" };
+  if (!Array.isArray(itemIds) || itemIds.length === 0) {
+    return { status: "failed", reason: "선택된 신청이 없습니다" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  type Row = { id: string; invitation: { branch: string } | null };
+  const { data: items, error: fetchError } = (await supabase
+    .from("crm_class_signup_items")
+    .select(`id, invitation:crm_class_signup_invitations!inner(branch)`)
+    .in("id", itemIds)) as unknown as {
+    data: Row[] | null;
+    error: { message: string } | null;
+  };
+  if (fetchError) {
+    return { status: "failed", reason: `신청 조회 실패: ${fetchError.message}` };
+  }
+  const rows = (items ?? []).filter((r) => r.invitation);
+  if (rows.length === 0) {
+    return { status: "failed", reason: "존재하지 않는 신청입니다" };
+  }
+
+  // 모든 항목은 같은 설명회(=같은 분원) 소속이어야 한다.
+  const branches = new Set(rows.map((r) => r.invitation!.branch));
+  if (branches.size !== 1) {
+    return { status: "failed", reason: "분원이 섞여 있어 처리할 수 없습니다" };
+  }
+  const auth = await assertSeminarWrite([...branches][0]);
+  if (!auth.ok) return { status: "failed", reason: auth.reason };
+
+  const ids = rows.map((r) => r.id);
+  const { error: upErr } = (await (
+    supabase.from("crm_class_signup_items") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        in: (
+          col: string,
+          vals: string[],
+        ) => Promise<{ error: { message: string } | null }>;
+      };
+    }
+  )
+    .update({ roster_added: added })
+    .in("id", ids)) as { error: { message: string } | null };
+  if (upErr) {
+    return { status: "failed", reason: `명단 편입 처리 실패: ${upErr.message}` };
+  }
+
+  revalidatePath("/seminars/compose");
+  return { status: "success" };
+}
+
 // ─── addManualSignupAction (운영자 수동 신청 추가) ──────────
 //
 // 설명회 명단에서 운영자가 학생을 'CRM 신청생'에 직접 추가(전체 데이터 → 신청).

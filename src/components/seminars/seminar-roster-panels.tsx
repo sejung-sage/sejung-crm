@@ -7,7 +7,7 @@ import type { ClassStudentRow } from "@/types/database";
 import type { ClassSignupParentRow } from "@/lib/seminars/get-class-signup-page";
 import { formatPhone } from "@/lib/phone";
 import { formatKstDateTime } from "@/lib/datetime";
-import { setSignupRosterAddedAction } from "@/app/(features)/seminars/actions";
+import { setSignupsRosterAddedAction } from "@/app/(features)/seminars/actions";
 import { useToast } from "@/components/ui/toast";
 
 interface Props {
@@ -27,15 +27,14 @@ interface UnionRow {
   grade: string | null;
   aca: boolean;
   crm: boolean;
-  /** CRM 으로 추가된 행이면 그 신청 item_id (되돌리기용). 아카 전용이면 null. */
   itemId: string | null;
 }
 
 /**
  * 설명회 상세 명단.
- *  - 좌: CRM 신청생 (아직 전체 명단에 안 넣은 신규). ▶ 로 전체 명단에 추가.
- *  - 우: 전체 명단 = 아카 등록 ∪ 운영자가 추가한 CRM 신청. 추가한 CRM 행은
- *       ↩(되돌리기)로 다시 좌측으로 뺄 수 있다. (둘 다 비파괴 — 신청은 안 지워짐)
+ *  - 좌: CRM 신청생(미편입). 체크 후 "전체 명단에 추가"로 한번에 편입.
+ *  - 우: 전체 명단 = 아카 등록 ∪ 운영자가 추가한 CRM 신청. 추가분은 ↩ 로 되돌리기.
+ *  - 둘 다 비파괴 — 신청 자체는 삭제되지 않는다(roster_added 플래그만 토글).
  */
 export function SeminarRosterPanels({
   acaStudents,
@@ -45,20 +44,19 @@ export function SeminarRosterPanels({
   const router = useRouter();
   const { show } = useToast();
   const [isPending, startTransition] = useTransition();
-  const [busyId, setBusyId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [undoBusyId, setUndoBusyId] = useState<string | null>(null);
 
   const acaStudentIds = useMemo(
     () => new Set(acaStudents.map((s) => s.id)),
     [acaStudents],
   );
 
-  // 좌측 = 아직 전체 명단에 안 넣은 CRM 신청.
   const pending = useMemo(
     () => crmSignups.filter((p) => !p.added),
     [crmSignups],
   );
 
-  // 우측(전체 명단) = 아카 등록 ∪ 추가된 CRM 신청 (student_id 중복 제거, 이름순).
   const rightRows: UnionRow[] = useMemo(() => {
     const added = crmSignups.filter((p) => p.added);
     const addedByStudent = new Map(added.map((p) => [p.student_id, p]));
@@ -97,13 +95,52 @@ export function SeminarRosterPanels({
     );
   }, [acaStudents, crmSignups]);
 
-  const toggle = (itemId: string, added: boolean) => {
-    setBusyId(itemId);
+  // 화면에 보이는 pending 중 선택된 것만 유효 선택으로 카운트.
+  const pendingIds = useMemo(() => new Set(pending.map((p) => p.item_id)), [
+    pending,
+  ]);
+  const selectedCount = useMemo(
+    () => [...selected].filter((id) => pendingIds.has(id)).length,
+    [selected, pendingIds],
+  );
+  const allSelected = pending.length > 0 && selectedCount === pending.length;
+
+  const toggleOne = (itemId: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    setSelected(allSelected ? new Set() : new Set(pending.map((p) => p.item_id)));
+  };
+
+  const moveSelected = () => {
+    const ids = pending.map((p) => p.item_id).filter((id) => selected.has(id));
+    if (ids.length === 0) return;
     startTransition(async () => {
-      const r = await setSignupRosterAddedAction(itemId, added);
-      setBusyId(null);
+      const r = await setSignupsRosterAddedAction(ids, true);
       if (r.status === "success") {
-        show("success", added ? "전체 명단에 추가했어요." : "전체 명단에서 뺐어요.");
+        show("success", `${ids.length}명을 전체 명단에 추가했어요.`);
+        setSelected(new Set());
+        router.refresh();
+      } else if (r.status === "dev_seed_mode") {
+        show("error", "개발 시드 모드라 반영되지 않습니다.");
+      } else {
+        show("error", r.reason);
+      }
+    });
+  };
+
+  const undoOne = (itemId: string) => {
+    setUndoBusyId(itemId);
+    startTransition(async () => {
+      const r = await setSignupsRosterAddedAction([itemId], false);
+      setUndoBusyId(null);
+      if (r.status === "success") {
+        show("success", "전체 명단에서 뺐어요.");
         router.refresh();
       } else if (r.status === "dev_seed_mode") {
         show("error", "개발 시드 모드라 반영되지 않습니다.");
@@ -115,7 +152,7 @@ export function SeminarRosterPanels({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
-      {/* 좌 — CRM 신청생 (전체 명단에 추가 대기) */}
+      {/* 좌 — CRM 신청생 (체크 → 한번에 추가) */}
       <Panel
         icon={
           <Link2
@@ -130,31 +167,71 @@ export function SeminarRosterPanels({
         {pending.length === 0 ? (
           <EmptyRow message="추가 대기 중인 신청이 없습니다." />
         ) : (
-          <ul className="divide-y divide-[color:var(--border)]">
-            {pending.map((p) => (
-              <li
-                key={p.item_id}
-                className="flex items-center gap-3 px-4 py-2.5"
-              >
-                <span className="font-medium text-[15px] text-[color:var(--text)] truncate">
-                  {p.student_name}
-                </span>
-                {acaStudentIds.has(p.student_id) && <Badge>아카</Badge>}
-                <span className="text-[13px] text-[color:var(--text-muted)] tabular-nums">
-                  {p.parent_phone ? formatPhone(p.parent_phone) || "—" : "—"}
-                </span>
-                <div className="flex-1" />
-                {canManage && (
-                  <ActionBtn
-                    label="전체 명단에 추가"
-                    busy={isPending && busyId === p.item_id}
-                    onClick={() => toggle(p.item_id, true)}
-                    icon="add"
+          <>
+            {canManage && (
+              <div className="flex items-center gap-3 px-4 py-2 border-b border-[color:var(--border)] bg-bg-card sticky top-0 z-10">
+                <label className="flex items-center gap-2 cursor-pointer text-[13px] text-[color:var(--text-muted)]">
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    onChange={toggleAll}
+                    className="size-4 accent-[color:var(--action)]"
                   />
-                )}
-              </li>
-            ))}
-          </ul>
+                  전체 선택
+                </label>
+                <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={moveSelected}
+                  disabled={selectedCount === 0 || isPending}
+                  className="
+                    inline-flex items-center gap-1.5 h-8 px-3 rounded-md
+                    bg-[color:var(--action)] text-[color:var(--action-text)]
+                    text-[13px] font-medium
+                    hover:bg-[color:var(--action-hover)]
+                    disabled:opacity-40 disabled:cursor-not-allowed
+                    transition-colors
+                  "
+                >
+                  {isPending ? (
+                    <Loader2 className="size-4 animate-spin" strokeWidth={1.75} aria-hidden />
+                  ) : (
+                    <ArrowRight className="size-4" strokeWidth={1.75} aria-hidden />
+                  )}
+                  선택 {selectedCount}명 전체 명단에 추가
+                </button>
+              </div>
+            )}
+            <ul className="divide-y divide-[color:var(--border)]">
+              {pending.map((p) => (
+                <li
+                  key={p.item_id}
+                  className="flex items-center gap-3 px-4 py-2.5"
+                >
+                  {canManage && (
+                    <input
+                      type="checkbox"
+                      checked={selected.has(p.item_id)}
+                      onChange={() => toggleOne(p.item_id)}
+                      aria-label={`${p.student_name} 선택`}
+                      className="size-4 accent-[color:var(--action)] shrink-0"
+                    />
+                  )}
+                  <span className="font-medium text-[15px] text-[color:var(--text)] truncate">
+                    {p.student_name}
+                  </span>
+                  {acaStudentIds.has(p.student_id) && <Badge>아카</Badge>}
+                  <span className="text-[13px] text-[color:var(--text-muted)] tabular-nums">
+                    {p.parent_phone ? formatPhone(p.parent_phone) || "—" : "—"}
+                  </span>
+                  <div className="flex-1" />
+                  <span className="text-[12px] text-[color:var(--text-dim)] tabular-nums shrink-0">
+                    {formatKstDateTime(p.signed_at)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </>
         )}
       </Panel>
 
@@ -185,14 +262,26 @@ export function SeminarRosterPanels({
                 <div className="flex-1" />
                 <SourceCell on={r.aca}>아카</SourceCell>
                 <SourceCell on={r.crm}>신청</SourceCell>
-                {/* 아카 등록이 아닌, CRM 으로 추가한 행만 되돌리기 가능. */}
                 {canManage && !r.aca && r.itemId && (
-                  <ActionBtn
-                    label="전체 명단에서 빼기"
-                    busy={isPending && busyId === r.itemId}
-                    onClick={() => toggle(r.itemId as string, false)}
-                    icon="undo"
-                  />
+                  <button
+                    type="button"
+                    onClick={() => undoOne(r.itemId as string)}
+                    disabled={isPending && undoBusyId === r.itemId}
+                    aria-label="전체 명단에서 빼기"
+                    title="전체 명단에서 빼기"
+                    className="
+                      inline-flex items-center justify-center size-8 shrink-0 rounded-md border
+                      border-[color:var(--border)] bg-bg-card text-[color:var(--text)]
+                      hover:bg-[color:var(--bg-hover)]
+                      disabled:opacity-40 disabled:cursor-not-allowed transition-colors
+                    "
+                  >
+                    {isPending && undoBusyId === r.itemId ? (
+                      <Loader2 className="size-4 animate-spin" strokeWidth={1.75} aria-hidden />
+                    ) : (
+                      <Undo2 className="size-4" strokeWidth={1.75} aria-hidden />
+                    )}
+                  </button>
                 )}
               </li>
             ))}
@@ -202,8 +291,8 @@ export function SeminarRosterPanels({
 
       {canManage && (
         <p className="lg:col-span-2 text-[12px] text-[color:var(--text-muted)]">
-          왼쪽 CRM 신청생을 ▶ 로 전체 명단에 추가합니다. 추가한 항목은 ↩ 로
-          되돌릴 수 있고, 신청 자체는 삭제되지 않습니다.
+          왼쪽에서 체크한 신청을 &lsquo;전체 명단에 추가&rsquo;로 한번에 옮깁니다.
+          추가한 항목은 ↩ 로 되돌릴 수 있고, 신청 자체는 삭제되지 않습니다.
         </p>
       )}
     </div>
@@ -239,42 +328,6 @@ function Panel({
       </header>
       <div className="max-h-[28rem] overflow-y-auto">{children}</div>
     </section>
-  );
-}
-
-function ActionBtn({
-  label,
-  busy,
-  onClick,
-  icon,
-}: {
-  label: string;
-  busy: boolean;
-  onClick: () => void;
-  icon: "add" | "undo";
-}) {
-  const Icon = busy ? Loader2 : icon === "add" ? ArrowRight : Undo2;
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      aria-label={label}
-      title={label}
-      className="
-        inline-flex items-center justify-center size-8 shrink-0 rounded-md border
-        border-[color:var(--border)] bg-bg-card text-[color:var(--text)]
-        hover:bg-[color:var(--bg-hover)]
-        disabled:opacity-40 disabled:cursor-not-allowed
-        transition-colors
-      "
-    >
-      <Icon
-        className={`size-4 ${busy ? "animate-spin" : ""}`}
-        strokeWidth={1.75}
-        aria-hidden
-      />
-    </button>
   );
 }
 
