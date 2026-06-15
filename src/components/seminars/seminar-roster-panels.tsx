@@ -55,8 +55,18 @@ export function SeminarRosterPanels({
   const { show } = useToast();
   const [isPending, startTransition] = useTransition();
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [undoBusyId, setUndoBusyId] = useState<string | null>(null);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  // 낙관적 오버라이드 — 서버 응답 전에 즉시 화면 반영(체감 속도). 실패 시 되돌림.
+  //  - override: item_id → 전체 명단 편입 여부(true/false)
+  //  - removed : item_id → 삭제됨(명단에서 제거)
+  const [override, setOverride] = useState<Map<string, boolean>>(new Map());
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+
+  const isAdded = useMemo(
+    () => (p: ClassSignupParentRow) =>
+      override.has(p.item_id) ? override.get(p.item_id)! : p.added,
+    [override],
+  );
 
   const acaStudentIds = useMemo(
     () => new Set(acaStudents.map((s) => s.id)),
@@ -64,12 +74,14 @@ export function SeminarRosterPanels({
   );
 
   const pending = useMemo(
-    () => crmSignups.filter((p) => !p.added),
-    [crmSignups],
+    () => crmSignups.filter((p) => !removed.has(p.item_id) && !isAdded(p)),
+    [crmSignups, removed, isAdded],
   );
 
   const rightRows: UnionRow[] = useMemo(() => {
-    const added = crmSignups.filter((p) => p.added);
+    const added = crmSignups.filter(
+      (p) => !removed.has(p.item_id) && isAdded(p),
+    );
     const addedByStudent = new Map(added.map((p) => [p.student_id, p]));
     const map = new Map<string, UnionRow>();
     for (const s of acaStudents) {
@@ -104,7 +116,7 @@ export function SeminarRosterPanels({
     return Array.from(map.values()).sort((a, b) =>
       a.name.localeCompare(b.name, "ko"),
     );
-  }, [acaStudents, crmSignups]);
+  }, [acaStudents, crmSignups, removed, isAdded]);
 
   // 화면에 보이는 pending 중 선택된 것만 유효 선택으로 카운트.
   const pendingIds = useMemo(() => new Set(pending.map((p) => p.item_id)), [
@@ -131,16 +143,30 @@ export function SeminarRosterPanels({
   const moveSelected = () => {
     const ids = pending.map((p) => p.item_id).filter((id) => selected.has(id));
     if (ids.length === 0) return;
+    // 즉시 화면 반영(낙관적): 좌→우 이동.
+    setOverride((prev) => {
+      const n = new Map(prev);
+      ids.forEach((id) => n.set(id, true));
+      return n;
+    });
+    setSelected(new Set());
+    // 서버는 뒤에서 처리. 실패 시 되돌림.
     startTransition(async () => {
       const r = await setSignupsRosterAddedAction(ids, true);
       if (r.status === "success") {
-        show("success", `${ids.length}명을 전체 명단에 추가했어요.`);
-        setSelected(new Set());
         router.refresh();
-      } else if (r.status === "dev_seed_mode") {
-        show("error", "개발 시드 모드라 반영되지 않습니다.");
       } else {
-        show("error", r.reason);
+        setOverride((prev) => {
+          const n = new Map(prev);
+          ids.forEach((id) => n.delete(id));
+          return n;
+        });
+        show(
+          "error",
+          r.status === "dev_seed_mode"
+            ? "개발 시드 모드라 반영되지 않습니다."
+            : r.reason,
+        );
       }
     });
   };
@@ -148,33 +174,53 @@ export function SeminarRosterPanels({
   const deleteSelected = () => {
     const ids = pending.map((p) => p.item_id).filter((id) => selected.has(id));
     if (ids.length === 0) return;
+    // 즉시 화면에서 제거(낙관적).
+    setRemoved((prev) => {
+      const n = new Set(prev);
+      ids.forEach((id) => n.add(id));
+      return n;
+    });
+    setSelected(new Set());
+    setConfirmingDelete(false);
     startTransition(async () => {
       const r = await cancelSignupsAction(ids);
-      setConfirmingDelete(false);
       if (r.status === "success") {
-        show("success", `${r.cancelled}명의 신청을 삭제했어요.`);
-        setSelected(new Set());
         router.refresh();
-      } else if (r.status === "dev_seed_mode") {
-        show("error", "개발 시드 모드라 반영되지 않습니다.");
       } else {
-        show("error", r.reason);
+        setRemoved((prev) => {
+          const n = new Set(prev);
+          ids.forEach((id) => n.delete(id));
+          return n;
+        });
+        show(
+          "error",
+          r.status === "dev_seed_mode"
+            ? "개발 시드 모드라 반영되지 않습니다."
+            : r.reason,
+        );
       }
     });
   };
 
   const undoOne = (itemId: string) => {
-    setUndoBusyId(itemId);
+    // 즉시 우→좌 이동(낙관적).
+    setOverride((prev) => new Map(prev).set(itemId, false));
     startTransition(async () => {
       const r = await setSignupsRosterAddedAction([itemId], false);
-      setUndoBusyId(null);
       if (r.status === "success") {
-        show("success", "전체 명단에서 뺐어요.");
         router.refresh();
-      } else if (r.status === "dev_seed_mode") {
-        show("error", "개발 시드 모드라 반영되지 않습니다.");
       } else {
-        show("error", r.reason);
+        setOverride((prev) => {
+          const n = new Map(prev);
+          n.delete(itemId);
+          return n;
+        });
+        show(
+          "error",
+          r.status === "dev_seed_mode"
+            ? "개발 시드 모드라 반영되지 않습니다."
+            : r.reason,
+        );
       }
     });
   };
@@ -311,7 +357,6 @@ export function SeminarRosterPanels({
                   <button
                     type="button"
                     onClick={() => undoOne(r.itemId as string)}
-                    disabled={isPending && undoBusyId === r.itemId}
                     aria-label="전체 명단에서 빼기"
                     title="전체 명단에서 빼기"
                     className="
@@ -321,11 +366,7 @@ export function SeminarRosterPanels({
                       disabled:opacity-40 disabled:cursor-not-allowed transition-colors
                     "
                   >
-                    {isPending && undoBusyId === r.itemId ? (
-                      <Loader2 className="size-4 animate-spin" strokeWidth={1.75} aria-hidden />
-                    ) : (
-                      <Undo2 className="size-4" strokeWidth={1.75} aria-hidden />
-                    )}
+                    <Undo2 className="size-4" strokeWidth={1.75} aria-hidden />
                   </button>
                 )}
               </li>
