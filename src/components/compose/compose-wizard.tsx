@@ -200,7 +200,10 @@ export function ComposeWizard({
         )}
         {step === 2 && selectedGroup && (
           <ComposeStep3Preview
-            groupId={groupId}
+            step1={{
+              filters: selectedGroup.filters,
+              branch: selectedGroup.branch,
+            }}
             selectedGroup={selectedGroup}
             step2={step2}
             onStep2Change={setStep2}
@@ -215,7 +218,10 @@ export function ComposeWizard({
         )}
         {step === 3 && selectedGroup && preview && (
           <ComposeStep4Send
-            groupId={groupId}
+            step1={{
+              filters: selectedGroup.filters,
+              branch: selectedGroup.branch,
+            }}
             selectedGroup={selectedGroup}
             step2={step2}
             preview={preview}

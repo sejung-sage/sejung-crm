@@ -12,6 +12,7 @@ import {
 import type { GroupListItem, TemplateRow } from "@/types/database";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
 import { previewAction } from "@/app/(features)/compose/actions";
+import type { ComposeStep1 } from "@/lib/schemas/compose";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
@@ -43,7 +44,8 @@ import { DedupeCountNote, extractDedupeCounts } from "./dedupe-count-note";
  * 가드 최종 검증은 server 가 sendCampaign 단계에서 한 번 더 적용.
  */
 interface Props {
-  groupId: string;
+  /** 필터 기반 발송 입력(선택한 그룹의 filters/branch 에서 파생). */
+  step1: ComposeStep1;
   selectedGroup: GroupListItem;
   step2: ComposeStep2State;
   onStep2Change: (s: ComposeStep2State) => void;
@@ -80,7 +82,7 @@ const VARIABLE_TOKENS: Array<{ token: string; label: string }> = [
 ];
 
 export function ComposeStep3Preview({
-  groupId,
+  step1,
   selectedGroup,
   step2,
   onStep2Change,
@@ -250,7 +252,7 @@ export function ComposeStep3Preview({
     setErrorMsg(null);
     startLoading(async () => {
       const result = await previewAction({
-        groupId,
+        step1,
         step2: {
           templateId: step2.templateId,
           type: step2.type,
@@ -273,7 +275,8 @@ export function ComposeStep3Preview({
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    groupId,
+    // step1 은 매 렌더 새 객체라 그룹 식별자(stable)로 트리거 — 종전 groupId 동일.
+    selectedGroup.id,
     step2.isAd,
     step2.type,
     step2.dedupeByPhone,

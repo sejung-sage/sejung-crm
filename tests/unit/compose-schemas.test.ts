@@ -15,29 +15,27 @@ import {
  * 메시지는 모두 한글이어야 하며 (CLAUDE.md 규약 #3) UI 노출에 그대로 사용된다.
  */
 
-const VALID_UUID = "11111111-1111-4111-8111-111111111111";
-
-describe("ComposeStep1Schema · 그룹 선택", () => {
-  it("정상 UUID → success", () => {
-    const r = ComposeStep1Schema.safeParse({ groupId: VALID_UUID });
+describe("ComposeStep1Schema · 필터로 직접 발송", () => {
+  it("정상 filters+branch → success", () => {
+    const r = ComposeStep1Schema.safeParse({ filters: {}, branch: "대치" });
     expect(r.success).toBe(true);
   });
 
-  it("빈 문자열 → 실패 + 한글 메시지", () => {
-    const r = ComposeStep1Schema.safeParse({ groupId: "" });
+  it("빈 branch → 실패 + 한글 메시지", () => {
+    const r = ComposeStep1Schema.safeParse({ filters: {}, branch: "" });
     expect(r.success).toBe(false);
     if (!r.success) {
-      expect(r.error.issues[0]?.message).toMatch(/그룹/);
+      expect(r.error.issues[0]?.message).toMatch(/분원/);
     }
   });
 
-  it("UUID 아님(\"not-uuid\") → 실패", () => {
-    const r = ComposeStep1Schema.safeParse({ groupId: "not-uuid" });
+  it("branch 누락 → 실패", () => {
+    const r = ComposeStep1Schema.safeParse({ filters: {} });
     expect(r.success).toBe(false);
   });
 
-  it("groupId 누락 → 실패", () => {
-    const r = ComposeStep1Schema.safeParse({});
+  it("filters 누락 → 실패", () => {
+    const r = ComposeStep1Schema.safeParse({ branch: "대치" });
     expect(r.success).toBe(false);
   });
 });
@@ -407,7 +405,7 @@ describe("ComposeStep3Schema · 캠페인 제목", () => {
 });
 
 describe("ComposeFinalSchema · 즉시 vs 예약", () => {
-  const validStep1 = { groupId: VALID_UUID };
+  const validStep1 = { filters: {}, branch: "대치" };
   const validStep2 = { type: "SMS" as const, body: "본문", isAd: false };
   const validStep3 = { title: "캠페인" };
 
@@ -446,9 +444,9 @@ describe("ComposeFinalSchema · 즉시 vs 예약", () => {
     }
   });
 
-  it("step1 비정상(빈 groupId) → 전체 실패", () => {
+  it("step1 비정상(빈 branch) → 전체 실패", () => {
     const r = ComposeFinalSchema.safeParse({
-      step1: { groupId: "" },
+      step1: { filters: {}, branch: "" },
       step2: validStep2,
       step3: validStep3,
     });
@@ -523,28 +521,28 @@ describe("TestSendInputSchema · 테스트 발송 번호", () => {
 describe("PreviewInputSchema · 미리보기 입력", () => {
   const validStep2 = { type: "SMS" as const, body: "본문", isAd: false };
 
-  it("정상 groupId(UUID) + step2 정상 → success", () => {
+  it("정상 step1(filters+branch) + step2 정상 → success", () => {
     const r = PreviewInputSchema.safeParse({
-      groupId: VALID_UUID,
+      step1: { filters: {}, branch: "대치" },
       step2: validStep2,
     });
     expect(r.success).toBe(true);
   });
 
-  it("groupId UUID 아님 → 실패", () => {
+  it("step1.branch 빈값 → 실패", () => {
     const r = PreviewInputSchema.safeParse({
-      groupId: "dev-group-1",
+      step1: { filters: {}, branch: "" },
       step2: validStep2,
     });
     expect(r.success).toBe(false);
     if (!r.success) {
-      expect(r.error.issues[0]?.message).toMatch(/그룹/);
+      expect(r.error.issues[0]?.message).toMatch(/분원/);
     }
   });
 
   it("step2 본문 빈값 → 실패", () => {
     const r = PreviewInputSchema.safeParse({
-      groupId: VALID_UUID,
+      step1: { filters: {}, branch: "대치" },
       step2: { type: "SMS", body: "", isAd: false },
     });
     expect(r.success).toBe(false);

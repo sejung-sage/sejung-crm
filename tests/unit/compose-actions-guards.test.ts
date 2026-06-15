@@ -6,6 +6,7 @@ import {
   scheduleAction,
 } from "@/app/(features)/compose/actions";
 import { resendFailedAction } from "@/app/(features)/campaigns/actions";
+import { GroupFiltersSchema } from "@/lib/schemas/group";
 
 /**
  * F3 Part B · Compose Server Actions dev-seed 가드.
@@ -21,6 +22,12 @@ import { resendFailedAction } from "@/app/(features)/campaigns/actions";
  */
 
 const VALID_UUID = "11111111-1111-4111-8111-111111111111";
+
+/** 필터 기반(그룹 없이) 발송 step1 — 분원만, 조건 없음(=분원 전체). */
+const validStep1 = {
+  filters: GroupFiltersSchema.parse({}),
+  branch: "대치",
+};
 
 const validStep2Sms = {
   type: "SMS" as const,
@@ -38,9 +45,9 @@ describe("previewAction · dev-seed 에서도 정상 동작", () => {
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
   });
 
-  it("스키마 위반(빈 groupId) → failed + 한글 메시지", async () => {
+  it("스키마 위반(빈 branch) → failed + 한글 메시지", async () => {
     const r = await previewAction({
-      groupId: "",
+      step1: { filters: GroupFiltersSchema.parse({}), branch: "" },
       step2: validStep2Sms,
     });
     expect(r.status).toBe("failed");
@@ -49,16 +56,13 @@ describe("previewAction · dev-seed 에서도 정상 동작", () => {
     }
   });
 
-  it("UUID 형식이지만 미존재 그룹 → failed (한글 메시지)", async () => {
+  it("정상 필터 입력 → success (dev-seed 미리보기 동작)", async () => {
     const r = await previewAction({
-      groupId: VALID_UUID,
+      step1: validStep1,
       step2: validStep2Sms,
     });
-    // dev-seed 환경에서 미존재 그룹 → previewRecipients throw → failed
-    expect(r.status).toBe("failed");
-    if (r.status === "failed") {
-      expect(r.reason).toMatch(/그룹|존재/);
-    }
+    // dev-seed 환경에서 필터 기반 미리보기는 인메모리 시드로 산출 → success.
+    expect(r.status).toBe("success");
   });
 });
 
@@ -96,7 +100,7 @@ describe("sendNowAction · dev-seed 차단", () => {
 
   it("정상 입력 → dev_seed_mode", async () => {
     const r = await sendNowAction({
-      step1: { groupId: VALID_UUID },
+      step1: validStep1,
       step2: validStep2Sms,
       step3: { title: "캠페인" },
     });
@@ -105,7 +109,7 @@ describe("sendNowAction · dev-seed 차단", () => {
 
   it("scheduleAt 가 들어있으면 dev_seed_mode 가 아니라 'scheduleAction 으로 호출' failed", async () => {
     const r = await sendNowAction({
-      step1: { groupId: VALID_UUID },
+      step1: validStep1,
       step2: validStep2Sms,
       step3: { title: "캠페인" },
       scheduleAt: "2027-01-01T00:00:00.000Z",
@@ -118,7 +122,7 @@ describe("sendNowAction · dev-seed 차단", () => {
 
   it("스키마 위반(빈 title) → failed", async () => {
     const r = await sendNowAction({
-      step1: { groupId: VALID_UUID },
+      step1: validStep1,
       step2: validStep2Sms,
       step3: { title: "" },
     });
@@ -134,7 +138,7 @@ describe("scheduleAction · dev-seed 차단", () => {
 
   it("정상 + 미래 시각 → dev_seed_mode", async () => {
     const r = await scheduleAction({
-      step1: { groupId: VALID_UUID },
+      step1: validStep1,
       step2: validStep2Sms,
       step3: { title: "캠페인" },
       scheduleAt: "2099-01-01T00:00:00.000Z",
@@ -144,7 +148,7 @@ describe("scheduleAction · dev-seed 차단", () => {
 
   it("scheduleAt 미설정 → failed (예약 시각 누락)", async () => {
     const r = await scheduleAction({
-      step1: { groupId: VALID_UUID },
+      step1: validStep1,
       step2: validStep2Sms,
       step3: { title: "캠페인" },
     });
@@ -156,7 +160,7 @@ describe("scheduleAction · dev-seed 차단", () => {
 
   it("과거 시각 → failed", async () => {
     const r = await scheduleAction({
-      step1: { groupId: VALID_UUID },
+      step1: validStep1,
       step2: validStep2Sms,
       step3: { title: "캠페인" },
       scheduleAt: "2020-01-01T00:00:00.000Z",

@@ -35,11 +35,12 @@ import { calculateCost } from "./calculate-cost";
 import { collapseByPhone } from "./dedupe-recipients";
 import { expandRecipientLegs, countDistinctStudents } from "./expand-legs";
 import type { SmsCostBreakdown } from "./cost-rates";
-import type { GroupRow, StudentStatus } from "@/types/database";
+import type { StudentStatus } from "@/types/database";
 import type { DedupeCounts } from "@/types/messaging";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
-import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
+import { loadRecipientsByFilters } from "@/lib/groups/load-all-group-recipients";
 import { isCustomGroup } from "@/lib/schemas/group";
+import type { GroupFilters } from "@/lib/schemas/group";
 import { isAllSubjects } from "@/lib/schemas/common";
 import {
   applySchoolExclusion,
@@ -86,8 +87,17 @@ export interface PreviewResult {
   dedupe: DedupeCounts;
 }
 
+/**
+ * 수신자 해석 대상. 그룹 기반(groupId) 또는 필터 기반(filters+branch) 둘 중 하나.
+ * 내부 함수들은 group-like 객체(`PreviewGroupLike`)로 정규화된 형태만 사용한다.
+ */
 export interface PreviewRecipientsInput {
-  groupId: string;
+  /** 그룹 기반 발송. filters 와 상호배타(둘 중 하나 필수). */
+  groupId?: string;
+  /** 필터 기반(그룹 없이) 발송. branch 와 함께 제출. groupId 와 상호배타. */
+  filters?: GroupFilters;
+  /** 필터 기반 발송 분원. filters 와 함께 제출. */
+  branch?: string;
   body: string;
   isAd: boolean;
   type: "SMS" | "LMS" | "ALIMTALK";
@@ -124,13 +134,41 @@ const SAMPLE_LIMIT = 5;
 /** dedupe 미리보기에서 후보 phone 을 로드할 최대 인원. 발송 상한과 동일. */
 const MAX_PREVIEW_DEDUPE_RECIPIENTS = 100_000;
 
+/**
+ * 수신자 해석 내부 함수들이 사용하는 group-like 형태.
+ * `.filters/.branch/.id` 만 쓰며, 필터 기반(그룹 없는) 발송에선 id 가 null 이다.
+ */
+interface PreviewGroupLike {
+  id: string | null;
+  branch: string;
+  filters: GroupFilters;
+}
+
+/**
+ * PreviewRecipientsInput(groupId | filters+branch) 을 group-like 객체로 정규화.
+ *  - groupId: getGroup 으로 조회. 없으면 throw.
+ *  - filters+branch: getGroup 호출 없이 그대로 사용(id=null).
+ */
+async function resolvePreviewGroup(
+  input: PreviewRecipientsInput,
+): Promise<PreviewGroupLike> {
+  if (input.filters && input.branch !== undefined) {
+    return { id: null, branch: input.branch, filters: input.filters };
+  }
+  if (input.groupId) {
+    const group = await getGroup(input.groupId);
+    if (!group) {
+      throw new Error("존재하지 않는 그룹입니다");
+    }
+    return { id: group.id, branch: group.branch, filters: group.filters };
+  }
+  throw new Error("발송 대상(그룹 또는 필터)이 지정되지 않았습니다");
+}
+
 export async function previewRecipients(
   input: PreviewRecipientsInput,
 ): Promise<PreviewResult> {
-  const group = await getGroup(input.groupId);
-  if (!group) {
-    throw new Error("존재하지 않는 그룹입니다");
-  }
+  const group = await resolvePreviewGroup(input);
 
   if (isDevSeedMode()) {
     return previewFromDevSeed(input, group);
@@ -142,7 +180,7 @@ export async function previewRecipients(
 
 function previewFromDevSeed(
   input: PreviewRecipientsInput,
-  group: GroupRow,
+  group: PreviewGroupLike,
 ): PreviewResult {
   const targets = resolvePreviewTargets(input);
   const allCandidates = applyGroupFiltersDev(
@@ -219,7 +257,7 @@ function previewFromDevSeed(
 
 async function previewFromSupabase(
   input: PreviewRecipientsInput,
-  group: GroupRow,
+  group: PreviewGroupLike,
 ): Promise<PreviewResult> {
   const supabase = await createSupabaseServerClient();
   const targets = resolvePreviewTargets(input);
@@ -309,7 +347,7 @@ async function previewFromSupabase(
  */
 async function resolveLegCounts(args: {
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
-  group: GroupRow;
+  group: PreviewGroupLike;
   eligibleCount: number;
   dedupeByPhone: boolean;
   sendToParent: boolean;
@@ -336,8 +374,14 @@ async function resolveLegCounts(args: {
   }
 
   // full-load path — 후보 전체 로드 + 레그 확장.
+  // synthetic group(필터 기반)은 id 가 없으므로 (filters, branch) 로 직접 로드.
   const [rows, unsubPhones] = await Promise.all([
-    loadAllGroupRecipients(supabase, group.id, MAX_PREVIEW_DEDUPE_RECIPIENTS),
+    loadRecipientsByFilters(
+      supabase,
+      group.filters,
+      group.branch,
+      MAX_PREVIEW_DEDUPE_RECIPIENTS,
+    ),
     getUnsubscribedPhones(),
   ]);
 
@@ -405,7 +449,7 @@ interface FilterMapping {
 
 async function resolveFilterMapping(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  group: GroupRow,
+  group: PreviewGroupLike,
 ): Promise<FilterMapping> {
   const f = group.filters;
 
@@ -544,7 +588,7 @@ function buildQuery(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   selectExpr: string,
   options: { count?: "exact"; head?: boolean },
-  group: GroupRow,
+  group: PreviewGroupLike,
   mapping: FilterMapping,
   build: BuildOptions,
 ): StudentsQuery {
@@ -601,7 +645,7 @@ function buildQuery(
 
 async function countEligible(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  group: GroupRow,
+  group: PreviewGroupLike,
   mapping: FilterMapping,
   unsubPhones: string[],
 ): Promise<number> {
@@ -629,7 +673,7 @@ async function countEligible(
 
 async function sampleEligible(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  group: GroupRow,
+  group: PreviewGroupLike,
   mapping: FilterMapping,
   unsubPhones: string[],
 ): Promise<PreviewSampleRecipient[]> {
@@ -673,7 +717,7 @@ async function sampleEligible(
 
 async function countWithdrawn(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  group: GroupRow,
+  group: PreviewGroupLike,
   mapping: FilterMapping,
 ): Promise<number> {
   const q = buildQuery(
@@ -696,7 +740,7 @@ async function countWithdrawn(
 
 async function countUnsubExcluded(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  group: GroupRow,
+  group: PreviewGroupLike,
   mapping: FilterMapping,
   unsubPhones: string[],
 ): Promise<number> {

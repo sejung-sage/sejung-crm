@@ -10,6 +10,7 @@ import {
   sendNowAction,
 } from "@/app/(features)/compose/actions";
 import type { ComposeStep2State } from "./compose-wizard";
+import type { ComposeStep1 } from "@/lib/schemas/compose";
 import { ConfirmSendDialog } from "./confirm-send-dialog";
 import {
   DedupeCountNote,
@@ -31,7 +32,8 @@ import {
  *    dev_seed_mode → 회색 안내 박스
  */
 interface Props {
-  groupId: string;
+  /** 필터 기반 발송 입력(선택한 그룹의 filters/branch 에서 파생). */
+  step1: ComposeStep1;
   selectedGroup: GroupListItem;
   step2: ComposeStep2State;
   preview: PreviewResult;
@@ -49,7 +51,7 @@ type SendUiResult =
   | { kind: "dev_seed_mode"; reason: string };
 
 export function ComposeStep4Send({
-  groupId,
+  step1,
   selectedGroup,
   step2,
   preview,
@@ -102,7 +104,7 @@ export function ComposeStep4Send({
     startTransition(async () => {
       if (mode === "now") {
         const r = await sendNowAction({
-          step1: { groupId },
+          step1,
           step2: {
             templateId: step2.templateId,
             type: step2.type,
@@ -121,7 +123,7 @@ export function ComposeStep4Send({
         if (!scheduleAt) return;
         const iso = new Date(scheduleAt).toISOString();
         const r = await scheduleAction({
-          step1: { groupId },
+          step1,
           step2: {
             templateId: step2.templateId,
             type: step2.type,

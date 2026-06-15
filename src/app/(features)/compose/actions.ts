@@ -36,7 +36,10 @@ import { testSend } from "@/lib/messaging/test-send";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
-import { getGroup } from "@/lib/groups/get-group";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { loadRecipientsByFilters } from "@/lib/groups/load-all-group-recipients";
+import { GroupFiltersSchema } from "@/lib/schemas/group";
+import { z } from "zod";
 
 // ─── 결과 타입 ──────────────────────────────────────────────
 
@@ -54,18 +57,15 @@ function zodErrorToReason(err: ZodError): string {
 
 /**
  * sendNow / schedule 권한 가드.
- * 그룹 분원과 사용자 분원 일치 검사 포함.
+ * 필터 기반 발송은 그룹이 없으므로 입력 분원(branch) 기준으로 검사.
  */
 async function assertSendPermission(
-  groupId: string,
+  branch: string,
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const user = await getCurrentUser();
   if (!user) return { ok: false, reason: "로그인 후 이용 가능합니다" };
 
-  const group = await getGroup(groupId);
-  if (!group) return { ok: false, reason: "존재하지 않는 그룹입니다" };
-
-  if (!can(user, "send", "campaign", group.branch)) {
+  if (!can(user, "send", "campaign", branch)) {
     return { ok: false, reason: "본 분원 캠페인 발송 권한이 없습니다" };
   }
   return { ok: true };
@@ -89,7 +89,8 @@ export async function previewAction(
 
   try {
     const data = await previewRecipients({
-      groupId: parsed.groupId,
+      filters: parsed.step1.filters,
+      branch: parsed.step1.branch,
       body: parsed.step2.body,
       isAd: parsed.step2.isAd,
       type: parsed.step2.type,
@@ -176,12 +177,13 @@ export async function sendNowAction(
     };
   }
 
-  const guard = await assertSendPermission(parsed.step1.groupId);
+  const guard = await assertSendPermission(parsed.step1.branch);
   if (!guard.ok) return { status: "failed", reason: guard.reason };
 
   return await sendCampaign({
     title: parsed.step3.title,
-    groupId: parsed.step1.groupId,
+    filters: parsed.step1.filters,
+    branch: parsed.step1.branch,
     templateId: parsed.step2.templateId ?? null,
     body: parsed.step2.body,
     subject: parsed.step2.subject ?? null,
@@ -234,12 +236,13 @@ export async function scheduleAction(
     };
   }
 
-  const guard = await assertSendPermission(parsed.step1.groupId);
+  const guard = await assertSendPermission(parsed.step1.branch);
   if (!guard.ok) return { status: "failed", reason: guard.reason };
 
   return await sendCampaign({
     title: parsed.step3.title,
-    groupId: parsed.step1.groupId,
+    filters: parsed.step1.filters,
+    branch: parsed.step1.branch,
     templateId: parsed.step2.templateId ?? null,
     body: parsed.step2.body,
     subject: parsed.step2.subject ?? null,
@@ -251,4 +254,83 @@ export async function scheduleAction(
     scheduledAt,
     isTest: false,
   });
+}
+
+// ─── listMatchedRecipientsAction (체크박스 명단) ──────────────
+
+/** 필터로 매칭된 학생 1명 (체크박스 명단용). phone 은 raw — UI 가 마스킹. */
+export interface MatchedRecipient {
+  studentId: string;
+  name: string;
+  /** 학부모 대표번호 (raw, 하이픈 없음). NULL 이면 빈 문자열. */
+  parentPhone: string;
+  /** 학생 개인번호 (raw, 하이픈 없음). NULL 이면 빈 문자열. */
+  studentPhone: string;
+}
+
+export type ListMatchedRecipientsResult =
+  | { status: "success"; recipients: MatchedRecipient[] }
+  | { status: "failed"; reason: string };
+
+const ListMatchedRecipientsInputSchema = z.object({
+  filters: GroupFiltersSchema,
+  branch: z.string().trim().min(1, "분원을 선택하세요").max(20),
+});
+export type ListMatchedRecipientsInput = z.infer<
+  typeof ListMatchedRecipientsInputSchema
+>;
+
+/** 매칭 명단 상한. 발송 상한과 동일. 초과분은 잘려 반환되지 않는다. */
+const MAX_MATCHED_RECIPIENTS = 100_000;
+
+/**
+ * 필터로 매칭된 학생 명단을 반환 (그룹 없이 필터 발송의 체크박스 UI 용).
+ *
+ * loadRecipientsByFilters 를 재사용해 발송 경로와 동일한 모집단(분원·탈퇴 가드 적용,
+ * exclude 차감 포함)을 산출한다. 체크박스에서 해제한 학생은 프런트가
+ * filters.excludeStudentIds 로 실어 보내 다음 미리보기/발송에 반영한다.
+ *
+ * 권한: 입력 branch 기준 send 권한 검사.
+ */
+export async function listMatchedRecipientsAction(
+  input: ListMatchedRecipientsInput,
+): Promise<ListMatchedRecipientsResult> {
+  let parsed: ListMatchedRecipientsInput;
+  try {
+    parsed = ListMatchedRecipientsInputSchema.parse(input);
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return { status: "failed", reason: zodErrorToReason(e) };
+    }
+    return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  const guard = await assertSendPermission(parsed.branch);
+  if (!guard.ok) return { status: "failed", reason: guard.reason };
+
+  if (isDevSeedMode()) {
+    // dev-seed 는 Supabase 미사용 — 빈 명단. (미리보기는 별도 dev 경로로 동작.)
+    return { status: "success", recipients: [] };
+  }
+
+  try {
+    const supabase = await createSupabaseServerClient();
+    const rows = await loadRecipientsByFilters(
+      supabase,
+      parsed.filters,
+      parsed.branch,
+      MAX_MATCHED_RECIPIENTS,
+    );
+    const recipients: MatchedRecipient[] = rows.map((r) => ({
+      studentId: r.id,
+      name: r.name,
+      parentPhone: (r.parent_phone ?? "").replace(/\D/g, ""),
+      studentPhone: (r.phone ?? "").replace(/\D/g, ""),
+    }));
+    return { status: "success", recipients };
+  } catch (e) {
+    const reason =
+      e instanceof Error ? e.message : "수신자 명단 조회에 실패했습니다";
+    return { status: "failed", reason };
+  }
 }

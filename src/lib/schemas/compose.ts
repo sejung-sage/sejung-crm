@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { TemplateTypeSchema } from "./common";
+import { GroupFiltersSchema } from "./group";
 import { hasNameToken } from "@/lib/messaging/personalize";
 
 /**
@@ -17,9 +18,20 @@ import { hasNameToken } from "@/lib/messaging/personalize";
  *    캠페인 통계에서 제외된다.
  */
 
-// ─── 1단계: 그룹 선택 ────────────────────────────────────────
+// ─── 1단계: 필터로 직접 발송 (그룹 없이) ──────────────────────
+/**
+ * Phase 1: 발송 그룹(crm_groups) 없이 필터 조건으로 직접 발송한다.
+ *  - filters: GroupFilters 재사용(학년/학교/과목/지역/상태 + 제외 + includeStudentIds).
+ *             체크박스로 해제한 학생은 filters.excludeStudentIds 로 실어 보낸다.
+ *  - branch : 발송 분원. 권한(can send)·수신자 분원 격리의 단일 소스.
+ */
 export const ComposeStep1Schema = z.object({
-  groupId: z.string().uuid("그룹을 선택하세요"),
+  filters: GroupFiltersSchema,
+  branch: z
+    .string()
+    .trim()
+    .min(1, "분원을 선택하세요")
+    .max(20, "분원명은 20자 이내로 입력하세요"),
 });
 export type ComposeStep1 = z.infer<typeof ComposeStep1Schema>;
 
@@ -144,7 +156,7 @@ export type TestSendInput = z.infer<typeof TestSendInputSchema>;
  * 가드 적용 후 본문([광고]/080 footer)과 야간 차단 여부도 함께 반환.
  */
 export const PreviewInputSchema = z.object({
-  groupId: z.string().uuid("그룹을 선택하세요"),
+  step1: ComposeStep1Schema,
   step2: ComposeStep2Schema,
 });
 export type PreviewInput = z.infer<typeof PreviewInputSchema>;

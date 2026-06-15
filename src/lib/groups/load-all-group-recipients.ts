@@ -37,6 +37,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGroup } from "./get-group";
 import { isCustomGroup } from "@/lib/schemas/group";
+import type { GroupFilters } from "@/lib/schemas/group";
 import { isAllSubjects } from "@/lib/schemas/common";
 import type { Database, StudentStatus } from "@/types/database";
 import {
@@ -70,15 +71,33 @@ export async function loadAllGroupRecipients(
 ): Promise<GroupRecipient[]> {
   const group = await getGroup(groupId);
   if (!group) return [];
+  return loadRecipientsByFilters(
+    supabase,
+    group.filters,
+    group.branch,
+    maxRecipients,
+  );
+}
 
+/**
+ * 그룹(crm_groups) 없이 (filters, branch) 만으로 발송 수신자를 일괄 로드한다.
+ * `loadAllGroupRecipients` 본문에서 추출 — 동작 100% 동일. "그룹 없이 필터로
+ * 직접 발송" 경로(Phase 1)에서 호출한다.
+ */
+export async function loadRecipientsByFilters(
+  supabase: SupabaseClient<Database>,
+  filters: GroupFilters,
+  branch: string,
+  maxRecipients: number,
+): Promise<GroupRecipient[]> {
   // 그룹 종류 분기 (2026-05-27) — isCustomGroup 술어 경유.
   // custom: includeStudentIds 모집단(필터/excludeSchools/excludeClassIds 무시),
   //         excludeStudentIds 차감만 유지.
   // filter: 조건 모집단(includeStudentIds 무시), exclude 3종 차감.
-  const custom = isCustomGroup(group.filters);
+  const custom = isCustomGroup(filters);
 
   // 1.5) custom 인데 명단이 비면 모집단 0명 → 즉시 빈 결과.
-  if (custom && group.filters.includeStudentIds.length === 0) {
+  if (custom && filters.includeStudentIds.length === 0) {
     return [];
   }
 
@@ -88,13 +107,13 @@ export async function loadAllGroupRecipients(
   let subjectMatchedStudentIds: string[] | null = null;
   if (
     !custom &&
-    group.filters.subjects.length > 0 &&
-    !isAllSubjects(group.filters.subjects)
+    filters.subjects.length > 0 &&
+    !isAllSubjects(filters.subjects)
   ) {
     const { data: classRows, error: classErr } = await supabase
       .from("crm_classes")
       .select("aca_class_id")
-      .in("subject", group.filters.subjects)
+      .in("subject", filters.subjects)
       .not("aca_class_id", "is", null);
     if (classErr) {
       throw new Error(`강좌 조회에 실패했습니다: ${classErr.message}`);
@@ -124,11 +143,11 @@ export async function loadAllGroupRecipients(
   // 3) (filter 전용) regions 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
   //    custom 은 regions 조건 무시.
   let allowedSchools: string[] | null = null;
-  if (!custom && group.filters.regions.length > 0) {
+  if (!custom && filters.regions.length > 0) {
     const { data: regionRows, error: regErr } = await supabase
       .from("crm_school_regions")
       .select("school")
-      .in("region", group.filters.regions);
+      .in("region", filters.regions);
     if (regErr) {
       throw new Error(`지역 매핑 조회에 실패했습니다: ${regErr.message}`);
     }
@@ -145,16 +164,16 @@ export async function loadAllGroupRecipients(
     ? []
     : await loadExcludedClassStudentIds(
         supabase,
-        group.filters.excludeClassIds ?? [],
+        filters.excludeClassIds ?? [],
       );
   // 명시 제외(excludeStudentIds) + (filter 한정)강좌 제외 펼침을 not.in uuid 목록 병합.
   // custom 도 excludeStudentIds 차감은 유지(개별 제거).
   const mergedExcludeIds = mergeExcludedStudentIds(
-    group.filters.excludeStudentIds ?? [],
+    filters.excludeStudentIds ?? [],
     excludeClassStudentIds,
   );
   // 학교별 제외는 filter 전용. custom 은 excludeSchools 무시.
-  const excludeSchools = custom ? [] : (group.filters.excludeSchools ?? []);
+  const excludeSchools = custom ? [] : (filters.excludeSchools ?? []);
 
   // 4) crm_students 직접 청크 range 페치 (view 풀집계 우회).
   const collected: GroupRecipient[] = [];
@@ -169,26 +188,26 @@ export async function loadAllGroupRecipients(
       .from("crm_students")
       .select("id, name, parent_phone, phone, status")
       .neq("status", "탈퇴")
-      .eq("branch", group.branch);
+      .eq("branch", branch);
 
     // 재원 상태 — count-recipients 와 동일. 빈 배열 default = 탈퇴 빼고 3종 통합.
     // 옛 그룹 JSONB 에 statuses 키가 없으면 빈 배열 → "탈퇴 빼고 전체" 의미 보존.
     const wantedStatuses =
-      group.filters.statuses.length > 0
-        ? group.filters.statuses
+      filters.statuses.length > 0
+        ? filters.statuses
         : ["재원생", "수강이력자", "수강 x"];
     q = q.in("status", wantedStatuses);
 
     if (custom) {
       // custom(고정 명단): includeStudentIds 모집단만. 필터 조건 무시.
-      q = q.in("id", group.filters.includeStudentIds);
+      q = q.in("id", filters.includeStudentIds);
     } else {
       // filter(조건 동기화): 조건 매치. includeStudentIds 무시.
-      if (group.filters.grades.length > 0) {
-        q = q.in("grade", group.filters.grades);
+      if (filters.grades.length > 0) {
+        q = q.in("grade", filters.grades);
       }
-      if (group.filters.schools.length > 0) {
-        q = q.in("school", group.filters.schools);
+      if (filters.schools.length > 0) {
+        q = q.in("school", filters.schools);
       }
       if (subjectMatchedStudentIds) {
         q = q.in("id", subjectMatchedStudentIds);
@@ -197,9 +216,9 @@ export async function loadAllGroupRecipients(
         q = q.in("school", allowedSchools);
       }
       // 학교 미등록/등록 토글 — list-group-students 와 동일.
-      if (group.filters.unmappedSchool) {
+      if (filters.unmappedSchool) {
         q = q.or(UNMAPPED_SCHOOL_OR_EXPR) as typeof q;
-      } else if (group.filters.mappedSchool) {
+      } else if (filters.mappedSchool) {
         q = applyMappedSchoolFilter(q);
       }
     }

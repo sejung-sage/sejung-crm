@@ -30,7 +30,8 @@ import { expandRecipientLegs, countDistinctStudents } from "./expand-legs";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
 import { getMessagingBaseUrl } from "./base-url";
 import { getGroup } from "@/lib/groups/get-group";
-import { loadAllGroupRecipients } from "@/lib/groups/load-all-group-recipients";
+import { loadRecipientsByFilters } from "@/lib/groups/load-all-group-recipients";
+import type { GroupFilters } from "@/lib/schemas/group";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
@@ -38,7 +39,15 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 export interface SendCampaignInput {
   title: string;
-  groupId: string;
+  /**
+   * 그룹 기반 발송. 필터 기반(filters+branch) 발송이면 생략. 둘 중 하나 필수.
+   * 그룹 기반이면 campaigns.group_id 에 저장되고, 필터 기반이면 group_id=null.
+   */
+  groupId?: string;
+  /** 필터 기반(그룹 없이) 발송. branch 와 함께. groupId 와 상호배타. */
+  filters?: GroupFilters;
+  /** 필터 기반 발송 분원. filters 와 함께. */
+  branch?: string;
   /** null 이면 inline 본문 (템플릿 미사용). */
   templateId: string | null;
   body: string;
@@ -80,6 +89,49 @@ function resolveSendTargets(input: SendCampaignInput): {
   };
 }
 
+/**
+ * 발송 대상(그룹 | 필터)을 정규화한 해석 결과.
+ *  - groupId: 그룹 기반. campaigns.group_id 에 저장.
+ *  - filters/branch: 수신자 재조회 단일 소스. 그룹 기반이면 group.filters/branch.
+ */
+interface ResolvedTarget {
+  /** 그룹 기반이면 그룹 id, 필터 기반이면 null (campaigns.group_id). */
+  groupId: string | null;
+  branch: string;
+  filters: GroupFilters;
+}
+
+/**
+ * 그룹 또는 필터 입력을 ResolvedTarget 으로 정규화.
+ *  - filters+branch: getGroup 호출 없이 그대로 사용.
+ *  - groupId: getGroup 으로 filters/branch 확정.
+ */
+async function resolveSendTarget(
+  input: SendCampaignInput,
+): Promise<{ ok: true; target: ResolvedTarget } | { ok: false; reason: string }> {
+  if (input.filters && input.branch !== undefined) {
+    return {
+      ok: true,
+      target: { groupId: null, branch: input.branch, filters: input.filters },
+    };
+  }
+  if (input.groupId) {
+    const group = await getGroup(input.groupId);
+    if (!group) {
+      return { ok: false, reason: "존재하지 않는 그룹입니다" };
+    }
+    return {
+      ok: true,
+      target: {
+        groupId: group.id,
+        branch: group.branch,
+        filters: group.filters,
+      },
+    };
+  }
+  return { ok: false, reason: "발송 대상(그룹 또는 필터)이 지정되지 않았습니다" };
+}
+
 export type SendCampaignResult =
   | {
       status: "success";
@@ -112,17 +164,18 @@ export async function sendCampaign(
     };
   }
 
-  // 2) 그룹 + 권한 검사
-  const group = await getGroup(input.groupId);
-  if (!group) {
-    return { status: "failed", reason: "존재하지 않는 그룹입니다" };
+  // 2) 발송 대상(그룹 | 필터) 정규화 + 권한 검사
+  const resolved = await resolveSendTarget(input);
+  if (!resolved.ok) {
+    return { status: "failed", reason: resolved.reason };
   }
+  const target = resolved.target;
 
   const user = await getCurrentUser();
   if (!user) {
     return { status: "failed", reason: "로그인 후 이용 가능합니다" };
   }
-  if (!can(user, "send", "campaign", group.branch)) {
+  if (!can(user, "send", "campaign", target.branch)) {
     return {
       status: "failed",
       reason: "본 분원 캠페인 발송 권한이 없습니다",
@@ -135,7 +188,8 @@ export async function sendCampaign(
   let preview: PreviewResult;
   try {
     preview = await previewRecipients({
-      groupId: input.groupId,
+      filters: target.filters,
+      branch: target.branch,
       body: input.body,
       isAd: input.isAd,
       type: input.type,
@@ -180,7 +234,7 @@ export async function sendCampaign(
   return await runImmediateSend({
     supabase,
     input,
-    branch: group.branch,
+    target,
     preview,
     userId: user.user_id,
     scheduledAt: input.scheduledAt,
@@ -204,14 +258,15 @@ export async function sendCampaign(
 async function runImmediateSend(args: {
   supabase: SupabaseSrv;
   input: SendCampaignInput;
-  branch: string;
+  target: ResolvedTarget;
   preview: PreviewResult;
   userId: string;
   /** 미래 시각이면 sendon 예약 발송(drain 이 reservation 으로 접수). null=즉시. */
   scheduledAt: Date | null;
 }): Promise<SendCampaignResult> {
-  const { supabase, input, branch, preview, userId, scheduledAt } = args;
+  const { supabase, input, target, preview, userId, scheduledAt } = args;
   void preview;
+  const branch = target.branch;
 
   const targets = resolveSendTargets(input);
 
@@ -220,7 +275,8 @@ async function runImmediateSend(args: {
   //    레그 확장(학부모/학생) 도 여기서 적용된다.
   //    수신거부 수신자(unsubscribed)는 발송하지 않고 '실패(수신거부)' 행으로만 남긴다.
   const { eligible, unsubscribed } = await reloadEligibleRecipients({
-    groupId: input.groupId,
+    filters: target.filters,
+    branch: target.branch,
     body: input.body,
     isAd: input.isAd,
     dedupeByPhone: input.dedupeByPhone,
@@ -243,7 +299,8 @@ async function runImmediateSend(args: {
   const campaignInsert: Record<string, unknown> = {
     title: input.title,
     template_id: input.templateId,
-    group_id: input.groupId,
+    // 필터 기반 발송이면 null (그룹 미사용). excel-send 와 동일하게 NULL 허용.
+    group_id: target.groupId,
     scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
     sent_at: scheduledAt ? null : new Date().toISOString(),
     status: "발송중",
@@ -411,7 +468,8 @@ interface ReloadResult {
 }
 
 async function reloadEligibleRecipients(args: {
-  groupId: string;
+  filters: GroupFilters;
+  branch: string;
   body: string;
   isAd: boolean;
   dedupeByPhone: boolean;
@@ -424,11 +482,16 @@ async function reloadEligibleRecipients(args: {
     return { eligible: [], unsubscribed: [] };
   }
 
-  // 1) 후보 전체 일괄 수집 — loadAllGroupRecipients 가 SQL 단에서 분원·탈퇴 가드
+  // 1) 후보 전체 일괄 수집 — loadRecipientsByFilters 가 SQL 단에서 분원·탈퇴 가드
   //    까지 처리(수신거부는 레그별이라 아래에서 적용). parent_phone·phone 둘 다 로드.
   const supabase = await createSupabaseServerClient();
   const [rows, unsubPhones] = await Promise.all([
-    loadAllGroupRecipients(supabase, args.groupId, MAX_RECIPIENTS_PER_CAMPAIGN),
+    loadRecipientsByFilters(
+      supabase,
+      args.filters,
+      args.branch,
+      MAX_RECIPIENTS_PER_CAMPAIGN,
+    ),
     getUnsubscribedPhones(),
   ]);
 
