@@ -276,6 +276,68 @@ export async function cancelSignupAction(
   return { status: "success" };
 }
 
+// ─── setSignupRosterAddedAction (전체 명단 편입 토글, 비파괴) ──
+//
+// CRM 신청자를 설명회 '전체 명단' 에 편입(roster_added=true)하거나 되돌린다(false).
+// 신청 status 는 건드리지 않으므로 신청이 삭제/취소되지 않는다.
+export type SetRosterAddedActionResult =
+  | { status: "success" }
+  | { status: "failed"; reason: string }
+  | { status: "dev_seed_mode" };
+
+export async function setSignupRosterAddedAction(
+  itemId: string,
+  added: boolean,
+): Promise<SetRosterAddedActionResult> {
+  if (isDevSeedMode()) return { status: "dev_seed_mode" };
+  if (typeof itemId !== "string" || itemId.length === 0) {
+    return { status: "failed", reason: "신청 ID 가 유효하지 않습니다" };
+  }
+
+  const supabase = await createSupabaseServerClient();
+
+  type Row = {
+    id: string;
+    invitation: { branch: string } | null;
+  };
+  const { data: item, error: fetchError } = (await supabase
+    .from("crm_class_signup_items")
+    .select(`id, invitation:crm_class_signup_invitations!inner(branch)`)
+    .eq("id", itemId)
+    .maybeSingle()) as unknown as {
+    data: Row | null;
+    error: { message: string } | null;
+  };
+  if (fetchError) {
+    return { status: "failed", reason: `신청 조회 실패: ${fetchError.message}` };
+  }
+  if (!item || !item.invitation) {
+    return { status: "failed", reason: "존재하지 않는 신청입니다" };
+  }
+
+  const auth = await assertSeminarWrite(item.invitation.branch);
+  if (!auth.ok) return { status: "failed", reason: auth.reason };
+
+  const { error: upErr } = (await (
+    supabase.from("crm_class_signup_items") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        eq: (
+          col: string,
+          val: string,
+        ) => Promise<{ error: { message: string } | null }>;
+      };
+    }
+  )
+    .update({ roster_added: added })
+    .eq("id", itemId)) as { error: { message: string } | null };
+  if (upErr) {
+    return { status: "failed", reason: `명단 편입 처리 실패: ${upErr.message}` };
+  }
+
+  revalidatePath("/seminars/compose");
+  return { status: "success" };
+}
+
 // ─── addManualSignupAction (운영자 수동 신청 추가) ──────────
 //
 // 설명회 명단에서 운영자가 학생을 'CRM 신청생'에 직접 추가(전체 데이터 → 신청).

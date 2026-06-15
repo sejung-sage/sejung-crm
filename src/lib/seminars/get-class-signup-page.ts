@@ -23,6 +23,8 @@ export interface ClassSignupParentRow {
   grade: string | null;
   parent_phone: string | null;
   signed_at: string;
+  /** 운영자가 전체 명단에 수동 편입했는지(roster_added). 미적용 DB 면 false. */
+  added: boolean;
 }
 
 export interface ClassSignupPageDetail {
@@ -96,6 +98,7 @@ export async function getClassSignupPage(
     id: string;
     status: InvitationItemStatus;
     signed_at: string | null;
+    roster_added?: boolean;
     invitation: {
       id: string;
       student_id: string;
@@ -108,25 +111,38 @@ export async function getClassSignupPage(
       } | null;
     } | null;
   };
-  const { data: itemRows, error: itemError } = (await supabase
-    .from("crm_class_signup_items")
-    .select(
-      `id, status, signed_at,
+  // roster_added(0092) 포함 조회. 마이그레이션 미적용 DB 면 컬럼이 없어 에러가
+  // 나므로, 그 경우 roster_added 없이 재조회한다(전부 added=false 로 동작).
+  const selectWith = (withRoster: boolean) =>
+    supabase
+      .from("crm_class_signup_items")
+      .select(
+        `id, status, signed_at${withRoster ? ", roster_added" : ""},
        invitation:crm_class_signup_invitations!inner(
          id,
          student_id,
          student:crm_students!inner(id, name, school, grade, parent_phone)
        )`,
-    )
-    .eq("signup_page_id", pageData.id)
-    .order("signed_at", { ascending: false, nullsFirst: false })) as unknown as {
+      )
+      .eq("signup_page_id", pageData.id)
+      .order("signed_at", { ascending: false, nullsFirst: false });
+
+  let { data: itemRows, error: itemError } = (await selectWith(
+    true,
+  )) as unknown as {
     data: ItemRow[] | null;
     error: { message: string } | null;
   };
+  if (itemError && /roster_added/.test(itemError.message)) {
+    ({ data: itemRows, error: itemError } = (await selectWith(
+      false,
+    )) as unknown as {
+      data: ItemRow[] | null;
+      error: { message: string } | null;
+    });
+  }
   if (itemError) {
-    throw new Error(
-      `신청 명단 조회에 실패했습니다: ${itemError.message}`,
-    );
+    throw new Error(`신청 명단 조회에 실패했습니다: ${itemError.message}`);
   }
 
   let signed = 0;
@@ -150,6 +166,7 @@ export async function getClassSignupPage(
         grade: r.invitation.student.grade,
         parent_phone: r.invitation.student.parent_phone,
         signed_at: r.signed_at,
+        added: r.roster_added === true,
       });
     }
   }
