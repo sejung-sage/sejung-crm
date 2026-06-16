@@ -1,25 +1,36 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
-import type { ClassSignupOption, GroupListItem } from "@/types/database";
+import type { ClassSignupOption, Grade } from "@/types/database";
+import type { ClassOption } from "@/lib/classes/list-class-options";
+import type { GroupFilters } from "@/lib/schemas/group";
+import {
+  listMatchedRecipientsAction,
+  type MatchedRecipient,
+} from "@/app/(features)/compose/actions";
+import {
+  SUBJECT_OPTIONS,
+  type FilterChipValue,
+  type FilterSubject,
+} from "@/components/groups/filter-chip-panel";
 import { SeminarComposeStep1Seminars } from "./seminar-compose-step-1-seminars";
-import { SeminarComposeStep2Group } from "./seminar-compose-step-2-group";
+import { SeminarComposeStep2Target } from "./seminar-compose-step-2-target";
 import { SeminarComposeStep3Body } from "./seminar-compose-step-3-body";
 import { SeminarComposeStep4Send } from "./seminar-compose-step-4-send";
 
 /**
  * F5 · 설명회 문자 발송 — 단일 페이지 폼 (0084/0085 새 모델).
  *
- * 2026-06-02 재구성: 옛 4-step 위저드(다음/이전 navigation) → 한 화면 4 섹션
- * 폼. Aca 운영자 패턴에 맞춰 모든 영역을 동시에 보면서 편집 가능. 발송 카드는
- * 조건 충족 시 활성화, 그 전에는 부족한 항목 체크리스트.
+ * 2026-06-15 개편: 옛 "발송 그룹 선택" 단계를 제거하고, 일반 SMS /compose 와
+ * 동일한 인라인 필터 칩 + 매칭 학생 체크 목록으로 교체. group_id 의존을 버리고
+ * backend `createSeminarBroadcastAction(filters, branch)` 경로를 그대로 쓴다.
  *
  * 섹션:
  *   1. 설명회 선택 (다중)            — selectedClassIds (검색·월 필터·다중 선택)
- *   2. 대상 학생 그룹                 — selectedGroupId
- *   3. 본문 작성 (SMS/LMS)            — type / subject / body / isAd
- *   4. 발송                            — 발송 버튼 + 결과 (조건 충족 후 활성)
+ *   2. 대상 학생 (필터)              — chip + 매칭 명단 체크(해제분 = excludeStudentIds)
+ *   3. 본문 작성 (SMS/LMS)            — type / subject / body / isAd / {초대링크}
+ *   4. 발송                            — 즉시/예약 + 중복신청 허용 토글 (조건 충족 후 활성)
  */
 
 export type SmsType = "SMS" | "LMS";
@@ -27,7 +38,6 @@ export type SmsType = "SMS" | "LMS";
 export interface SeminarComposeState {
   /** 선택된 강좌(=설명회) id 배열. 0084 새 모델 — 옛 seminar id 아님. */
   selectedClassIds: string[];
-  selectedGroupId: string;
   type: SmsType;
   subject: string | null;
   body: string;
@@ -43,32 +53,68 @@ export interface SeminarComposeState {
 
 interface Props {
   initialClassId: string | null;
-  initialGroupId: string | null;
   classes: ClassSignupOption[];
-  groups: GroupListItem[];
-  /** 분원 — 발송 액션에 전달. master 전체 모드에서는 빈 문자열. */
+  /** 분원 — 발송 액션·필터 조회에 전달. */
   branch: string;
+  /** 필터 칩 — 학교 토글 후보(서버 prefetch). */
+  schoolOptions: string[];
+  /** 필터 칩 — 강좌별 제외 드롭다운 후보(서버 prefetch). */
+  classOptions: ClassOption[];
+  /** 분원 매칭 학생이 있는 학년 set. */
+  availableGrades?: Grade[];
+  /** 분원 매칭 학생이 있는 지역 set. */
+  availableRegions?: string[];
+  /** dev-seed 모드면 매칭 명단이 빈 배열이라 안내문 노출. */
+  devMode: boolean;
   /** 환경변수 SMS_OPT_OUT_NUMBER — 광고 footer 미리보기에 표시. */
   optOutNumber: string;
 }
 
+const DEBOUNCE_MS = 300;
+
+function emptyChipValue(): FilterChipValue {
+  return {
+    grades: [],
+    schools: [],
+    subjects: [],
+    regions: [],
+    statuses: [],
+    excludeSchools: [],
+    excludeClasses: [],
+    unmappedSchool: false,
+    mappedSchool: false,
+  };
+}
+
 export function SeminarComposeWizard({
   initialClassId,
-  initialGroupId,
   classes,
-  groups,
   branch,
+  schoolOptions,
+  classOptions,
+  availableGrades,
+  availableRegions,
+  devMode,
   optOutNumber,
 }: Props) {
   const [state, setState] = useState<SeminarComposeState>(() => ({
     selectedClassIds: initialClassId ? [initialClassId] : [],
-    selectedGroupId: initialGroupId ?? "",
     type: "LMS",
     subject: "설명회 안내",
     body: buildDefaultBody(classes, initialClassId),
     isAd: false,
     allowMultiple: true,
   }));
+
+  // ── 대상(필터) 상태 ──
+  const [chip, setChip] = useState<FilterChipValue>(emptyChipValue);
+  // 체크 해제한 학생 id (= excludeStudentIds). 기본은 전부 체크(빈 집합).
+  const [deselected, setDeselected] = useState<Set<string>>(new Set());
+  const [recipients, setRecipients] = useState<MatchedRecipient[]>([]);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
+  const listDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listReqRef = useRef(0);
 
   const selectedClasses = useMemo<ClassSignupOption[]>(
     () =>
@@ -78,20 +124,98 @@ export function SeminarComposeWizard({
     [classes, state.selectedClassIds],
   );
 
-  const selectedGroup = useMemo<GroupListItem | null>(
-    () => groups.find((g) => g.id === state.selectedGroupId) ?? null,
-    [groups, state.selectedGroupId],
+  // 체크 해제 학생을 합친 최종 filters — 서버 계약(GroupFilters)에 맞춰 합성.
+  const filters: GroupFilters = useMemo(() => {
+    return {
+      kind: "filter",
+      grades: chip.grades,
+      schools: chip.schools,
+      subjects: chip.subjects.filter((s): s is FilterSubject =>
+        (SUBJECT_OPTIONS as readonly string[]).includes(s),
+      ),
+      regions: chip.regions,
+      statuses: chip.statuses,
+      includeStudentIds: [],
+      excludeStudentIds: Array.from(deselected),
+      excludeSchools: chip.excludeSchools,
+      excludeClassIds: chip.excludeClasses.map((c) => c.id),
+      unmappedSchool: chip.unmappedSchool,
+      mappedSchool: chip.mappedSchool,
+    };
+  }, [chip, deselected]);
+
+  // 칩만으로 만든 filters(체크 해제 제외) — 명단 조회용. 체크 해제는 명단을 줄이지
+  // 않고(목록 유지) 발송에서만 빼야 하므로 명단 조회에는 deselected 를 넣지 않는다.
+  const listFilters: GroupFilters = useMemo(
+    () => ({ ...filters, excludeStudentIds: [] }),
+    [filters],
   );
+
+  // 매칭 명단 조회 — 칩 변경 시 디바운스.
+  useEffect(() => {
+    if (!branch) return;
+    if (listDebounceRef.current) clearTimeout(listDebounceRef.current);
+    setListLoading(true);
+    setListError(null);
+    listDebounceRef.current = setTimeout(async () => {
+      const myReq = ++listReqRef.current;
+      const r = await listMatchedRecipientsAction({
+        filters: listFilters,
+        branch,
+      });
+      if (myReq !== listReqRef.current) return;
+      if (r.status === "success") {
+        setRecipients(r.recipients);
+        // 새 명단에 없는 체크 해제 id 는 정리(stale 제거).
+        setDeselected((prev) => {
+          if (prev.size === 0) return prev;
+          const ids = new Set(r.recipients.map((x) => x.studentId));
+          const next = new Set<string>();
+          for (const id of prev) if (ids.has(id)) next.add(id);
+          return next;
+        });
+      } else {
+        setListError(r.reason);
+        setRecipients([]);
+      }
+      setListLoading(false);
+    }, DEBOUNCE_MS);
+    return () => {
+      if (listDebounceRef.current) clearTimeout(listDebounceRef.current);
+    };
+    // listFilters 는 chip 파생 — 체크 토글(deselected)이 재조회를 트리거하지
+    // 않도록 의존성을 명시 필드(JSON)로 좁힌다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [branch, JSON.stringify(listFilters)]);
+
+  const toggleRecipient = (studentId: string, checked: boolean) => {
+    setDeselected((prev) => {
+      const next = new Set(prev);
+      if (checked) next.delete(studentId);
+      else next.add(studentId);
+      return next;
+    });
+  };
+
+  const setAll = (checked: boolean) => {
+    if (checked) setDeselected(new Set());
+    else setDeselected(new Set(recipients.map((r) => r.studentId)));
+  };
+
+  const checkedCount = recipients.length - deselected.size;
 
   // 발송 활성 조건 — 미충족 항목 목록을 그대로 체크리스트로 노출.
   const missing: string[] = [];
   if (state.selectedClassIds.length === 0) missing.push("설명회 선택 (1개 이상)");
-  if (!state.selectedGroupId) missing.push("대상 학생 그룹 선택");
+  if (checkedCount <= 0) missing.push("대상 학생 선택 (1명 이상)");
   if (!state.body.trim()) missing.push("본문 작성");
-  if (state.type === "LMS" && (!state.subject || state.subject.trim().length === 0)) {
+  if (
+    state.type === "LMS" &&
+    (!state.subject || state.subject.trim().length === 0)
+  ) {
     missing.push("LMS 제목 입력");
   }
-  const readyToSend = missing.length === 0 && selectedGroup !== null;
+  const readyToSend = missing.length === 0;
 
   return (
     <div className="space-y-6">
@@ -120,13 +244,22 @@ export function SeminarComposeWizard({
         />
       </Section>
 
-      <Section index={2} title="대상 학생 그룹">
-        <SeminarComposeStep2Group
-          groups={groups}
-          groupId={state.selectedGroupId}
-          onGroupIdChange={(id) =>
-            setState((p) => ({ ...p, selectedGroupId: id }))
-          }
+      <Section index={2} title="대상 학생">
+        <SeminarComposeStep2Target
+          chip={chip}
+          onChipChange={setChip}
+          branch={branch}
+          schoolOptions={schoolOptions}
+          classOptions={classOptions}
+          availableGrades={availableGrades}
+          availableRegions={availableRegions}
+          recipients={recipients}
+          deselected={deselected}
+          onToggleRecipient={toggleRecipient}
+          onSetAll={setAll}
+          listLoading={listLoading}
+          listError={listError}
+          devMode={devMode}
         />
       </Section>
 
@@ -135,17 +268,18 @@ export function SeminarComposeWizard({
           state={state}
           onChange={(patch) => setState((p) => ({ ...p, ...patch }))}
           selectedClasses={selectedClasses}
-          selectedGroup={selectedGroup}
+          recipientCount={checkedCount}
           optOutNumber={optOutNumber}
         />
       </Section>
 
       <Section index={4} title="발송">
-        {readyToSend && selectedGroup ? (
+        {readyToSend ? (
           <SeminarComposeStep4Send
             state={state}
             selectedClasses={selectedClasses}
-            selectedGroup={selectedGroup}
+            filters={filters}
+            recipientCount={checkedCount}
             branch={branch}
             // 단일 페이지 폼이라 "본문으로 돌아가기" 의 별도 navigate 가 필요 없다.
             // 결과 카드의 dismiss 만 동작하도록 no-op 전달.

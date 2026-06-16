@@ -11,7 +11,8 @@ import {
   CalendarClock,
   MapPin,
 } from "lucide-react";
-import type { ClassSignupOption, GroupListItem } from "@/types/database";
+import type { ClassSignupOption } from "@/types/database";
+import type { GroupFilters } from "@/lib/schemas/group";
 import { formatKstDateTime } from "@/lib/datetime";
 import { createSeminarBroadcastAction } from "@/app/(features)/seminars/actions";
 import type { SeminarComposeState } from "./seminar-compose-wizard";
@@ -19,8 +20,8 @@ import type { SeminarComposeState } from "./seminar-compose-wizard";
 /**
  * F5 · 설명회 발송 Step 4 — 최종 요약 + 발송 트리거.
  *
- * - 선택 요약 (설명회 N개 · 그룹 · 본문 첫 줄).
- * - 확인 다이얼로그 → createSeminarBroadcastAction.
+ * - 선택 요약 (설명회 N개 · 대상 N명 · 본문 첫 줄).
+ * - 확인 다이얼로그 → createSeminarBroadcastAction(filters + branch).
  * - 결과:
  *    success → 캠페인 페이지로 이동 (campaignId).
  *    dev_seed_mode → 회색 안내 박스.
@@ -29,7 +30,10 @@ import type { SeminarComposeState } from "./seminar-compose-wizard";
 interface Props {
   state: SeminarComposeState;
   selectedClasses: ClassSignupOption[];
-  selectedGroup: GroupListItem;
+  /** 대상 필터(체크 해제분 = excludeStudentIds 포함). 발송 액션에 그대로 전달. */
+  filters: GroupFilters;
+  /** 체크된 대상 학생 수(요약·확인 다이얼로그 표시용). */
+  recipientCount: number;
   branch: string;
   onBackToBody: () => void;
 }
@@ -54,7 +58,8 @@ function toLocalInput(d: Date): string {
 export function SeminarComposeStep4Send({
   state,
   selectedClasses,
-  selectedGroup,
+  filters,
+  recipientCount,
   branch,
   onBackToBody,
 }: Props) {
@@ -79,12 +84,12 @@ export function SeminarComposeStep4Send({
         : null;
     startTransition(async () => {
       // backend `createSeminarBroadcastAction` — filters + branch 전달(그룹 없이
-      // 필터로 직접 발송 · Phase 1). 학생 펼침은 서버 내부 `loadRecipientsByFilters`
-      // 가 처리 (URL 414 회피). 현재는 선택 그룹의 filters 를 그대로 넘겨 동작 보존
-      // — frontend-dev 가 다음 단계에서 그룹 선택을 필터 UI 로 교체한다.
+      // 필터로 직접 발송). 학생 펼침은 서버 내부 `loadRecipientsByFilters` 가
+      // 처리(URL 414 회피). 체크 해제한 학생은 filters.excludeStudentIds 로 실려
+      // 발송에서 빠진다.
       const res = await createSeminarBroadcastAction({
         class_ids: state.selectedClassIds,
-        filters: selectedGroup.filters,
+        filters,
         body: state.body,
         subject: state.type === "LMS" ? state.subject : null,
         type: state.type,
@@ -183,10 +188,12 @@ export function SeminarComposeStep4Send({
           </ul>
         </SummaryRow>
         <SummaryRow label="대상">
-          <div className="text-[14px] text-[color:var(--text)]">
-            <span className="font-medium">{selectedGroup.name}</span>
-            <span className="ml-2 text-[12px] text-[color:var(--text-muted)] tabular-nums">
-              · 약 {selectedGroup.recipient_count.toLocaleString()}명
+          <div className="text-[14px] text-[color:var(--text)] tabular-nums">
+            <span className="font-medium">
+              {recipientCount.toLocaleString()}명
+            </span>
+            <span className="ml-2 text-[12px] text-[color:var(--text-muted)]">
+              · 필터 조건으로 선택 (탈퇴/수신거부는 발송 시 자동 제외)
             </span>
           </div>
         </SummaryRow>
@@ -416,7 +423,7 @@ export function SeminarComposeStep4Send({
           onConfirm={handleSend}
           summary={{
             seminarCount: selectedClasses.length,
-            recipientCount: selectedGroup.recipient_count,
+            recipientCount,
           }}
         />
       )}

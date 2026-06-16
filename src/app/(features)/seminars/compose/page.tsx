@@ -2,10 +2,12 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { listClassSignupOptions } from "@/lib/seminars/list-class-signup-options";
-import { listGroups } from "@/lib/groups/list-groups";
+import { getSchoolOptions } from "@/lib/groups/school-options";
+import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
+import { listClassOptions } from "@/lib/classes/list-class-options";
 import { SeminarComposeWizard } from "@/components/seminars/seminar-compose-wizard";
 import type { Branch } from "@/config/branches";
-import type { ClassSignupOption, GroupListItem } from "@/types/database";
+import type { ClassSignupOption } from "@/types/database";
 
 /**
  * F5 · 설명회 문자 (/seminars/compose) — 발송 위저드 단일 페이지.
@@ -21,7 +23,10 @@ import type { ClassSignupOption, GroupListItem } from "@/types/database";
  * 진입 쿼리:
  *   ?class=<uuid>     강좌 상세 "이 설명회로 발송" 에서 사전 선택 (0084).
  *   ?seminar=<uuid>   옛 진입점 호환 (graceful: 새 데이터 매핑 없으면 무시).
- *   ?groupId=<uuid>   그룹 사전 선택 (향후 추가 가능).
+ *
+ * 대상 선택: 일반 /compose 와 동일하게 인라인 필터 칩 + 매칭 학생 체크 목록.
+ * 옛 "발송 그룹 선택" 단계는 제거됨. 필터 칩 옵션(학교/학년/지역·강좌)을 분원
+ * 기준으로 prefetch 해 위저드에 내려준다.
  */
 export default async function SeminarsHubPage({
   searchParams,
@@ -33,7 +38,6 @@ export default async function SeminarsHubPage({
     Array.isArray(v) ? v[0] : v;
   // 0084: ?class 우선, fallback ?seminar (옛 링크 graceful).
   const initialClassId = pick(raw.class) ?? pick(raw.seminar) ?? null;
-  const initialGroupId = pick(raw.groupId) ?? null;
 
   const currentUser = await getCurrentUser();
   const devMode = isDevSeedMode();
@@ -71,12 +75,14 @@ export default async function SeminarsHubPage({
     );
   }
 
-  const [classOptions, groupsResult] = await Promise.all([
-    listClassSignupOptions({ branch: branchFilter }),
-    listGroups({ q: "", branch: branchFilter, page: 1 }),
-  ]);
+  const [classOptions, schoolOptions, filterOptions, studentClassOptions] =
+    await Promise.all([
+      listClassSignupOptions({ branch: branchFilter }),
+      getSchoolOptions(branchFilter),
+      listStudentFilterOptions({ branch: branchFilter, includeHidden: true }),
+      listClassOptions(branchFilter),
+    ]);
   const classes: ClassSignupOption[] = classOptions;
-  const groups: GroupListItem[] = groupsResult.items;
 
   return (
     <Shell>
@@ -94,10 +100,13 @@ export default async function SeminarsHubPage({
 
       <SeminarComposeWizard
         initialClassId={initialClassId}
-        initialGroupId={initialGroupId}
         classes={classes}
-        groups={groups}
         branch={branchFilter}
+        schoolOptions={schoolOptions}
+        classOptions={studentClassOptions}
+        availableGrades={filterOptions.availableGrades}
+        availableRegions={filterOptions.availableRegions}
+        devMode={devMode}
         optOutNumber={process.env.SMS_OPT_OUT_NUMBER ?? "080-123-4567"}
       />
     </Shell>

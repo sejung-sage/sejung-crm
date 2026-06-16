@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { AlertTriangle, Link as LinkIcon, Megaphone } from "lucide-react";
-import type { ClassSignupOption, GroupListItem } from "@/types/database";
+import type { ClassSignupOption } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import {
@@ -39,7 +39,8 @@ interface Props {
   state: SeminarComposeState;
   onChange: (patch: Partial<SeminarComposeState>) => void;
   selectedClasses: ClassSignupOption[];
-  selectedGroup: GroupListItem | null;
+  /** 체크된 대상 학생 수(미리보기 안내문에 표시). */
+  recipientCount: number;
   /** 환경변수 SMS_OPT_OUT_NUMBER — 광고 footer 미리보기에 표시. */
   optOutNumber: string;
 }
@@ -83,7 +84,7 @@ export function SeminarComposeStep3Body({
   state,
   onChange,
   selectedClasses,
-  selectedGroup,
+  recipientCount,
   optOutNumber,
 }: Props) {
   const bodyRef = useRef<HTMLTextAreaElement>(null);
@@ -465,13 +466,13 @@ export function SeminarComposeStep3Body({
           <p className="text-[11px] text-[color:var(--text-dim)] leading-relaxed">
             실제 발송 시 <code>{`{초대링크}`}</code> 자리는 학생별
             <code className="ml-1">/s/&lt;토큰&gt;</code> URL 로 치환됩니다.
-            {selectedGroup && (
+            {recipientCount > 0 && (
               <>
                 {" "}대상{" "}
-                <strong className="text-[color:var(--text-muted)]">
-                  {selectedGroup.name}
+                <strong className="text-[color:var(--text-muted)] tabular-nums">
+                  {recipientCount.toLocaleString()}명
                 </strong>
-                {" "}· 약 {selectedGroup.recipient_count.toLocaleString()}명.
+                .
               </>
             )}
           </p>
