@@ -108,7 +108,7 @@ export function ClassLapsedPanel({
                 선택한 학생에게 재등록 안내 문자를 보낼 수 있습니다.
               </p>
               <Link
-                href={`/groups/new?class=${classId}&filter=lapsed`}
+                href={`/compose?class=${classId}&filter=lapsed`}
                 aria-label={`미등록 학생 ${count}명에게 문자 보내기`}
                 className="
                   inline-flex items-center gap-1.5 h-10 px-4 rounded-lg

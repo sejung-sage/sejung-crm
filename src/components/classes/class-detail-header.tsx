@@ -131,7 +131,7 @@ export function ClassDetailHeader({ cls, studentCount, canSend = false }: Props)
  * "이 강좌로 발송" 진입 버튼.
  *
  * 학생 상세의 "이 학생에게 문자 보내기" 버튼과 동일 시각 패턴 (action 색).
- * /groups/new?class=<id> 로 이동하면 NewGroupPage 가 강좌 수강생 전체를
+ * /compose?class=<id> 로 이동하면 ComposePage 가 강좌 수강생 전체를
  * includeStudentIds 에 prefill (조건 절은 비움 — 직접 선택 모드).
  *
  * 수강생 0명이면 버튼은 비활성. 자체 등록 강좌(aca_class_id NULL)도 학생 0
@@ -164,7 +164,7 @@ function SendToClassButton({
   }
   return (
     <Link
-      href={`/groups/new?class=${classId}`}
+      href={`/compose?class=${classId}`}
       aria-label={`이 강좌 수강생 ${studentCount}명에게 문자 보내기`}
       className="
         inline-flex items-center gap-1.5

@@ -96,7 +96,6 @@ const NAV_ITEMS: NavItem[] = [
       // 0083: 그룹/설명회와 무관하게, 업로드한 엑셀 명단으로 바로 보내는
       // 세 번째 발송 경로. 이름·연락처 2열 명단을 받아 즉시 발송.
       { href: "/excel-send", label: "엑셀 보내기" },
-      { href: "/groups", label: "발송 그룹" },
       { href: "/templates", label: "문자 & 알림톡 템플릿" },
       { href: "/campaigns", label: "문자 발송 내역" },
     ],

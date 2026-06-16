@@ -74,7 +74,7 @@ export function StudentProfileHeader({
 
         <div className="shrink-0">
           <Link
-            href={`/groups/new?student=${profile.id}`}
+            href={`/compose?student=${profile.id}`}
             aria-label="이 학생에게 문자 보내기"
             className="
               inline-flex items-center gap-1.5

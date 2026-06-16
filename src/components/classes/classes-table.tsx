@@ -176,7 +176,7 @@ export function ClassesTable({ rows, sendableBranches = null }: Props) {
                     {canSendBranch(r.branch) &&
                       r.enrolled_student_count > 0 && (
                         <Link
-                          href={`/groups/new?class=${r.id}`}
+                          href={`/compose?class=${r.id}`}
                           aria-label={`${r.name} 수강생에게 문자 보내기`}
                           title="이 강좌로 발송"
                           className="

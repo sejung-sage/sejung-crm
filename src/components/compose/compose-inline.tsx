@@ -101,6 +101,12 @@ interface Props {
   branch: string;
   /** 분원 변경 가능 여부. master 만 true. */
   canPickBranch: boolean;
+  /**
+   * 진입 prefill 초기 필터(서버에서 학생/강좌/회차를 학생 id 로 해석한 결과).
+   * kind='custom' + includeStudentIds 면 그 학생들로 시작(우측 명단·체크가 채워짐).
+   * 미지정/kind='filter' 면 빈 조건으로 시작(기존 동작).
+   */
+  initialFilters?: GroupFilters;
   schoolOptions: string[];
   classOptions: ClassOption[];
   availableGrades?: Grade[];
@@ -135,6 +141,7 @@ function emptyChipValue(): FilterChipValue {
 export function ComposeInline({
   branch: initialBranch,
   canPickBranch,
+  initialFilters,
   schoolOptions,
   classOptions,
   availableGrades,
@@ -147,6 +154,16 @@ export function ComposeInline({
   const [chip, setChip] = useState<FilterChipValue>(emptyChipValue);
   // 체크 해제한 학생 id (= excludeStudentIds). 기본은 전부 체크(빈 집합).
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
+
+  // 진입 prefill 이 custom(고정 명단)이면 그 학생 id 들을 모집단으로 고정한다.
+  // 사용자가 우측 필터 칩을 건드리면 'filter'(조건) 모드로 전환한다 — 그때부턴
+  // 칩 조건이 모집단을 결정. (prefill 없으면 처음부터 'filter' 모드.)
+  const [customStudentIds] = useState<string[]>(() =>
+    initialFilters?.kind === "custom" ? initialFilters.includeStudentIds : [],
+  );
+  const [useCustom, setUseCustom] = useState(
+    () => (initialFilters?.kind === "custom" ? customStudentIds.length > 0 : false),
+  );
 
   const [step2, setStep2] = useState<Step2State>({
     templateId: undefined,
@@ -183,7 +200,27 @@ export function ComposeInline({
   const [isSending, startSending] = useTransition();
 
   // 체크 해제 학생을 합친 최종 filters. 서버 계약(GroupFilters)에 맞춰 합성.
+  // useCustom: prefill 고정 명단(includeStudentIds) 모집단. 칩 조건은 무시되고
+  //            체크 해제(excludeStudentIds)만 반영 — loadRecipientsByFilters 의
+  //            custom 분기와 동일 의미.
+  // 그 외: 칩 조건 모집단('filter').
   const filters: GroupFilters = useMemo(() => {
+    if (useCustom) {
+      return {
+        kind: "custom",
+        grades: [],
+        schools: [],
+        subjects: [],
+        regions: [],
+        statuses: [],
+        includeStudentIds: customStudentIds,
+        excludeStudentIds: Array.from(deselected),
+        excludeSchools: [],
+        excludeClassIds: [],
+        unmappedSchool: false,
+        mappedSchool: false,
+      };
+    }
     return {
       kind: "filter",
       grades: chip.grades,
@@ -200,7 +237,7 @@ export function ComposeInline({
       unmappedSchool: chip.unmappedSchool,
       mappedSchool: chip.mappedSchool,
     };
-  }, [chip, deselected]);
+  }, [useCustom, customStudentIds, chip, deselected]);
 
   // 칩만으로 만든 filters(체크 해제 제외) — 명단 조회용. 체크 해제는 명단을 줄이지
   // 않고(목록은 유지) 발송에서만 빼야 하므로, 명단 조회에는 deselected 를 넣지 않는다.
@@ -494,6 +531,8 @@ export function ComposeInline({
                 onClick={() => {
                   if (!canPickBranch || b === branch) return;
                   setBranch(b);
+                  // 분원을 바꾸면 prefill 고정 명단은 의미를 잃으므로 조건 모드로.
+                  setUseCustom(false);
                   setDeselected(new Set());
                   setResult(null);
                 }}
@@ -798,7 +837,14 @@ export function ComposeInline({
 
           <FilterChipPanel
             value={chip}
-            onChange={setChip}
+            onChange={(next) => {
+              // 칩을 건드리면 prefill 고정 명단을 벗어나 조건(filter) 모드로 전환.
+              if (useCustom) {
+                setUseCustom(false);
+                setDeselected(new Set());
+              }
+              setChip(next);
+            }}
             branch={branch}
             schoolOptions={schoolOptions}
             classOptions={classOptions}
