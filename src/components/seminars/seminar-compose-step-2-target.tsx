@@ -25,8 +25,6 @@ import { formatPhone } from "@/lib/phone";
  *  - onToggleRecipient / onSetAll : 체크 토글
  */
 
-const RECIPIENT_LIST_CAP = 300; // 화면에 그리는 상한(스크롤). 초과분은 "상위 일부" 안내.
-
 interface Props {
   chip: FilterChipValue;
   onChipChange: (next: FilterChipValue) => void;
@@ -36,6 +34,8 @@ interface Props {
   availableGrades?: Grade[];
   availableRegions?: string[];
   recipients: MatchedRecipient[];
+  /** 전체 매칭 수(head 카운트). recipients 는 표시용 상위 일부. */
+  total: number;
   deselected: Set<string>;
   onToggleRecipient: (studentId: string, checked: boolean) => void;
   onSetAll: (checked: boolean) => void;
@@ -54,6 +54,7 @@ export function SeminarComposeStep2Target({
   availableGrades,
   availableRegions,
   recipients,
+  total,
   deselected,
   onToggleRecipient,
   onSetAll,
@@ -61,22 +62,18 @@ export function SeminarComposeStep2Target({
   listError,
   devMode,
 }: Props) {
-  const checkedCount = recipients.length - deselected.size;
+  // 체크 해제는 표시분에만 적용 → 선택 수 = 전체 매칭(total) − 표시분 해제 수.
+  const checkedCount = total - deselected.size;
   const allChecked = deselected.size === 0;
-  const visibleRecipients = recipients.slice(0, RECIPIENT_LIST_CAP);
-  const truncated = recipients.length > RECIPIENT_LIST_CAP;
+  // 서버가 상한까지 이름순으로 전원 내려줌 — 전부 렌더.
+  const visibleRecipients = recipients;
+  const truncated = total > recipients.length;
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-          대상 학생 선택
-        </h2>
-        <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-          조건으로 대상을 좁히고, 아래 목록에서 보낼 학생을 체크하세요. 발송
-          시점에 명단이 자동 재조회됩니다.
-        </p>
-      </div>
+    <div className="space-y-4">
+      <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+        발송 대상
+      </h2>
 
       <FilterChipPanel
         value={chip}
@@ -93,7 +90,7 @@ export function SeminarComposeStep2Target({
         hint={
           listLoading
             ? "불러오는 중..."
-            : `${recipients.length.toLocaleString()}명 중 ${checkedCount.toLocaleString()}명 선택`
+            : `${total.toLocaleString()}명 중 ${checkedCount.toLocaleString()}명 선택`
         }
       >
         <div className="rounded-lg border border-[color:var(--border)] bg-bg-card">
@@ -139,13 +136,13 @@ export function SeminarComposeStep2Target({
           )}
 
           {visibleRecipients.length > 0 && (
-            <ul className="max-h-80 overflow-auto divide-y divide-[color:var(--border)]">
+            <ul className="max-h-[28rem] overflow-auto divide-y divide-[color:var(--border)]">
               {visibleRecipients.map((r) => {
                 const checked = !deselected.has(r.studentId);
                 const phone = r.parentPhone || r.studentPhone;
                 return (
                   <li key={r.studentId}>
-                    <label className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-[color:var(--bg-hover)]">
+                    <label className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-[color:var(--bg-hover)]">
                       <input
                         type="checkbox"
                         checked={checked}
@@ -154,10 +151,10 @@ export function SeminarComposeStep2Target({
                         }
                         className="size-4 accent-[color:var(--action)]"
                       />
-                      <span className="text-[14px] font-medium text-[color:var(--text)]">
+                      <span className="text-[13px] font-medium text-[color:var(--text)]">
                         {r.name}
                       </span>
-                      <span className="text-[13px] tabular-nums text-[color:var(--text-muted)] ml-auto">
+                      <span className="text-[12px] tabular-nums text-[color:var(--text-muted)] ml-auto">
                         {phone ? formatPhone(phone) || phone : "번호 없음"}
                       </span>
                     </label>
@@ -169,8 +166,8 @@ export function SeminarComposeStep2Target({
 
           {truncated && (
             <p className="px-3 py-2 text-[12px] text-[color:var(--text-dim)] border-t border-[color:var(--border)]">
-              전체 {recipients.length.toLocaleString()}명 중 상위{" "}
-              {RECIPIENT_LIST_CAP.toLocaleString()}명만 목록에 표시됩니다. 체크
+              전체 {total.toLocaleString()}명 중 상위{" "}
+              {recipients.length.toLocaleString()}명만 목록에 표시됩니다. 체크
               해제는 표시된 학생에만 적용됩니다.
             </p>
           )}

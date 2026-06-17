@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle } from "lucide-react";
 import type { ClassSignupOption, Grade } from "@/types/database";
 import type { ClassOption } from "@/lib/classes/list-class-options";
 import type { GroupFilters } from "@/lib/schemas/group";
@@ -26,11 +25,12 @@ import { SeminarComposeStep4Send } from "./seminar-compose-step-4-send";
  * 동일한 인라인 필터 칩 + 매칭 학생 체크 목록으로 교체. group_id 의존을 버리고
  * backend `createSeminarBroadcastAction(filters, branch)` 경로를 그대로 쓴다.
  *
- * 섹션:
- *   1. 설명회 선택 (다중)            — selectedClassIds (검색·월 필터·다중 선택)
- *   2. 대상 학생 (필터)              — chip + 매칭 명단 체크(해제분 = excludeStudentIds)
- *   3. 본문 작성 (SMS/LMS)            — type / subject / body / isAd / {초대링크}
- *   4. 발송                            — 즉시/예약 + 중복신청 허용 토글 (조건 충족 후 활성)
+ * 2026-06-16 레이아웃 통일: 일반 SMS /compose 와 동일한 배치로 맞춤.
+ *   ┌ 설명회 선택 (설명회 발송에만 있는 고유 단계 · 다중)
+ *   ├ 2열 ─ 좌: 문자 작성(편집형 폰 미리보기 일체형 · {초대링크})
+ *   │       우: 발송 대상(필터 칩 + 매칭 명단 체크, 해제분 = excludeStudentIds)
+ *   └ 하단: 발송 바(즉시/예약 + 대상 N명 + 발송, 조건 충족 후 활성)
+ * 중복 신청 허용 토글은 설명회 선택과 의미가 묶여 그 섹션 하단에 둔다.
  */
 
 export type SmsType = "SMS" | "LMS";
@@ -110,7 +110,9 @@ export function SeminarComposeWizard({
   const [chip, setChip] = useState<FilterChipValue>(emptyChipValue);
   // 체크 해제한 학생 id (= excludeStudentIds). 기본은 전부 체크(빈 집합).
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
+  // recipients: 표시용 상위 일부(서버가 캡). total: 전체 매칭 수(head 카운트).
   const [recipients, setRecipients] = useState<MatchedRecipient[]>([]);
+  const [total, setTotal] = useState(0);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const listDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -166,6 +168,7 @@ export function SeminarComposeWizard({
       if (myReq !== listReqRef.current) return;
       if (r.status === "success") {
         setRecipients(r.recipients);
+        setTotal(r.total);
         // 새 명단에 없는 체크 해제 id 는 정리(stale 제거).
         setDeselected((prev) => {
           if (prev.size === 0) return prev;
@@ -177,6 +180,7 @@ export function SeminarComposeWizard({
       } else {
         setListError(r.reason);
         setRecipients([]);
+        setTotal(0);
       }
       setListLoading(false);
     }, DEBOUNCE_MS);
@@ -202,7 +206,8 @@ export function SeminarComposeWizard({
     else setDeselected(new Set(recipients.map((r) => r.studentId)));
   };
 
-  const checkedCount = recipients.length - deselected.size;
+  // 체크 해제는 표시분에만 적용되므로 선택 수 = 전체 매칭(total) − 표시분 해제 수.
+  const checkedCount = total - deselected.size;
 
   // 발송 활성 조건 — 미충족 항목 목록을 그대로 체크리스트로 노출.
   const missing: string[] = [];
@@ -219,7 +224,11 @@ export function SeminarComposeWizard({
 
   return (
     <div className="space-y-6">
-      <Section index={1} title="설명회 선택">
+      {/* ── 설명회 선택 — 설명회 발송에만 있는 고유 단계 ── */}
+      <section
+        aria-label="설명회 선택"
+        className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5"
+      >
         <SeminarComposeStep1Seminars
           classes={classes}
           selectedIds={state.selectedClassIds}
@@ -242,9 +251,18 @@ export function SeminarComposeWizard({
             }))
           }
         />
-      </Section>
+      </section>
 
-      <Section index={2} title="대상 학생">
+      {/* ── 2열: 좌 문자 작성 / 우 발송 대상 (일반 SMS /compose 와 동일 구성) ── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+        <SeminarComposeStep3Body
+          state={state}
+          onChange={(patch) => setState((p) => ({ ...p, ...patch }))}
+          selectedClasses={selectedClasses}
+          recipientCount={checkedCount}
+          optOutNumber={optOutNumber}
+        />
+
         <SeminarComposeStep2Target
           chip={chip}
           onChipChange={setChip}
@@ -254,6 +272,7 @@ export function SeminarComposeWizard({
           availableGrades={availableGrades}
           availableRegions={availableRegions}
           recipients={recipients}
+          total={total}
           deselected={deselected}
           onToggleRecipient={toggleRecipient}
           onSetAll={setAll}
@@ -261,86 +280,18 @@ export function SeminarComposeWizard({
           listError={listError}
           devMode={devMode}
         />
-      </Section>
-
-      <Section index={3} title="본문 작성">
-        <SeminarComposeStep3Body
-          state={state}
-          onChange={(patch) => setState((p) => ({ ...p, ...patch }))}
-          selectedClasses={selectedClasses}
-          recipientCount={checkedCount}
-          optOutNumber={optOutNumber}
-        />
-      </Section>
-
-      <Section index={4} title="발송">
-        {readyToSend ? (
-          <SeminarComposeStep4Send
-            state={state}
-            selectedClasses={selectedClasses}
-            filters={filters}
-            recipientCount={checkedCount}
-            branch={branch}
-            // 단일 페이지 폼이라 "본문으로 돌아가기" 의 별도 navigate 가 필요 없다.
-            // 결과 카드의 dismiss 만 동작하도록 no-op 전달.
-            onBackToBody={() => undefined}
-          />
-        ) : (
-          <ReadinessChecklist missing={missing} />
-        )}
-      </Section>
-    </div>
-  );
-}
-
-// ─── 섹션 셸 ────────────────────────────────────────────────
-
-function Section({
-  index,
-  title,
-  children,
-}: {
-  index: 1 | 2 | 3 | 4;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section
-      aria-label={`${index}. ${title}`}
-      className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden"
-    >
-      <header className="flex items-center gap-3 px-5 py-3 border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
-        <span className="inline-flex items-center justify-center size-6 rounded-full bg-[color:var(--action)] text-[color:var(--action-text)] text-[12px] font-semibold tabular-nums">
-          {index}
-        </span>
-        <h2 className="text-[15px] font-semibold text-[color:var(--text)]">
-          {title}
-        </h2>
-      </header>
-      <div className="p-5">{children}</div>
-    </section>
-  );
-}
-
-function ReadinessChecklist({ missing }: { missing: string[] }) {
-  return (
-    <div
-      role="status"
-      className="flex items-start gap-2 rounded-lg border border-dashed border-[color:var(--border-strong)] bg-[color:var(--bg-muted)] p-4"
-    >
-      <AlertCircle
-        className="size-4 mt-0.5 shrink-0 text-[color:var(--text-muted)]"
-        strokeWidth={1.75}
-        aria-hidden
-      />
-      <div className="text-[13px] text-[color:var(--text-muted)] space-y-1">
-        <p>발송 전에 아래 항목을 채워주세요.</p>
-        <ul className="list-disc pl-4 space-y-0.5">
-          {missing.map((m) => (
-            <li key={m}>{m}</li>
-          ))}
-        </ul>
       </div>
+
+      {/* ── 하단 발송 바 ── */}
+      <SeminarComposeStep4Send
+        state={state}
+        selectedClasses={selectedClasses}
+        filters={filters}
+        recipientCount={checkedCount}
+        branch={branch}
+        readyToSend={readyToSend}
+        missing={missing}
+      />
     </div>
   );
 }

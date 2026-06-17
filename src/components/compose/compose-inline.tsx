@@ -74,7 +74,6 @@ import {
 
 const DEBOUNCE_MS = 300;
 const SUBJECT_BYTE_LIMIT = 40;
-const RECIPIENT_LIST_CAP = 300; // 화면에 그리는 상한(스크롤). 초과분은 "상위 일부" 안내.
 
 const TYPE_OPTIONS: Array<{ value: TemplateTypeLiteral; label: string }> = [
   { value: "SMS", label: "SMS · 단문" },
@@ -182,7 +181,9 @@ export function ComposeInline({
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   // ── 매칭 명단 ──
+  // recipients: 표시용 상위 일부(서버가 캡). total: 전체 매칭 수(head 카운트).
   const [recipients, setRecipients] = useState<MatchedRecipient[]>([]);
+  const [total, setTotal] = useState(0);
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const listDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -261,6 +262,7 @@ export function ComposeInline({
       if (myReq !== listReqRef.current) return;
       if (r.status === "success") {
         setRecipients(r.recipients);
+        setTotal(r.total);
         // 새 명단에 없는 체크 해제 id 는 정리(stale 제거).
         setDeselected((prev) => {
           if (prev.size === 0) return prev;
@@ -272,6 +274,7 @@ export function ComposeInline({
       } else {
         setListError(r.reason);
         setRecipients([]);
+        setTotal(0);
       }
       setListLoading(false);
     }, DEBOUNCE_MS);
@@ -446,7 +449,9 @@ export function ComposeInline({
     });
   };
 
-  const checkedCount = recipients.length - deselected.size;
+  // 체크 해제는 화면에 표시된 학생에만 적용(서버가 상위 일부만 내려줌). 따라서
+  // 선택 수 = 전체 매칭(total) − 표시분에서 해제한 수.
+  const checkedCount = total - deselected.size;
   const allChecked = deselected.size === 0;
   const setAll = (checked: boolean) => {
     if (checked) {
@@ -456,8 +461,9 @@ export function ComposeInline({
     }
   };
 
-  const visibleRecipients = recipients.slice(0, RECIPIENT_LIST_CAP);
-  const truncated = recipients.length > RECIPIENT_LIST_CAP;
+  // 서버가 상한(MATCHED_LIST_CAP)까지 이름순으로 전원 내려줌 — 전부 렌더.
+  const visibleRecipients = recipients;
+  const truncated = total > recipients.length;
 
   // 발송 가능 여부.
   const canSend =
@@ -858,7 +864,7 @@ export function ComposeInline({
             hint={
               listLoading
                 ? "불러오는 중..."
-                : `${recipients.length.toLocaleString()}명 중 ${checkedCount.toLocaleString()}명 선택`
+                : `${total.toLocaleString()}명 중 ${checkedCount.toLocaleString()}명 선택`
             }
           >
             <div className="rounded-lg border border-[color:var(--border)] bg-bg-card">
@@ -906,13 +912,13 @@ export function ComposeInline({
               )}
 
               {visibleRecipients.length > 0 && (
-                <ul className="max-h-80 overflow-auto divide-y divide-[color:var(--border)]">
+                <ul className="max-h-[28rem] overflow-auto divide-y divide-[color:var(--border)]">
                   {visibleRecipients.map((r) => {
                     const checked = !deselected.has(r.studentId);
                     const phone = r.parentPhone || r.studentPhone;
                     return (
                       <li key={r.studentId}>
-                        <label className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-[color:var(--bg-hover)]">
+                        <label className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-[color:var(--bg-hover)]">
                           <input
                             type="checkbox"
                             checked={checked}
@@ -921,10 +927,10 @@ export function ComposeInline({
                             }
                             className="size-4 accent-[color:var(--action)]"
                           />
-                          <span className="text-[14px] font-medium text-[color:var(--text)]">
+                          <span className="text-[13px] font-medium text-[color:var(--text)]">
                             {r.name}
                           </span>
-                          <span className="text-[13px] tabular-nums text-[color:var(--text-muted)] ml-auto">
+                          <span className="text-[12px] tabular-nums text-[color:var(--text-muted)] ml-auto">
                             {phone ? formatPhone(phone) || phone : "번호 없음"}
                           </span>
                         </label>
@@ -936,8 +942,8 @@ export function ComposeInline({
 
               {truncated && (
                 <p className="px-3 py-2 text-[12px] text-[color:var(--text-dim)] border-t border-[color:var(--border)]">
-                  전체 {recipients.length.toLocaleString()}명 중 상위{" "}
-                  {RECIPIENT_LIST_CAP.toLocaleString()}명만 목록에 표시됩니다.
+                  전체 {total.toLocaleString()}명 중 상위{" "}
+                  {recipients.length.toLocaleString()}명만 목록에 표시됩니다.
                   체크 해제는 표시된 학생에만 적용됩니다.
                 </p>
               )}
