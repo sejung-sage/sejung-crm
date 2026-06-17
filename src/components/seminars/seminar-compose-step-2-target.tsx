@@ -75,7 +75,7 @@ export function SeminarComposeStep2Target({
         발송 대상
       </h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-stretch">
       <FilterChipPanel
         value={chip}
         onChange={onChipChange}
@@ -87,6 +87,7 @@ export function SeminarComposeStep2Target({
       />
 
       <Field
+        fill
         label="매칭 학생"
         hint={
           listLoading
@@ -94,7 +95,7 @@ export function SeminarComposeStep2Target({
             : `${total.toLocaleString()}명 중 ${checkedCount.toLocaleString()}명 선택`
         }
       >
-        <div className="rounded-lg border border-[color:var(--border)] bg-bg-card">
+        <div className="rounded-lg border border-[color:var(--border)] bg-bg-card h-full flex flex-col min-h-0">
           <div className="flex items-center justify-between gap-2 px-3 h-10 border-b border-[color:var(--border)]">
             <label className="flex items-center gap-2 cursor-pointer">
               <input
@@ -137,7 +138,7 @@ export function SeminarComposeStep2Target({
           )}
 
           {visibleRecipients.length > 0 && (
-            <ul className="max-h-[28rem] overflow-auto divide-y divide-[color:var(--border)]">
+            <ul className="flex-1 min-h-0 overflow-auto divide-y divide-[color:var(--border)]">
               {visibleRecipients.map((r) => {
                 const checked = !deselected.has(r.studentId);
                 const phone = r.parentPhone || r.studentPhone;

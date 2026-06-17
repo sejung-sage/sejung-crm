@@ -486,15 +486,18 @@ export function Field({
   required,
   hint,
   children,
+  fill = false,
 }: {
   label: string;
   required?: boolean;
   hint?: string;
   children: React.ReactNode;
+  /** true 면 부모 높이를 채우도록 flex-col + children flex-1 (목록을 컬럼 높이만큼). */
+  fill?: boolean;
 }) {
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
+    <div className={fill ? "flex flex-col h-full min-h-0 gap-2" : "space-y-2"}>
+      <div className="flex items-center gap-2 shrink-0">
         <label className="text-[13px] font-medium text-[color:var(--text)]">
           {label}
           {required && (
@@ -509,7 +512,7 @@ export function Field({
           </span>
         )}
       </div>
-      {children}
+      {fill ? <div className="flex-1 min-h-0">{children}</div> : children}
     </div>
   );
 }
