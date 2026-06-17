@@ -75,6 +75,7 @@ export function SeminarComposeStep2Target({
         발송 대상
       </h2>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
       <FilterChipPanel
         value={chip}
         onChange={onChipChange}
@@ -173,6 +174,7 @@ export function SeminarComposeStep2Target({
           )}
         </div>
       </Field>
+      </div>
 
       <p className="text-[12px] text-[color:var(--text-dim)] leading-relaxed">
         비활성(탈퇴) · 수신거부 · 번호 결측 학생은 발송 시 자동 제외됩니다.

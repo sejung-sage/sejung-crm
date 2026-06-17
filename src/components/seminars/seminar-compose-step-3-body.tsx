@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useMemo, useRef } from "react";
 import { AlertTriangle, Link as LinkIcon, Megaphone } from "lucide-react";
 import type { ClassSignupOption } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
@@ -75,7 +75,7 @@ const INPUT_CLASS = `
 `;
 
 const TEXTAREA_CLASS = `
-  w-full rounded-lg px-3 py-2.5 resize-none overflow-hidden min-h-[12rem]
+  w-full rounded-lg px-3 py-2.5 resize-none overflow-auto min-h-[10rem]
   bg-bg-card border border-[color:var(--border)]
   text-[15px] leading-relaxed text-[color:var(--text)]
   placeholder:text-[color:var(--text-dim)]
@@ -93,14 +93,6 @@ export function SeminarComposeStep3Body({
 }: Props) {
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const brandName = useMemo(() => branchBrandName(branch), [branch]);
-
-  // 내용 입력칸을 스크롤 대신 내용 길이만큼 자동으로 늘린다(미리보기처럼 전체 표시).
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [state.body]);
 
   // 브랜드 머리(+광고)·footer 가드 적용한 최종 본문 — 바이트 측정·오버플로 기준.
   const clientFinalBody = useMemo(() => {
@@ -306,15 +298,46 @@ export function SeminarComposeStep3Body({
       )}
 
       {/* ── 2박스: 세정학원 문자 / 미리보기 ──────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
         {/* 박스 1 — 세정학원 문자 작성 */}
         <section
           aria-label="세정학원 문자 작성"
-          className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 space-y-4"
+          className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 flex flex-col gap-4"
         >
-          <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
-            세정학원 문자
-          </h3>
+          {/* 헤더: 제목 + 변수 삽입 */}
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
+              세정학원 문자
+            </h3>
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[12px] text-[color:var(--text-muted)]">
+                변수 삽입
+              </span>
+              <button
+                type="button"
+                onClick={insertInviteToken}
+                className="
+                  inline-flex items-center gap-1 h-8 px-3 rounded-full
+                  border border-[color:var(--border)] bg-bg-card
+                  text-[12px] text-[color:var(--text)]
+                  hover:bg-[color:var(--bg-hover)]
+                  focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)]
+                  transition-colors
+                "
+                aria-label="초대링크 변수 삽입"
+              >
+                <LinkIcon className="size-3.5" strokeWidth={1.75} aria-hidden />
+                <span
+                  style={{
+                    fontFamily:
+                      "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
+                  }}
+                >
+                  {"{초대링크}"}
+                </span>
+              </button>
+            </div>
+          </div>
 
           {/* 제목 (LMS) */}
           {state.type === "LMS" && (
@@ -354,40 +377,8 @@ export function SeminarComposeStep3Body({
             </div>
           )}
 
-          {/* 변수 삽입 */}
-          <div className="space-y-1.5">
-            <span className="text-[12px] text-[color:var(--text-muted)]">
-              변수 삽입
-            </span>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <button
-                type="button"
-                onClick={insertInviteToken}
-                className="
-                  inline-flex items-center gap-1 h-8 px-3 rounded-full
-                  border border-[color:var(--border)] bg-bg-card
-                  text-[12px] text-[color:var(--text)]
-                  hover:bg-[color:var(--bg-hover)]
-                  focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)]
-                  transition-colors
-                "
-                aria-label="초대링크 변수 삽입"
-              >
-                <LinkIcon className="size-3.5" strokeWidth={1.75} aria-hidden />
-                <span
-                  style={{
-                    fontFamily:
-                      "var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)",
-                  }}
-                >
-                  {"{초대링크}"}
-                </span>
-              </button>
-            </div>
-          </div>
-
           {/* 내용(본문) */}
-          <div className="space-y-1.5">
+          <div className="flex-1 flex flex-col gap-1.5 min-h-0">
             <div className="flex items-baseline justify-between gap-2">
               <label
                 htmlFor="seminar-body"
@@ -413,8 +404,7 @@ export function SeminarComposeStep3Body({
               value={state.body}
               onChange={(e) => onChange({ body: e.target.value })}
               placeholder="문자 본문을 입력하세요."
-              rows={10}
-              className={TEXTAREA_CLASS}
+              className={`${TEXTAREA_CLASS} flex-1`}
               style={{ fontFamily: "var(--font-sans)" }}
             />
             <p className="text-[11px] text-[color:var(--text-dim)] leading-relaxed">

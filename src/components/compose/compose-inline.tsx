@@ -3,7 +3,6 @@
 import Link from "next/link";
 import {
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -95,7 +94,7 @@ const INPUT_CLASS = `
 `;
 
 const TEXTAREA_CLASS = `
-  w-full rounded-lg px-3 py-2.5 resize-none overflow-hidden min-h-[12rem]
+  w-full rounded-lg px-3 py-2.5 resize-none overflow-auto min-h-[10rem]
   bg-bg-card border border-[color:var(--border)]
   text-[15px] leading-relaxed text-[color:var(--text)]
   placeholder:text-[color:var(--text-dim)]
@@ -387,14 +386,6 @@ export function ComposeInline({
     return { name, date };
   }, [preview, scheduleAt]);
 
-  // 본문 입력칸을 스크롤 대신 내용 길이만큼 자동으로 늘린다(미리보기처럼 전체 표시).
-  useLayoutEffect(() => {
-    const el = bodyRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [step2.body]);
-
   // 미리보기 본문 — 브랜드 머리(+광고)는 insertSenderHeader 로 반영, {이름}·{날짜}는
   // 예시값으로 치환. footer(무료 수신거부)는 PhonePreviewCard 가 따로 렌더한다.
   const previewBody = useMemo(() => {
@@ -662,15 +653,34 @@ export function ComposeInline({
         </div>
 
         {/* 2박스: 작성 / 미리보기 */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
           {/* 박스 1 — 문자 작성 */}
           <section
             aria-label="세정학원 문자 작성"
-            className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 space-y-4"
+            className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 flex flex-col gap-4"
           >
-            <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
-              세정학원 문자
-            </h3>
+            {/* 헤더: 제목 + 변수 삽입 */}
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
+                세정학원 문자
+              </h3>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-[12px] text-[color:var(--text-muted)]">
+                  변수 삽입
+                </span>
+                {VARIABLE_TOKENS.map((v) => (
+                  <button
+                    key={v.token}
+                    type="button"
+                    onClick={() => insertToken(v.token)}
+                    className="inline-flex items-center justify-center h-8 px-3 rounded-full border border-[color:var(--border)] bg-bg-card text-[12px] text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)] transition-colors"
+                    aria-label={`${v.label} 삽입`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {/* 제목 (LMS) */}
             {step2.type === "LMS" && (
@@ -712,28 +722,8 @@ export function ComposeInline({
               </div>
             )}
 
-            {/* 변수 삽입 */}
-            <div className="space-y-1.5">
-              <span className="text-[12px] text-[color:var(--text-muted)]">
-                변수 삽입
-              </span>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                {VARIABLE_TOKENS.map((v) => (
-                  <button
-                    key={v.token}
-                    type="button"
-                    onClick={() => insertToken(v.token)}
-                    className="inline-flex items-center justify-center h-8 px-3 rounded-full border border-[color:var(--border)] bg-bg-card text-[12px] text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)] transition-colors"
-                    aria-label={`${v.label} 삽입`}
-                  >
-                    {v.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* 내용(본문) */}
-            <div className="space-y-1.5">
+            <div className="flex-1 flex flex-col gap-1.5 min-h-0">
               <div className="flex items-baseline justify-between gap-2">
                 <label
                   htmlFor="compose-body"
@@ -761,8 +751,7 @@ export function ComposeInline({
                   setStep2((s) => ({ ...s, body: e.target.value }))
                 }
                 placeholder="문자 본문을 입력하세요."
-                rows={10}
-                className={TEXTAREA_CLASS}
+                className={`${TEXTAREA_CLASS} flex-1`}
                 style={{ fontFamily: "var(--font-sans)" }}
               />
               {bodyOverflow && (
@@ -960,6 +949,7 @@ export function ComposeInline({
             발송 대상
           </h2>
 
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           <FilterChipPanel
             value={chip}
             onChange={(next) => {
@@ -1068,6 +1058,7 @@ export function ComposeInline({
               )}
             </div>
           </Field>
+          </div>
 
           <p className="text-[12px] text-[color:var(--text-dim)] leading-relaxed">
             비활성(탈퇴) · 수신거부 학생은 발송 시 자동 제외됩니다.
