@@ -43,6 +43,11 @@ interface Props {
   /** 부모에서 본문 비었거나 바이트 초과 시 true. 기본 false. */
   disabled?: boolean;
   /**
+   * 발송 분원 — 일반 테스트 발송의 발신번호·브랜드 분원 해석용. 미지정 시 본인 분원.
+   * (설명회 모드는 선택 강좌의 분원으로 서버가 해석하므로 이 값을 쓰지 않는다.)
+   */
+  branch?: string;
+  /**
    * 설명회 모드 — 선택된 설명회(강좌) ID 목록. length>0 이면 설명회 테스트
    * 경로(seminarTestSendAction)를 사용하고 실제 초대 링크를 받아 노출한다.
    * 이 경우 `body` 는 `{초대링크}` 가 든 raw 본문이어야 한다.
@@ -62,6 +67,7 @@ export function TestSendCard({
   body,
   isAd,
   disabled = false,
+  branch,
   seminarClassIds,
   seminarAllowMultiple,
 }: Props) {
@@ -156,6 +162,7 @@ export function TestSendCard({
           sendToStudent: false,
         },
         toPhone: normalized,
+        branch,
       });
       if (result.status === "success") {
         showToast(

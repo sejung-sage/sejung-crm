@@ -145,6 +145,7 @@ export async function testSendAction(
     type: parsed.step2.type,
     isAd: parsed.step2.isAd,
     toPhone: parsed.toPhone,
+    branch: parsed.branch,
   });
 }
 

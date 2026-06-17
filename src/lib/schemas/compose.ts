@@ -147,6 +147,8 @@ export const TestSendInputSchema = z.object({
   toPhone: z
     .string()
     .regex(/^01[016789][0-9]{7,8}$/, "휴대폰 번호 형식이 올바르지 않습니다"),
+  /** 작성 화면에서 고른 발송 분원 — 발신번호·브랜드 분원 해석용. 미지정 시 본인 분원. */
+  branch: z.string().trim().min(1).max(20).optional(),
 });
 export type TestSendInput = z.infer<typeof TestSendInputSchema>;
 

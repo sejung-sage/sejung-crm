@@ -1530,6 +1530,8 @@ export async function seminarTestSendAction(
     type: input.type,
     isAd: input.isAd,
     toPhone: phone,
+    // 설명회 테스트도 해당 설명회(강좌)의 분원 번호·브랜드로 나가게.
+    branch: classBranch,
   });
 
   // 10) 발송 실패/차단이어도 invitation 은 이미 생성됨 → inviteUrl 항상 반환.

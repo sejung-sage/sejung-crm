@@ -38,6 +38,8 @@ export interface TestSendInput {
   isAd: boolean;
   /** 테스트 수신 번호 (하이픈 무관 — 내부에서 정규화). */
   toPhone: string;
+  /** 발송 분원 — 발신번호·브랜드 분원 해석용. 미지정 시 본인 분원(user.branch). */
+  branch?: string;
 }
 
 type SupabaseSrv = Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -60,17 +62,20 @@ export async function testSend(
   if (!user) {
     return { status: "failed", reason: "로그인 후 이용 가능합니다" };
   }
+  // 발신번호·브랜드 분원 — 작성 화면에서 고른 분원(input.branch) 우선, 없으면 본인 분원.
+  // 마스터가 반포를 작성 중이면 반포 번호로 테스트가 나가게 한다.
+  const sendBranch = input.branch ?? user.branch;
 
   const phone = input.toPhone.replace(/\D/g, "");
   if (!/^01[016789][0-9]{7,8}$/.test(phone)) {
     return { status: "failed", reason: "휴대폰 번호 형식이 올바르지 않습니다" };
   }
 
-  // 3) 가드 적용 (야간 광고 차단 등). 발신 브랜드는 본인 분원 기준.
+  // 3) 가드 적용 (야간 광고 차단 등). 발신 브랜드는 sendBranch(작성 분원) 기준.
   const guarded = applyAllGuards({
     body: input.body,
     isAd: input.isAd,
-    brand: branchBrandName(user.branch),
+    brand: branchBrandName(sendBranch),
     scheduledAt: new Date(),
     recipients: [
       {
@@ -108,7 +113,7 @@ export async function testSend(
     total_recipients: 1,
     total_cost: 0,
     created_by: user.user_id,
-    branch: user.branch,
+    branch: sendBranch,
     is_test: true,
   };
 
@@ -140,9 +145,9 @@ export async function testSend(
 
   // 6) 어댑터 1회 호출
   const adapter = createSmsAdapter();
-  // 분원별 발신번호 — 테스트 캠페인 기록과 동일하게 본인 분원(user.branch) 기준.
+  // 분원별 발신번호 — sendBranch(작성 분원, 없으면 본인) 기준.
   // 마스터 등 매핑 없는 분원은 SENDON_FROM_NUMBER 로 폴백.
-  const fromNumber = readFromNumber(adapter.name, user.branch);
+  const fromNumber = readFromNumber(adapter.name, sendBranch);
   if (!fromNumber) {
     await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
     return {

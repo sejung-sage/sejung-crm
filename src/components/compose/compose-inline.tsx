@@ -648,6 +648,7 @@ export function ComposeInline({
             subject={step2.subject ?? null}
             body={step2.body}
             isAd={step2.isAd}
+            branch={branch}
             disabled={!step2.body.trim()}
           />
         </div>
@@ -1022,7 +1023,8 @@ export function ComposeInline({
               )}
 
               {visibleRecipients.length > 0 && (
-                <ul className="flex-1 min-h-0 overflow-auto divide-y divide-[color:var(--border)]">
+                <div className="relative flex-1 min-h-0">
+                  <ul className="absolute inset-0 overflow-auto divide-y divide-[color:var(--border)]">
                   {visibleRecipients.map((r) => {
                     const checked = !deselected.has(r.studentId);
                     const phone = r.parentPhone || r.studentPhone;
@@ -1047,7 +1049,8 @@ export function ComposeInline({
                       </li>
                     );
                   })}
-                </ul>
+                  </ul>
+                </div>
               )}
 
               {truncated && (
