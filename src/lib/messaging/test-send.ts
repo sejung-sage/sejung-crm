@@ -21,6 +21,7 @@ import { calculateCost } from "./calculate-cost";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { sendonFromNumber } from "@/config/sender-numbers";
 import type { SendCampaignResult } from "./send-campaign";
 
 /** 테스트 발송 본문에서 `{이름}` 토큰을 치환할 때 사용하는 fallback 이름. */
@@ -134,7 +135,9 @@ export async function testSend(
 
   // 6) 어댑터 1회 호출
   const adapter = createSmsAdapter();
-  const fromNumber = readFromNumber(adapter.name);
+  // 분원별 발신번호 — 테스트 캠페인 기록과 동일하게 본인 분원(user.branch) 기준.
+  // 마스터 등 매핑 없는 분원은 SENDON_FROM_NUMBER 로 폴백.
+  const fromNumber = readFromNumber(adapter.name, user.branch);
   if (!fromNumber) {
     await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
     return {
@@ -219,10 +222,13 @@ function shortenForTitle(body: string): string {
   return `${first.slice(0, 20)}...`;
 }
 
-function readFromNumber(adapterName: string): string | null {
+function readFromNumber(
+  adapterName: string,
+  branch?: string | null,
+): string | null {
   switch (adapterName) {
     case "sendon":
-      return process.env.SENDON_FROM_NUMBER ?? "01000000000";
+      return sendonFromNumber(branch);
     default:
       return null;
   }

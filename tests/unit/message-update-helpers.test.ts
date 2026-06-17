@@ -19,26 +19,45 @@ import type { SmsSendResult } from "@/types/messaging";
  * 클라이언트 부수효과 함수라 실 DB(E2E)에서 검증한다.
  */
 
-describe("readFromNumber · 어댑터별 발신번호 (env 단일 소스)", () => {
-  const ORIGINAL = process.env.SENDON_FROM_NUMBER;
+describe("readFromNumber · 분원별 발신번호 (env)", () => {
+  const ENV_KEYS = [
+    "SENDON_FROM_NUMBER",
+    "SENDON_FROM_NUMBER_DAECHI",
+    "SENDON_FROM_NUMBER_SONGDO",
+    "SENDON_FROM_NUMBER_BANPO",
+    "SENDON_FROM_NUMBER_BANGBAE",
+  ] as const;
+  const ORIGINAL: Record<string, string | undefined> = {};
+  for (const k of ENV_KEYS) ORIGINAL[k] = process.env[k];
 
   afterEach(() => {
-    if (ORIGINAL === undefined) {
-      delete process.env.SENDON_FROM_NUMBER;
-    } else {
-      process.env.SENDON_FROM_NUMBER = ORIGINAL;
+    for (const k of ENV_KEYS) {
+      if (ORIGINAL[k] === undefined) delete process.env[k];
+      else process.env[k] = ORIGINAL[k];
     }
   });
 
-  it("sendon → SENDON_FROM_NUMBER env 값을 반환", () => {
+  it("sendon · branch 없음 → SENDON_FROM_NUMBER 폴백값", () => {
     process.env.SENDON_FROM_NUMBER = "0212345678";
     expect(readFromNumber("sendon")).toBe("0212345678");
   });
 
-  it("sendon + env 미설정 → 하드코딩 fallback('01000000000')", () => {
-    // 하드코딩 금지 가드의 예외: env 누락 시 더미 fallback(실 발송은 dev-seed 차단).
+  it("sendon · 분원 전용 키가 있으면 그 값을 반환", () => {
+    process.env.SENDON_FROM_NUMBER = "025670606";
+    process.env.SENDON_FROM_NUMBER_SONGDO = "0328580005";
+    expect(readFromNumber("sendon", "송도")).toBe("0328580005");
+    expect(readFromNumber("sendon", "대치")).toBe("025670606"); // 키 미설정 → 폴백
+  });
+
+  it("sendon · 하이픈 섞인 env 도 숫자만 추출", () => {
+    process.env.SENDON_FROM_NUMBER_BANPO = "02-6242-0909";
+    expect(readFromNumber("sendon", "반포")).toBe("0262420909");
+  });
+
+  it("sendon · 분원 키·폴백 모두 미설정 → null (호출부가 발송 거부)", () => {
     delete process.env.SENDON_FROM_NUMBER;
-    expect(readFromNumber("sendon")).toBe("01000000000");
+    expect(readFromNumber("sendon", "방배")).toBeNull();
+    expect(readFromNumber("sendon")).toBeNull();
   });
 
   it("알 수 없는 어댑터명 → null (호출부가 발송 거부)", () => {

@@ -48,6 +48,7 @@ import {
   INVITE_LINK_TOKEN,
   SENDON_INVITE_PLACEHOLDER,
 } from "@/lib/seminars/dispatch-broadcast";
+import { sendonFromNumber } from "@/config/sender-numbers";
 import type {
   CampaignRow,
   CampaignStatus,
@@ -166,7 +167,8 @@ export async function drainCampaignChunk(
     sendBody = hasName ? toSendonNameSyntax(guardedBody) : guardedBody;
   }
   const adapter = createSmsAdapter();
-  const fromNumber = readFromNumber(adapter.name);
+  // 분원별 발신번호 — 캠페인 분원 기준(미설정 분원은 SENDON_FROM_NUMBER 폴백).
+  const fromNumber = readFromNumber(adapter.name, campaign.branch);
   if (!fromNumber) {
     await updateCampaignStatus(supabase, campaignId, "실패");
     throw new Error("발신번호 환경변수가 설정되어 있지 않습니다");
@@ -630,10 +632,13 @@ async function incrementCampaignCost(
     .eq("id", campaignId);
 }
 
-function readFromNumber(adapterName: string): string | null {
+function readFromNumber(
+  adapterName: string,
+  branch?: string | null,
+): string | null {
   switch (adapterName) {
     case "sendon":
-      return process.env.SENDON_FROM_NUMBER ?? "01000000000";
+      return sendonFromNumber(branch);
     default:
       return null;
   }

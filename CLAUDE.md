@@ -67,6 +67,12 @@ architect → [backend-dev, frontend-dev (병렬)] → qa-engineer
   + 사전 등록 템플릿 ID 가 필요해 Phase 1 으로 미룸
 - 인증: `id` (콘솔 로그인 ID) + `apikey` 이중. env 는 `SENDON_USER_ID` / `SENDON_API_KEY` /
   `SENDON_FROM_NUMBER` 3종 모두 필수
+- **분원별 발신번호** (2026-06-17): 분원마다 sendon 등록 번호가 달라 분원 기준으로
+  발신번호를 해석한다. 단일 소스 `src/config/sender-numbers.ts` 의 `sendonFromNumber(branch)`.
+  env(값은 하이픈 없는 숫자): `SENDON_FROM_NUMBER_DAECHI`(대치) / `_SONGDO`(송도) /
+  `_BANPO`(반포) / `_BANGBAE`(방배). 분원 키 미설정 시 `SENDON_FROM_NUMBER` 폴백.
+  발송 경로(drain/test/resend/excel/seminar)는 모두 캠페인·발송 분원을 넘겨 이 함수로 해석.
+  ⚠️ sendon 검수 '정상' 번호만 실제 발송됨 — '검수 대기중' 번호는 발송 실패.
 - 세정학원 전용 단가 (부가세 별도, 소수 포함):
   - SMS 7.4원 / LMS 24원 / 알림톡 6.4원 / MMS 59.2원 (MMS 는 컬럼 정의만)
 - 단가는 `src/lib/messaging/cost-rates.ts` 의 `SENDON_UNIT_COST` 단일 소스

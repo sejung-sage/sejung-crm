@@ -18,6 +18,7 @@
 
 import type { SmsSendResult } from "./adapters/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { sendonFromNumber } from "@/config/sender-numbers";
 
 type SupabaseSrv = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
@@ -32,12 +33,16 @@ export type CampaignStatus =
 
 /**
  * 어댑터별 발신번호를 환경변수에서만 읽는다. 하드코딩 금지(CLAUDE.md 가드).
- * 알 수 없는 어댑터면 null → 호출부가 발송을 거부한다.
+ * sendon 은 분원별 번호가 달라 branch 를 받아 분원 전용 번호를 해석한다(미설정 시
+ * SENDON_FROM_NUMBER 폴백). 알 수 없는 어댑터면 null → 호출부가 발송을 거부한다.
  */
-export function readFromNumber(adapterName: string): string | null {
+export function readFromNumber(
+  adapterName: string,
+  branch?: string | null,
+): string | null {
   switch (adapterName) {
     case "sendon":
-      return process.env.SENDON_FROM_NUMBER ?? "01000000000";
+      return sendonFromNumber(branch);
     default:
       return null;
   }

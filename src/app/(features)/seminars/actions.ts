@@ -22,6 +22,7 @@ import { revalidatePath } from "next/cache";
 import { waitUntil } from "@vercel/functions";
 import { ZodError } from "zod";
 import { loadRecipientsByFilters } from "@/lib/groups/load-all-group-recipients";
+import { sendonFromNumber } from "@/config/sender-numbers";
 
 import {
   CancelSignupInputSchema,
@@ -1054,12 +1055,14 @@ export async function createSeminarBroadcastAction(
   //    (약 5분)에 걸려 발송이 통째로 죽었다(2026-06-11). 청크 벌크 INSERT 로 왕복
   //    N회 → ceil(N/1000)회로 줄여 수만 명도 수 초 안에 적재한다.
   //    link_token UNIQUE(23505) 충돌은 해당 청크를 새 토큰으로 재시도.
-  const fromNumber = process.env.SENDON_FROM_NUMBER;
+  // 분원별 발신번호 사전 검증 — 실제 발송(drain-campaign)도 같은 분원 기준으로
+  // 발신번호를 다시 해석한다. 여기서 막아 적재 전에 실패를 알린다.
+  const fromNumber = sendonFromNumber(parsed.branch);
   if (!fromNumber || fromNumber.length === 0) {
     await safeMarkCampaignFailed(supabase, campaignId);
     return {
       status: "failed",
-      reason: "SENDON_FROM_NUMBER 환경변수가 설정되지 않았습니다",
+      reason: `${parsed.branch} 분원의 발신번호 환경변수가 설정되지 않았습니다`,
     };
   }
 

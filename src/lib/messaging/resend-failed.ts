@@ -208,7 +208,8 @@ export async function resendFailedMessages(
   }
 
   const adapter = createSmsAdapter();
-  const fromNumber = readFromNumber(adapter.name);
+  // 분원별 발신번호 — 재발송 대상 캠페인의 분원 기준.
+  const fromNumber = readFromNumber(adapter.name, campaign.branch);
   if (!fromNumber) {
     return {
       status: "failed",
