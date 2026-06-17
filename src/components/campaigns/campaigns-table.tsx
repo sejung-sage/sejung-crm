@@ -96,7 +96,7 @@ export function CampaignsTable({ rows }: Props) {
                     router.push(`/campaigns/${c.id}`);
                   }}
                 >
-                  <Td>
+                  <Td className="whitespace-normal min-w-[16rem]">
                     <Link
                       href={`/campaigns/${c.id}`}
                       className="font-medium text-[color:var(--text)] hover:underline"
@@ -215,7 +215,7 @@ function Td({
 }) {
   return (
     <td
-      className={`px-4 py-3 text-[15px] ${className}`}
+      className={`px-4 py-3 text-[15px] whitespace-nowrap ${className}`}
       data-row-stop={onClickStop ? "" : undefined}
       onClick={onClickStop ? (e) => e.stopPropagation() : undefined}
     >
