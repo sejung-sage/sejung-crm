@@ -25,10 +25,12 @@ import { SeminarComposeStep4Send } from "./seminar-compose-step-4-send";
  * 동일한 인라인 필터 칩 + 매칭 학생 체크 목록으로 교체. group_id 의존을 버리고
  * backend `createSeminarBroadcastAction(filters, branch)` 경로를 그대로 쓴다.
  *
- * 2026-06-16 레이아웃 통일: 일반 SMS /compose 와 동일한 배치로 맞춤.
+ * 2026-06-16 레이아웃:
  *   ┌ 설명회 선택 (설명회 발송에만 있는 고유 단계 · 다중)
- *   ├ 2열 ─ 좌: 문자 작성(편집형 폰 미리보기 일체형 · {초대링크})
- *   │       우: 발송 대상(필터 칩 + 매칭 명단 체크, 해제분 = excludeStudentIds)
+ *   ├ 문자 작성 (전체폭) ─ 좌: 세정학원 문자 입력 / 우: 미리보기 폰 카드(읽기전용,
+ *   │   {초대링크} → 예시 URL 치환까지 시각화). 운영자 요청으로 편집형 일체형이
+ *   │   아닌 "작성 | 미리보기" 좌우 분리 유지.
+ *   ├ 발송 대상 (전체폭) ─ 필터 칩 + 매칭 명단 체크(해제분 = excludeStudentIds)
  *   └ 하단: 발송 바(즉시/예약 + 대상 N명 + 발송, 조건 충족 후 활성)
  * 중복 신청 허용 토글은 설명회 선택과 의미가 묶여 그 섹션 하단에 둔다.
  */
@@ -253,34 +255,33 @@ export function SeminarComposeWizard({
         />
       </section>
 
-      {/* ── 2열: 좌 문자 작성 / 우 발송 대상 (일반 SMS /compose 와 동일 구성) ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        <SeminarComposeStep3Body
-          state={state}
-          onChange={(patch) => setState((p) => ({ ...p, ...patch }))}
-          selectedClasses={selectedClasses}
-          recipientCount={checkedCount}
-          optOutNumber={optOutNumber}
-        />
+      {/* ── 문자 작성 (작성 박스 | 미리보기 박스 좌우, 전체폭) ── */}
+      <SeminarComposeStep3Body
+        state={state}
+        onChange={(patch) => setState((p) => ({ ...p, ...patch }))}
+        selectedClasses={selectedClasses}
+        recipientCount={checkedCount}
+        optOutNumber={optOutNumber}
+      />
 
-        <SeminarComposeStep2Target
-          chip={chip}
-          onChipChange={setChip}
-          branch={branch}
-          schoolOptions={schoolOptions}
-          classOptions={classOptions}
-          availableGrades={availableGrades}
-          availableRegions={availableRegions}
-          recipients={recipients}
-          total={total}
-          deselected={deselected}
-          onToggleRecipient={toggleRecipient}
-          onSetAll={setAll}
-          listLoading={listLoading}
-          listError={listError}
-          devMode={devMode}
-        />
-      </div>
+      {/* ── 발송 대상 (필터 + 학생 체크, 전체폭) ── */}
+      <SeminarComposeStep2Target
+        chip={chip}
+        onChipChange={setChip}
+        branch={branch}
+        schoolOptions={schoolOptions}
+        classOptions={classOptions}
+        availableGrades={availableGrades}
+        availableRegions={availableRegions}
+        recipients={recipients}
+        total={total}
+        deselected={deselected}
+        onToggleRecipient={toggleRecipient}
+        onSetAll={setAll}
+        listLoading={listLoading}
+        listError={listError}
+        devMode={devMode}
+      />
 
       {/* ── 하단 발송 바 ── */}
       <SeminarComposeStep4Send
