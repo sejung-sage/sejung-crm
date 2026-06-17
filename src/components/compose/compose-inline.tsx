@@ -3,11 +3,11 @@
 import Link from "next/link";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   useTransition,
-  type RefObject,
 } from "react";
 import {
   AlertTriangle,
@@ -39,7 +39,6 @@ import {
 } from "@/components/groups/filter-chip-panel";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
-import { BRANCHES } from "@/config/branches";
 import { formatPhone } from "@/lib/phone";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
@@ -86,6 +85,24 @@ const VARIABLE_TOKENS: Array<{ token: string; label: string }> = [
   { token: "{날짜}", label: "{날짜}" },
 ];
 
+const INPUT_CLASS = `
+  w-full h-11 rounded-lg px-3
+  bg-bg-card border border-[color:var(--border)]
+  text-[15px] text-[color:var(--text)]
+  placeholder:text-[color:var(--text-dim)]
+  focus:outline-none focus:border-[color:var(--border-strong)]
+  transition-colors
+`;
+
+const TEXTAREA_CLASS = `
+  w-full rounded-lg px-3 py-2.5 resize-none overflow-hidden min-h-[12rem]
+  bg-bg-card border border-[color:var(--border)]
+  text-[15px] leading-relaxed text-[color:var(--text)]
+  placeholder:text-[color:var(--text-dim)]
+  focus:outline-none focus:border-[color:var(--border-strong)]
+  transition-colors
+`;
+
 interface Step2State {
   templateId?: string;
   type: TemplateTypeLiteral;
@@ -99,8 +116,11 @@ interface Step2State {
 
 interface Props {
   branch: string;
-  /** 분원 변경 가능 여부. master 만 true. */
-  canPickBranch: boolean;
+  /**
+   * 분원 변경 가능 여부(master). 분원 변경은 좌측 상단 사이드바에서 하므로
+   * 이 컴포넌트에서는 사용하지 않지만, 호출부 계약 유지를 위해 prop 은 받는다.
+   */
+  canPickBranch?: boolean;
   /**
    * 진입 prefill 초기 필터(서버에서 학생/강좌/회차를 학생 id 로 해석한 결과).
    * kind='custom' + includeStudentIds 면 그 학생들로 시작(우측 명단·체크가 채워짐).
@@ -140,7 +160,6 @@ function emptyChipValue(): FilterChipValue {
 
 export function ComposeInline({
   branch: initialBranch,
-  canPickBranch,
   initialFilters,
   schoolOptions,
   classOptions,
@@ -150,7 +169,7 @@ export function ComposeInline({
   optOutNumber,
   devMode,
 }: Props) {
-  const [branch, setBranch] = useState(initialBranch);
+  const branch = initialBranch;
   const [chip, setChip] = useState<FilterChipValue>(emptyChipValue);
   // 체크 해제한 학생 id (= excludeStudentIds). 기본은 전부 체크(빈 집합).
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
@@ -368,6 +387,35 @@ export function ComposeInline({
     return { name, date };
   }, [preview, scheduleAt]);
 
+  // 본문 입력칸을 스크롤 대신 내용 길이만큼 자동으로 늘린다(미리보기처럼 전체 표시).
+  useLayoutEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [step2.body]);
+
+  // 미리보기 본문 — 브랜드 머리(+광고)는 insertSenderHeader 로 반영, {이름}·{날짜}는
+  // 예시값으로 치환. footer(무료 수신거부)는 PhonePreviewCard 가 따로 렌더한다.
+  const previewBody = useMemo(() => {
+    const guarded = insertSenderHeader(step2.body, step2.isAd, brandName);
+    return guarded
+      .split("{이름}")
+      .join(sampleValues.name)
+      .split("{날짜}")
+      .join(sampleValues.date);
+  }, [step2.body, step2.isAd, brandName, sampleValues]);
+
+  // 미리보기 제목 — LMS 면 {이름}·{날짜} 치환, SMS 면 제목 없음.
+  const previewSubject = useMemo(() => {
+    if (step2.type !== "LMS") return null;
+    return (step2.subject ?? "")
+      .split("{이름}")
+      .join(sampleValues.name)
+      .split("{날짜}")
+      .join(sampleValues.date);
+  }, [step2.type, step2.subject, sampleValues]);
+
   const minScheduleAt = useMemo(
     () => toLocalDatetimeInput(new Date(Date.now() + 30 * 60_000)),
     [],
@@ -523,172 +571,87 @@ export function ComposeInline({
 
   return (
     <div className="space-y-6">
-      {/* 분원 선택 */}
+      {/* 분원 (선택된 1개만, 비대화형) */}
       <div className="flex items-center gap-3 flex-wrap">
         <span className="text-[13px] font-medium text-[color:var(--text)]">
           발송 분원
         </span>
-        <div className="flex gap-1.5">
-          {BRANCHES.map((b) => {
-            const active = branch === b;
-            if (!canPickBranch && !active) return null;
-            return (
-              <button
-                key={b}
-                type="button"
-                onClick={() => {
-                  if (!canPickBranch || b === branch) return;
-                  setBranch(b);
-                  // 분원을 바꾸면 prefill 고정 명단은 의미를 잃으므로 조건 모드로.
-                  setUseCustom(false);
-                  setDeselected(new Set());
-                  setResult(null);
-                }}
-                aria-pressed={active}
-                disabled={!canPickBranch}
-                className={`inline-flex items-center h-9 px-3.5 rounded-full text-[14px] font-medium border transition-colors ${
-                  active
-                    ? "bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]"
-                    : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
-                } disabled:cursor-default`}
-              >
-                {b}
-              </button>
-            );
-          })}
-        </div>
-        {!canPickBranch && (
-          <span className="text-[12px] text-[color:var(--text-dim)]">
-            본인 분원으로 고정됩니다.
-          </span>
-        )}
+        <span className="inline-flex items-center h-9 px-3.5 rounded-full text-[14px] font-medium border bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]">
+          {branch}
+        </span>
+        <span className="text-[12px] text-[color:var(--text-dim)]">
+          분원은 좌측 상단에서 변경합니다.
+        </span>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
-        {/* ── 좌측: 문자 작성 ── */}
-        <div className="space-y-4">
-          <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-            문자 작성
-          </h2>
+      {/* ── 문자 작성 ── */}
+      <section className="space-y-5">
+        <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+          문자 작성
+        </h2>
 
-          {/* 템플릿 불러오기 */}
-          {templates.length > 0 && (
-            <div className="space-y-1">
-              <label
-                htmlFor="compose-template"
-                className="text-[12px] text-[color:var(--text-muted)]"
-              >
-                저장된 템플릿 불러오기 (선택)
-              </label>
-              <select
-                id="compose-template"
-                value={step2.templateId ?? ""}
-                onChange={(e) => onPickTemplate(e.target.value)}
-                className="w-full h-10 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer"
-              >
-                <option value="">— 새로 작성 —</option>
-                {templates.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    [{t.type}] {t.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+        {/* 상단: 유형·템플릿 + 테스트 발송 (한 줄) */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+          <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 space-y-4">
+            {/* 유형 */}
+            <fieldset className="space-y-1.5">
+              <legend className="text-[12px] text-[color:var(--text-muted)]">
+                유형
+              </legend>
+              <div className="grid grid-cols-2 gap-1.5">
+                {TYPE_OPTIONS.map((opt) => {
+                  const checked = step2.type === opt.value;
+                  return (
+                    <label
+                      key={opt.value}
+                      className={`flex items-center justify-center gap-1.5 h-10 rounded-md border cursor-pointer text-[14px] ${
+                        checked
+                          ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
+                          : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="compose-type"
+                        value={opt.value}
+                        checked={checked}
+                        onChange={() => onTypeChange(opt.value)}
+                        className="sr-only"
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            </fieldset>
 
-          {/* 유형 */}
-          <fieldset className="space-y-1.5">
-            <legend className="text-[12px] text-[color:var(--text-muted)]">
-              유형
-            </legend>
-            <div className="grid grid-cols-2 gap-1.5">
-              {TYPE_OPTIONS.map((opt) => {
-                const checked = step2.type === opt.value;
-                return (
-                  <label
-                    key={opt.value}
-                    className={`flex items-center justify-center gap-1.5 h-10 rounded-md border cursor-pointer text-[14px] ${
-                      checked
-                        ? "border-[color:var(--action)] bg-[color:var(--bg-muted)] text-[color:var(--text)] font-medium"
-                        : "border-[color:var(--border)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
-                    }`}
-                  >
-                    <input
-                      type="radio"
-                      name="compose-type"
-                      value={opt.value}
-                      checked={checked}
-                      onChange={() => onTypeChange(opt.value)}
-                      className="sr-only"
-                    />
-                    <span>{opt.label}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </fieldset>
-
-          {/* 미리보기 (editable) */}
-          <PhonePreviewCard
-            type={step2.type}
-            subject={step2.subject}
-            body={step2.body}
-            isAd={step2.isAd}
-            rawBytes={finalBodyBytes}
-            rawOverflow={bodyOverflow}
-            limit={bodyLimit}
-            editable
-            onSubjectChange={(next) =>
-              setStep2((s) => ({ ...s, subject: next }))
-            }
-            onBodyChange={(next) => setStep2((s) => ({ ...s, body: next }))}
-            bodyTextareaRef={bodyRef as RefObject<HTMLTextAreaElement>}
-            footer={step2.isAd ? { unsubscribePhone: optOutNumber } : undefined}
-            samples={sampleValues}
-            recipientCount={preview?.recipientCount}
-            brandName={brandName}
-          />
-
-          {step2.type !== "SMS" && (
-            <p
-              className={`text-[11px] tabular-nums text-right ${
-                subjectOverflow
-                  ? "text-[color:var(--danger)] font-medium"
-                  : "text-[color:var(--text-dim)]"
-              }`}
-              aria-live="polite"
-            >
-              제목 {subjectBytes} / {SUBJECT_BYTE_LIMIT} 바이트
-            </p>
-          )}
-
-          {bodyOverflow && (
-            <p className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]">
-              <AlertTriangle className="size-3.5" strokeWidth={1.75} aria-hidden />
-              현재 {step2.type} 한도({bodyLimit.toLocaleString()}바이트)를
-              초과했습니다.
-            </p>
-          )}
-
-          {/* 변수 삽입 */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[12px] text-[color:var(--text-muted)]">
-              변수 삽입
-            </span>
-            {VARIABLE_TOKENS.map((v) => (
-              <button
-                key={v.token}
-                type="button"
-                onClick={() => insertToken(v.token)}
-                className="inline-flex items-center justify-center h-8 px-3 rounded-full border border-[color:var(--border)] bg-bg-card text-[12px] text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)] transition-colors"
-                aria-label={`${v.label} 삽입`}
-              >
-                {v.label}
-              </button>
-            ))}
+            {/* 템플릿 불러오기 */}
+            {templates.length > 0 && (
+              <div className="space-y-1">
+                <label
+                  htmlFor="compose-template"
+                  className="text-[12px] text-[color:var(--text-muted)]"
+                >
+                  저장된 템플릿 불러오기 (선택)
+                </label>
+                <select
+                  id="compose-template"
+                  value={step2.templateId ?? ""}
+                  onChange={(e) => onPickTemplate(e.target.value)}
+                  className="w-full h-10 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer"
+                >
+                  <option value="">— 새로 작성 —</option>
+                  {templates.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      [{t.type}] {t.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
-          {/* 테스트 발송 */}
+          {/* 테스트 발송 — 유형·템플릿과 한 줄 오른쪽 */}
           <TestSendCard
             type={step2.type}
             subject={step2.subject ?? null}
@@ -696,9 +659,162 @@ export function ComposeInline({
             isAd={step2.isAd}
             disabled={!step2.body.trim()}
           />
+        </div>
 
-          {/* 발송 옵션 */}
-          <fieldset className="space-y-2 rounded-lg border border-[color:var(--border)] p-4">
+        {/* 2박스: 작성 / 미리보기 */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
+          {/* 박스 1 — 문자 작성 */}
+          <section
+            aria-label="세정학원 문자 작성"
+            className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 space-y-4"
+          >
+            <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
+              세정학원 문자
+            </h3>
+
+            {/* 제목 (LMS) */}
+            {step2.type === "LMS" && (
+              <div className="space-y-1.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <label
+                    htmlFor="compose-subject"
+                    className="text-[13px] font-medium text-[color:var(--text)]"
+                  >
+                    제목
+                    {step2.isAd && (
+                      <span className="ml-1 text-[12px] font-normal text-[color:var(--text-muted)]">
+                        (광고) 자동
+                      </span>
+                    )}
+                  </label>
+                  <span
+                    className={`text-[11px] tabular-nums ${
+                      subjectOverflow
+                        ? "text-[color:var(--danger)] font-medium"
+                        : "text-[color:var(--text-dim)]"
+                    }`}
+                    aria-live="polite"
+                  >
+                    {subjectBytes} / {SUBJECT_BYTE_LIMIT} 바이트
+                  </span>
+                </div>
+                <input
+                  id="compose-subject"
+                  type="text"
+                  value={step2.subject ?? ""}
+                  onChange={(e) =>
+                    setStep2((s) => ({ ...s, subject: e.target.value }))
+                  }
+                  placeholder="제목을 입력하세요"
+                  maxLength={40}
+                  className={INPUT_CLASS}
+                />
+              </div>
+            )}
+
+            {/* 변수 삽입 */}
+            <div className="space-y-1.5">
+              <span className="text-[12px] text-[color:var(--text-muted)]">
+                변수 삽입
+              </span>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                {VARIABLE_TOKENS.map((v) => (
+                  <button
+                    key={v.token}
+                    type="button"
+                    onClick={() => insertToken(v.token)}
+                    className="inline-flex items-center justify-center h-8 px-3 rounded-full border border-[color:var(--border)] bg-bg-card text-[12px] text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)] transition-colors"
+                    aria-label={`${v.label} 삽입`}
+                  >
+                    {v.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 내용(본문) */}
+            <div className="space-y-1.5">
+              <div className="flex items-baseline justify-between gap-2">
+                <label
+                  htmlFor="compose-body"
+                  className="text-[13px] font-medium text-[color:var(--text)]"
+                >
+                  내용
+                </label>
+                <span
+                  className={`text-[11px] tabular-nums ${
+                    bodyOverflow
+                      ? "text-[color:var(--danger)] font-medium"
+                      : "text-[color:var(--text-dim)]"
+                  }`}
+                  aria-live="polite"
+                >
+                  {finalBodyBytes.toLocaleString()} /{" "}
+                  {bodyLimit.toLocaleString()} 바이트
+                </span>
+              </div>
+              <textarea
+                id="compose-body"
+                ref={bodyRef}
+                value={step2.body}
+                onChange={(e) =>
+                  setStep2((s) => ({ ...s, body: e.target.value }))
+                }
+                placeholder="문자 본문을 입력하세요."
+                rows={10}
+                className={TEXTAREA_CLASS}
+                style={{ fontFamily: "var(--font-sans)" }}
+              />
+              {bodyOverflow && (
+                <p
+                  role="alert"
+                  className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]"
+                >
+                  <AlertTriangle
+                    className="size-3.5"
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
+                  현재 {step2.type} 한도({bodyLimit.toLocaleString()}바이트)를
+                  초과했습니다.
+                </p>
+              )}
+            </div>
+          </section>
+
+          {/* 박스 2 — 미리보기 */}
+          <section
+            aria-label="미리보기"
+            className="rounded-xl border border-[color:var(--border)] bg-bg-card p-5 space-y-3"
+          >
+            <div className="flex items-baseline justify-between">
+              <h3 className="text-[15px] font-semibold text-[color:var(--text)]">
+                미리보기
+              </h3>
+              <span className="text-[11px] text-[color:var(--text-dim)]">
+                예시 학생 기준
+              </span>
+            </div>
+
+            <PhonePreviewCard
+              type={step2.type}
+              subject={previewSubject}
+              body={previewBody}
+              isAd={step2.isAd}
+              rawBytes={finalBodyBytes}
+              rawOverflow={bodyOverflow}
+              limit={bodyLimit}
+              footer={
+                step2.isAd ? { unsubscribePhone: optOutNumber } : undefined
+              }
+              recipientCount={preview?.recipientCount}
+              brandName={brandName}
+            />
+          </section>
+        </div>
+
+        {/* 발송 옵션 */}
+        <fieldset className="space-y-2 rounded-lg border border-[color:var(--border)] p-4">
             <legend className="flex items-center gap-1.5 px-1 text-[12px] text-[color:var(--text-muted)]">
               <Phone className="size-3.5" strokeWidth={1.75} aria-hidden />
               발송 대상 번호
@@ -836,10 +952,10 @@ export function ComposeInline({
               className="w-full h-10 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[15px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)]"
             />
           </div>
-        </div>
+        </section>
 
-        {/* ── 우측: 대상 ── */}
-        <div className="space-y-4">
+        {/* ── 발송 대상 ── */}
+        <section className="space-y-4">
           <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
             발송 대상
           </h2>
@@ -956,8 +1072,7 @@ export function ComposeInline({
           <p className="text-[12px] text-[color:var(--text-dim)] leading-relaxed">
             비활성(탈퇴) · 수신거부 학생은 발송 시 자동 제외됩니다.
           </p>
-        </div>
-      </div>
+        </section>
 
       {/* ── 하단 발송 바 ── */}
       <div className="rounded-xl border border-[color:var(--border)] bg-[color:var(--bg-muted)] p-5 space-y-4">
