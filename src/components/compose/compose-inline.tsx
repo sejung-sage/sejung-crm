@@ -44,9 +44,10 @@ import { formatPhone } from "@/lib/phone";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import {
-  insertAdTag,
+  insertSenderHeader,
   insertAdSubjectTag,
   insertUnsubscribeFooter,
+  branchBrandName,
 } from "@/lib/messaging/guards";
 import { hasNameToken } from "@/lib/messaging/personalize";
 import { ConfirmSendDialog } from "./confirm-send-dialog";
@@ -333,10 +334,11 @@ export function ComposeInline({
   }, [step2.subject, step2.isAd]);
   const subjectOverflow = subjectBytes > SUBJECT_BYTE_LIMIT;
 
+  const brandName = useMemo(() => branchBrandName(branch), [branch]);
   const clientFinalBody = useMemo(() => {
-    const withAd = insertAdTag(step2.body, step2.isAd);
-    return insertUnsubscribeFooter(withAd, step2.isAd, optOutNumber);
-  }, [step2.body, step2.isAd, optOutNumber]);
+    const withHeader = insertSenderHeader(step2.body, step2.isAd, brandName);
+    return insertUnsubscribeFooter(withHeader, step2.isAd, optOutNumber);
+  }, [step2.body, step2.isAd, optOutNumber, brandName]);
   const finalBodyBytes = useMemo(
     () => countEucKrBytes(clientFinalBody),
     [clientFinalBody],
@@ -644,6 +646,7 @@ export function ComposeInline({
             footer={step2.isAd ? { unsubscribePhone: optOutNumber } : undefined}
             samples={sampleValues}
             recipientCount={preview?.recipientCount}
+            brandName={brandName}
           />
 
           {step2.type !== "SMS" && (

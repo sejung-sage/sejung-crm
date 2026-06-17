@@ -262,6 +262,7 @@ export function SeminarComposeWizard({
         selectedClasses={selectedClasses}
         recipientCount={checkedCount}
         optOutNumber={optOutNumber}
+        branch={branch}
       />
 
       {/* ── 발송 대상 (필터 + 학생 체크, 전체폭) ── */}

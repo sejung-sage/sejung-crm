@@ -15,7 +15,11 @@
 
 import { createSmsAdapter } from "./adapters";
 import type { SmsSendResult } from "./adapters/types";
-import { applyAllGuards, insertAdSubjectTag } from "./guards";
+import {
+  applyAllGuards,
+  insertAdSubjectTag,
+  branchBrandName,
+} from "./guards";
 import { applyDateToken, applyNameToken } from "./personalize";
 import { calculateCost } from "./calculate-cost";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
@@ -62,10 +66,11 @@ export async function testSend(
     return { status: "failed", reason: "휴대폰 번호 형식이 올바르지 않습니다" };
   }
 
-  // 3) 가드 적용 (야간 광고 차단 등)
+  // 3) 가드 적용 (야간 광고 차단 등). 발신 브랜드는 본인 분원 기준.
   const guarded = applyAllGuards({
     body: input.body,
     isAd: input.isAd,
+    brand: branchBrandName(user.branch),
     scheduledAt: new Date(),
     recipients: [
       {

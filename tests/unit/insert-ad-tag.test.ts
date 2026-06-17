@@ -1,60 +1,89 @@
 import { describe, it, expect } from "vitest";
 import {
-  insertAdTag,
+  insertSenderHeader,
   insertAdSubjectTag,
+  branchBrandName,
+  BRAND_BASE,
 } from "@/lib/messaging/guards/insert-ad-tag";
 
 /**
- * F3-A · (광고) 표기 자동 삽입 가드.
+ * F3-A · 발신 브랜드 머리말 + (광고) 표기 자동 삽입 가드.
  *
- * 본문 규약:
- *   - isAd=false → 원문 그대로.
- *   - isAd=true 이고 앞에 `(광고)` 또는 `[광고]` 가 이미 있으면 중복 삽입 금지.
- *   - 그 외는 `(광고)\n세정학원\n{본문}` 형식(첫 줄 (광고), 둘째 줄 발신 브랜드명).
+ * 본문 규약(insertSenderHeader · 2026-06-17 개편):
+ *   - 광고/비광고 무관, 본문 맨 위에 발신 브랜드명을 한 줄 항상 붙인다.
+ *   - 광고면 그 위에 `(광고)` 줄을 한 번 더 얹는다.
+ *   - 비광고: `{브랜드}\n{본문}` · 광고: `(광고)\n{브랜드}\n{본문}`.
+ *   - 이미 (광고)/[광고] 로 시작하거나 첫 줄이 이미 그 브랜드면 중복 삽입 금지.
  *
- * 제목 규약:
- *   - isAd=true & 제목 있음 → `(광고) {제목}`.
- *   - isAd=false / null / 빈 제목 / 이미 (광고) → 그대로.
+ * 제목 규약: isAd=true & 제목 있음 → `(광고) {제목}` (브랜드는 제목엔 안 붙임).
  */
 
-describe("insertAdTag · isAd=false", () => {
-  it("광고 아님 → 원문 그대로", () => {
-    expect(insertAdTag("안녕하세요", false)).toBe("안녕하세요");
+describe("branchBrandName · 분원별 발신 브랜드명", () => {
+  it("대치 / 미지정 / 알 수 없는 분원 → 기본 '세정학원'", () => {
+    expect(branchBrandName("대치")).toBe("세정학원");
+    expect(branchBrandName(undefined)).toBe("세정학원");
+    expect(branchBrandName(null)).toBe("세정학원");
+    expect(branchBrandName("마스터")).toBe("세정학원");
+    expect(BRAND_BASE).toBe("세정학원");
   });
 
-  it("광고 아님 · 본문이 이미 (광고) 포함 → 그대로 둠", () => {
-    expect(insertAdTag("(광고) 이벤트", false)).toBe("(광고) 이벤트");
-  });
-});
-
-describe("insertAdTag · isAd=true · 삽입", () => {
-  it("일반 본문 → (광고) + 세정학원 머리 붙임", () => {
-    expect(insertAdTag("안녕하세요", true)).toBe("(광고)\n세정학원\n안녕하세요");
-  });
-
-  it("숫자/영문 본문도 동일하게 머리 붙음", () => {
-    expect(insertAdTag("Sale 50%", true)).toBe("(광고)\n세정학원\nSale 50%");
+  it("그 외 분원 → '{분원} 세정학원'", () => {
+    expect(branchBrandName("반포")).toBe("반포 세정학원");
+    expect(branchBrandName("송도")).toBe("송도 세정학원");
+    expect(branchBrandName("방배")).toBe("방배 세정학원");
   });
 });
 
-describe("insertAdTag · 중복 삽입 방지", () => {
+describe("insertSenderHeader · 비광고(isAd=false)", () => {
+  it("브랜드 머리를 맨 위에 붙임 (광고 표기 없음)", () => {
+    expect(insertSenderHeader("안녕하세요", false, "세정학원")).toBe(
+      "세정학원\n안녕하세요",
+    );
+  });
+
+  it("분원 브랜드명 반영 (반포)", () => {
+    expect(insertSenderHeader("안녕하세요", false, "반포 세정학원")).toBe(
+      "반포 세정학원\n안녕하세요",
+    );
+  });
+
+  it("첫 줄이 이미 그 브랜드면 중복 안 붙임", () => {
+    expect(insertSenderHeader("세정학원\n본문", false, "세정학원")).toBe(
+      "세정학원\n본문",
+    );
+  });
+});
+
+describe("insertSenderHeader · 광고(isAd=true)", () => {
+  it("(광고) + 브랜드 머리 붙임", () => {
+    expect(insertSenderHeader("안녕하세요", true, "세정학원")).toBe(
+      "(광고)\n세정학원\n안녕하세요",
+    );
+  });
+
+  it("분원 브랜드명 반영 (반포)", () => {
+    expect(insertSenderHeader("Sale 50%", true, "반포 세정학원")).toBe(
+      "(광고)\n반포 세정학원\nSale 50%",
+    );
+  });
+});
+
+describe("insertSenderHeader · 중복 삽입 방지", () => {
   it("이미 (광고) 로 시작 → 그대로", () => {
-    expect(insertAdTag("(광고) 이미있음", true)).toBe("(광고) 이미있음");
+    expect(insertSenderHeader("(광고) 이미있음", true, "세정학원")).toBe(
+      "(광고) 이미있음",
+    );
   });
 
   it("이미 [광고] 로 시작 → 그대로", () => {
-    expect(insertAdTag("[광고] 이미있음", true)).toBe("[광고] 이미있음");
+    expect(insertSenderHeader("[광고] 이미있음", true, "세정학원")).toBe(
+      "[광고] 이미있음",
+    );
   });
 
   it("선행 공백이 있는 (광고) 도 중복으로 판정 → 그대로", () => {
-    expect(insertAdTag(" (광고) 앞공백", true)).toBe(" (광고) 앞공백");
-  });
-});
-
-describe("insertAdTag · 경계값", () => {
-  it("본문 중간에 (광고) 가 있으면 머리에 정상 삽입", () => {
-    expect(insertAdTag("세정학원 (광고) 공지", true)).toBe(
-      "(광고)\n세정학원\n세정학원 (광고) 공지",
+    expect(insertSenderHeader(" (광고) 앞공백", true, "세정학원")).toBe(
+      " (광고) 앞공백",
     );
   });
 });

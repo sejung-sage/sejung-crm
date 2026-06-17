@@ -6,9 +6,10 @@ import type { ClassSignupOption } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import {
-  insertAdTag,
+  insertSenderHeader,
   insertAdSubjectTag,
   insertUnsubscribeFooter,
+  branchBrandName,
 } from "@/lib/messaging/guards";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
@@ -43,6 +44,8 @@ interface Props {
   recipientCount: number;
   /** 환경변수 SMS_OPT_OUT_NUMBER — 광고 footer 미리보기에 표시. */
   optOutNumber: string;
+  /** 발송 분원 — 발신 브랜드명(분원별) 해석에 사용. */
+  branch: string;
 }
 
 /** `{초대링크}` 가 발송 시점에 치환되는 URL 의 예상 바이트 (sendon 단축 URL 미사용). */
@@ -86,8 +89,10 @@ export function SeminarComposeStep3Body({
   selectedClasses,
   recipientCount,
   optOutNumber,
+  branch,
 }: Props) {
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const brandName = useMemo(() => branchBrandName(branch), [branch]);
 
   // 내용 입력칸을 스크롤 대신 내용 길이만큼 자동으로 늘린다(미리보기처럼 전체 표시).
   useLayoutEffect(() => {
@@ -97,11 +102,11 @@ export function SeminarComposeStep3Body({
     el.style.height = `${el.scrollHeight}px`;
   }, [state.body]);
 
-  // 광고 가드를 적용한 최종 본문 — 바이트 측정과 오버플로 판정의 기준.
+  // 브랜드 머리(+광고)·footer 가드 적용한 최종 본문 — 바이트 측정·오버플로 기준.
   const clientFinalBody = useMemo(() => {
-    const withAd = insertAdTag(state.body, state.isAd);
-    return insertUnsubscribeFooter(withAd, state.isAd, optOutNumber);
-  }, [state.body, state.isAd, optOutNumber]);
+    const withHeader = insertSenderHeader(state.body, state.isAd, brandName);
+    return insertUnsubscribeFooter(withHeader, state.isAd, optOutNumber);
+  }, [state.body, state.isAd, optOutNumber, brandName]);
 
   const bodyBytesNoUrl = useMemo(
     () => countEucKrBytes(clientFinalBody),
@@ -131,11 +136,11 @@ export function SeminarComposeStep3Body({
     return formatKstDateTime(primary.held_at);
   }, [selectedClasses]);
 
-  // 미리보기 본문 — (광고) 머리(insertAdTag)만 반영하고 footer(무료수신거부)는
-  // PhonePreviewCard 가 footer prop 으로 따로 렌더하므로 여기선 제외(중복 방지).
+  // 미리보기 본문 — 브랜드 머리(+광고)는 insertSenderHeader 로 반영, footer(무료
+  // 수신거부)는 PhonePreviewCard 가 footer prop 으로 따로 렌더하므로 제외(중복 방지).
   // {초대링크} → 예시 URL, 변수 없으면 자동 부착, {날짜} → 첫 설명회 시간.
   const previewBody = useMemo(() => {
-    let next = insertAdTag(state.body, state.isAd)
+    let next = insertSenderHeader(state.body, state.isAd, brandName)
       .split("{초대링크}")
       .join(SAMPLE_INVITE_URL);
     if (!hasInviteVar && state.body.trim().length > 0) {
@@ -145,7 +150,7 @@ export function SeminarComposeStep3Body({
       next = next.split("{날짜}").join(sampleDateLabel);
     }
     return next;
-  }, [state.body, state.isAd, hasInviteVar, sampleDateLabel]);
+  }, [state.body, state.isAd, hasInviteVar, sampleDateLabel, brandName]);
 
   /** 변수 토큰을 본문 textarea 의 cursor 위치에 삽입. */
   const insertInviteToken = () => {
@@ -461,6 +466,7 @@ export function SeminarComposeStep3Body({
             footer={
               state.isAd ? { unsubscribePhone: optOutNumber } : undefined
             }
+            brandName={brandName}
           />
 
           <p className="text-[11px] text-[color:var(--text-dim)] leading-relaxed">

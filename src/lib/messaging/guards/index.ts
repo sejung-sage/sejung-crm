@@ -11,7 +11,7 @@
  * 이 파일은 단일 진입점(`applyAllGuards`) 을 export. 순수 함수.
  */
 
-import { insertAdTag } from "./insert-ad-tag";
+import { insertSenderHeader } from "./insert-ad-tag";
 import { insertUnsubscribeFooter } from "./insert-unsubscribe-footer";
 import { checkQuietHours } from "./check-quiet-hours";
 import {
@@ -21,8 +21,10 @@ import {
 } from "./filter-recipients";
 
 export {
-  insertAdTag,
+  insertSenderHeader,
   insertAdSubjectTag,
+  branchBrandName,
+  BRAND_BASE,
   AD_SENDER_NAME,
 } from "./insert-ad-tag";
 export { insertUnsubscribeFooter } from "./insert-unsubscribe-footer";
@@ -46,6 +48,8 @@ export interface ApplyGuardsInput {
   recipients: Recipient[];
   /** 수신거부 번호(하이픈 유무 무관). */
   unsubscribedPhones: string[];
+  /** 발신 브랜드명(분원별). 호출부가 branchBrandName(branch) 로 해석해 전달. */
+  brand: string;
   /** 선택: 무료수신거부 안내용 080 번호 override. */
   optOutNumber?: string;
   /** 선택: 야간 차단 판정 타임존(기본 KST). */
@@ -66,10 +70,10 @@ export interface ApplyGuardsOutput {
 }
 
 export function applyAllGuards(input: ApplyGuardsInput): ApplyGuardsOutput {
-  // 1) 본문 변환: prefix → footer 순서 (prefix 가 포함된 본문에 footer 붙는 형태)
-  const withAdTag = insertAdTag(input.body, input.isAd);
+  // 1) 본문 변환: 브랜드 머리(+광고) → footer 순서.
+  const withHeader = insertSenderHeader(input.body, input.isAd, input.brand);
   const finalBody = insertUnsubscribeFooter(
-    withAdTag,
+    withHeader,
     input.isAd,
     input.optOutNumber,
   );

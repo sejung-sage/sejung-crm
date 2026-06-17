@@ -28,8 +28,9 @@ import { applyGroupFiltersDev } from "@/lib/groups/apply-filters";
 import {
   applyAllGuards,
   checkQuietHours,
-  insertAdTag,
+  insertSenderHeader,
   insertUnsubscribeFooter,
+  branchBrandName,
 } from "./guards";
 import { calculateCost } from "./calculate-cost";
 import { collapseByPhone } from "./dedupe-recipients";
@@ -212,6 +213,7 @@ function previewFromDevSeed(
   const guarded = applyAllGuards({
     body: input.body,
     isAd: input.isAd,
+    brand: branchBrandName(group.branch),
     scheduledAt: input.scheduledAt ?? new Date(),
     recipients: legs,
     unsubscribedPhones: [], // dev-seed 미보유
@@ -262,9 +264,13 @@ async function previewFromSupabase(
   const supabase = await createSupabaseServerClient();
   const targets = resolvePreviewTargets(input);
 
-  // 텍스트 가드는 row 무관 — 즉시 계산.
-  const withAdTag = insertAdTag(input.body, input.isAd);
-  const finalBody = insertUnsubscribeFooter(withAdTag, input.isAd);
+  // 텍스트 가드는 row 무관 — 즉시 계산. 발신 브랜드는 분원별.
+  const withHeader = insertSenderHeader(
+    input.body,
+    input.isAd,
+    branchBrandName(group.branch),
+  );
+  const finalBody = insertUnsubscribeFooter(withHeader, input.isAd);
   const quiet = checkQuietHours(input.scheduledAt ?? new Date(), input.isAd);
 
   // 1) 수신거부 phone 목록 — React cache 로 같은 요청 내 dedupe.

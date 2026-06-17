@@ -253,7 +253,10 @@ describe("createSeminarBroadcastAction · {이름} 본문 변수 잔존 가드",
       const createSeminarBroadcastAction = await loadAction();
       const r = await createSeminarBroadcastAction({
         ...base,
-        body: "[설명회 안내] 자세한 내용은 문의 주세요",
+        // 발신 브랜드 머리(분원명)가 본문에 붙어 SMS 90바이트 한도가 빡빡해지므로,
+        // {이름} 가드 검증이 byte 차단에 가리지 않도록 본문을 짧게 둔다(여기선
+        // "{초대링크} 미포함" 만 검증 목적).
+        body: "[설명회 안내]",
       });
 
       if (r.status === "blocked") {

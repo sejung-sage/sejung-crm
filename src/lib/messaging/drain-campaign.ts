@@ -35,7 +35,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { createSmsAdapter } from "./adapters";
 import type { SmsBatchRecipient } from "./adapters/types";
-import { insertAdTag, insertAdSubjectTag } from "./guards/insert-ad-tag";
+import {
+  insertSenderHeader,
+  insertAdSubjectTag,
+  branchBrandName,
+} from "./guards/insert-ad-tag";
 import { insertUnsubscribeFooter } from "./guards/insert-unsubscribe-footer";
 import { calculateCost } from "./calculate-cost";
 import {
@@ -142,13 +146,15 @@ export async function drainCampaignChunk(
 
   let hasName: boolean;
   let sendBody: string;
+  // 발신 브랜드명 — 캠페인 분원 기준(대치="세정학원", 그 외="{분원} 세정학원").
+  const brand = branchBrandName(campaign.branch);
   if (inviteMode) {
     // {초대링크} → #{이름}(sendon name 슬롯). 없으면 "신청: #{이름}" 부착 —
     // createSeminarBroadcastAction 의 finalBody 합성과 동일 규칙.
     const withPlaceholder = applyInviteLinkToken(campaign.body);
     sendBody = applyDateToken(
       insertUnsubscribeFooter(
-        insertAdTag(withPlaceholder, campaign.is_ad),
+        insertSenderHeader(withPlaceholder, campaign.is_ad, brand),
         campaign.is_ad,
       ),
       personalizationDate,
@@ -157,7 +163,7 @@ export async function drainCampaignChunk(
   } else {
     const guardedBody = applyDateToken(
       insertUnsubscribeFooter(
-        insertAdTag(campaign.body, campaign.is_ad),
+        insertSenderHeader(campaign.body, campaign.is_ad, brand),
         campaign.is_ad,
       ),
       personalizationDate,

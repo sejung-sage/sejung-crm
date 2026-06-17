@@ -15,7 +15,12 @@
 
 import { revalidatePath } from "next/cache";
 import { createSmsAdapter } from "./adapters";
-import { applyAllGuards, insertAdSubjectTag, type Recipient } from "./guards";
+import {
+  applyAllGuards,
+  insertAdSubjectTag,
+  branchBrandName,
+  type Recipient,
+} from "./guards";
 import { calculateCost } from "./calculate-cost";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
@@ -134,6 +139,7 @@ export async function resendFailedMessages(
   const guarded = applyAllGuards({
     body: template.body,
     isAd: template.is_ad,
+    brand: branchBrandName(campaign.branch),
     scheduledAt: new Date(),
     recipients,
     unsubscribedPhones,

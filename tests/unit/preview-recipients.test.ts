@@ -33,8 +33,8 @@ describe("previewRecipients · dev-seed · 정보성(낮 시간)", () => {
     expect(r.cost.totalCost).toBeCloseTo(14.8, 5);
     expect(r.cost.unitCost).toBe(7.4);
     expect(r.cost.type).toBe("SMS");
-    // 정보성: 본문 그대로
-    expect(r.finalBody).toBe("안녕하세요 세정학원입니다");
+    // 정보성: 발신 브랜드 머리(대치=세정학원)가 본문 맨 위에 붙음
+    expect(r.finalBody).toBe("세정학원\n안녕하세요 세정학원입니다");
     expect(r.blockedByQuietHours).toBe(false);
     expect(r.blockReason).toBeUndefined();
     expect(r.sampleRecipients.length).toBeLessThanOrEqual(5);

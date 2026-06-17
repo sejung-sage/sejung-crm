@@ -100,6 +100,12 @@ export interface PhonePreviewCardProps {
 
   /** 수신자 인원 — 헤더 우측 시각 옆에 "수신자 N명" 텍스트로 표시. 없으면 숨김. */
   recipientCount?: number;
+
+  /**
+   * 발신 브랜드명(분원별). 헤더 발신자명 + editable 모드의 본문 머리 표기에 쓴다.
+   * 미지정이면 기본 "세정학원". 실제 발송 본문도 이 이름이 맨 위에 붙는다.
+   */
+  brandName?: string;
 }
 
 export function PhonePreviewCard({
@@ -118,6 +124,7 @@ export function PhonePreviewCard({
   timeLabel,
   samples,
   recipientCount,
+  brandName = AD_SENDER_NAME,
 }: PhonePreviewCardProps) {
   // 부모가 timeLabel 을 안 줬다면 현재 KST 시각.
   // SSR 에서는 빈 문자열 → 클라이언트 hydrate 시 useMemo 가 한 번 계산.
@@ -183,7 +190,7 @@ export function PhonePreviewCard({
           </span>
           <div className="flex flex-col min-w-0">
             <span className="text-[14px] font-semibold text-[color:var(--text)] truncate">
-              세정학원
+              {brandName}
             </span>
             <span className="text-[11px] text-[color:var(--text-muted)] tabular-nums">
               {type}
@@ -228,13 +235,13 @@ export function PhonePreviewCard({
                 adPrefix={isAd}
               />
             )}
-            {/* editable && isAd → 본문 머리에 (광고) + 발신 브랜드명을 명시.
-                실제 발송 본문도 첫 줄 (광고) / 둘째 줄 세정학원 으로 나간다.
+            {/* editable → 본문 머리에 발신 브랜드명(분원별)을 명시. 광고면 그 위 (광고).
+                실제 발송 본문도 맨 위에 (광고 시 첫 줄 (광고)) 브랜드명이 붙는다.
                 read-only 모드에선 body 문자열에 이미 박혀 있어 생략. */}
-            {editable && isAd && (
+            {editable && (
               <div className="text-[15px] leading-relaxed text-[color:var(--text-muted)] select-none">
-                <p>(광고)</p>
-                <p>{AD_SENDER_NAME}</p>
+                {isAd && <p>(광고)</p>}
+                <p>{brandName}</p>
               </div>
             )}
             <BodyField

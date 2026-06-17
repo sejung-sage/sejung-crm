@@ -24,7 +24,7 @@
 import { revalidatePath } from "next/cache";
 import { waitUntil } from "@vercel/functions";
 import { previewRecipients, type PreviewResult } from "./preview-recipients";
-import { applyAllGuards } from "./guards";
+import { applyAllGuards, branchBrandName } from "./guards";
 import { collapseByPhone } from "./dedupe-recipients";
 import { expandRecipientLegs, countDistinctStudents } from "./expand-legs";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
@@ -522,6 +522,7 @@ async function reloadEligibleRecipients(args: {
   const guarded = applyAllGuards({
     body: args.body,
     isAd: args.isAd,
+    brand: branchBrandName(args.branch),
     scheduledAt: args.scheduledAt,
     recipients: eligibleLegs,
     unsubscribedPhones: [],

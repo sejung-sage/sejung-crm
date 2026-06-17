@@ -25,7 +25,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createSmsAdapter } from "./adapters";
-import { applyAllGuards, type Recipient } from "./guards";
+import { applyAllGuards, branchBrandName, type Recipient } from "./guards";
 import { applyDateToken, applyNameToken } from "./personalize";
 import { calculateCost } from "./calculate-cost";
 import { exceedsLimit } from "./sms-bytes";
@@ -167,6 +167,7 @@ export async function excelSend(
   const guarded = applyAllGuards({
     body: data.body,
     isAd: data.isAd,
+    brand: branchBrandName(user.branch),
     scheduledAt: new Date(),
     recipients,
     unsubscribedPhones,

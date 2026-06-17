@@ -50,9 +50,10 @@ import { getUnsubscribedPhones } from "@/lib/messaging/unsubscribed-phones";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS } from "@/lib/schemas/template";
 import {
-  insertAdTag,
+  insertSenderHeader,
   insertUnsubscribeFooter,
   checkQuietHours,
+  branchBrandName,
 } from "@/lib/messaging/guards";
 import {
   createSupabaseServerClient,
@@ -958,8 +959,8 @@ export async function createSeminarBroadcastAction(
   //      d. is_ad=true 면 \n무료수신거부 080-XXXX footer 부착 (이미 있으면 스킵)
   //      e. URL 최장 합성 후 EUC-KR 바이트 한도 검증
   //
-  //    가드 헬퍼(`insertAdTag` / `insertUnsubscribeFooter`)는 isAd=false 면 원문
-  //    그대로 반환 → 정보성에선 종전 동작과 동일.
+  //    가드 헬퍼: insertSenderHeader 는 분원 브랜드명을 본문 맨 위에 항상 붙이고
+  //    (광고면 그 위 (광고)), insertUnsubscribeFooter 는 광고일 때만 footer 부착.
   const trimmed = parsed.body.trim();
 
   // {이름} 토큰이 원문에 남아 있으면 본 발송이 처리 불가 — name 슬롯을 URL 로 점유.
@@ -977,8 +978,12 @@ export async function createSeminarBroadcastAction(
     ? trimmed.split(INVITE_LINK_TOKEN).join(SENDON_INVITE_PLACEHOLDER)
     : `${trimmed}\n\n신청: ${SENDON_INVITE_PLACEHOLDER}`;
 
-  // 광고 prefix / footer (헬퍼가 isAd=false 면 no-op).
-  finalBody = insertAdTag(finalBody, parsed.is_ad);
+  // 발신 브랜드 머리(+광고 prefix) — 분원별 브랜드. footer 는 아래.
+  finalBody = insertSenderHeader(
+    finalBody,
+    parsed.is_ad,
+    branchBrandName(parsed.branch),
+  );
   // optout 우선순위: 입력 > env (`SMS_OPT_OUT_NUMBER`) > 헬퍼 기본값.
   //   parsed.optout_phone 는 null 일 수 있어 undefined 로 정규화 (헬퍼가 env 폴백).
   finalBody = insertUnsubscribeFooter(
