@@ -94,13 +94,16 @@ DATABASES = [
 
 # ─── 헬퍼 ─────────────────────────────────────────────────
 PHONE_DIGITS_RE = re.compile(r"\D+")
+# 문자열 어디서든 첫 휴대폰(01x) 패턴 추출용. HP_부모 에 모·부 번호가 함께 들어온
+# 복합 형식(예: "010-1234-5678(모) 010-9999-8888(부)")에서 첫 번호를 뽑는다.
+# 구분자(하이픈/점/공백) 유무 모두 허용.
+MOBILE_IN_TEXT_RE = re.compile(r"01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}")
 
 
-def normalize_phone(raw: Any) -> str | None:
-    """하이픈/공백 제거 후 10~11자리 010~019 만 OK. placeholder(전부 0/같은 숫자)도 거부."""
-    if raw is None:
-        return None
-    digits = PHONE_DIGITS_RE.sub("", str(raw))
+def _valid_mobile(digits: str) -> str | None:
+    """숫자열이 유효 휴대폰이면 그대로, 아니면 None.
+    10~11자리 + 010~019 prefix + placeholder(전부 0/같은 숫자) 거부.
+    """
     if len(digits) < 10 or len(digits) > 11:
         return None
     if not digits.startswith(("010", "011", "016", "017", "018", "019")):
@@ -112,6 +115,29 @@ def normalize_phone(raw: Any) -> str | None:
     if len(set(suffix)) == 1:
         return None
     return digits
+
+
+def normalize_phone(raw: Any) -> str | None:
+    """하이픈/공백 제거 후 10~11자리 010~019 휴대폰만 OK. placeholder 거부.
+
+    HP_부모 에 모·부 번호가 함께 들어온 복합/라벨 형식
+    (예: "010-1234-5678(모) 010-9999-8888(부)") 은 종전엔 숫자가 18~22자리가 돼
+    통째로 거부 → 학생 행이 드롭됐다(2026-06 발견, 수천 명 누락). 이제 그런 경우
+    **문자열에서 첫 유효 휴대폰을 추출**해 학부모 대표번호로 채택한다.
+    단일 깔끔한 번호는 종전과 동일(idempotent).
+    """
+    if raw is None:
+        return None
+    s = str(raw)
+    # 1) 단일 번호: 전체를 숫자만 추출해 바로 유효하면 채택(종전 동작 보존).
+    whole = _valid_mobile(PHONE_DIGITS_RE.sub("", s))
+    if whole:
+        return whole
+    # 2) 복합/라벨(모·부 동시 입력 등): 문자열 내 첫 휴대폰 패턴을 추출해 검증.
+    m = MOBILE_IN_TEXT_RE.search(s)
+    if m:
+        return _valid_mobile(PHONE_DIGITS_RE.sub("", m.group()))
+    return None
 
 
 def clean_text(raw: Any, max_len: int | None = None) -> str | None:
