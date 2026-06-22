@@ -171,8 +171,19 @@ export function ComposeInline({
 }: Props) {
   const branch = initialBranch;
   const [chip, setChip] = useState<FilterChipValue>(emptyChipValue);
-  // 체크 해제한 학생 id (= excludeStudentIds). 기본은 전부 체크(빈 집합).
+  // 선택 모드 — 매칭 명단 체크박스의 두 가지 의미.
+  //  - "exclude"(기본): 전원 선택 상태에서 일부를 빼는 방식. deselected = 뺀 학생.
+  //  - "include": 아무도 선택 안 된 상태에서 고른 소수만 보내는 방식. included = 고른 학생.
+  // "전체 해제"를 누르면 include 로 전환한다. 코호트가 표시 상한(1만)을 넘을 때
+  // exclude 로 "전체 해제"하면 표시분(1만)만 빠지고 나머지는 선택으로 남아(의도와 다름)
+  // + 1만 개 제외 id 가 쿼리에 실려 414 가 났기 때문(2026-06-22 수정).
+  const [selectMode, setSelectMode] = useState<"exclude" | "include">(
+    "exclude",
+  );
+  // exclude 모드에서 체크 해제한 학생 id (= excludeStudentIds). 기본 빈 집합(전원 선택).
   const [deselected, setDeselected] = useState<Set<string>>(new Set());
+  // include 모드에서 체크한 학생 id (= includeStudentIds, custom 명단). 기본 빈 집합.
+  const [included, setIncluded] = useState<Set<string>>(new Set());
 
   // 진입 prefill 이 custom(고정 명단)이면 그 학생 id 들을 모집단으로 고정한다.
   // 사용자가 우측 필터 칩을 건드리면 'filter'(조건) 모드로 전환한다 — 그때부턴
@@ -220,12 +231,28 @@ export function ComposeInline({
   const [sendError, setSendError] = useState<string | null>(null);
   const [isSending, startSending] = useTransition();
 
-  // 체크 해제 학생을 합친 최종 filters. 서버 계약(GroupFilters)에 맞춰 합성.
-  // useCustom: prefill 고정 명단(includeStudentIds) 모집단. 칩 조건은 무시되고
-  //            체크 해제(excludeStudentIds)만 반영 — loadRecipientsByFilters 의
-  //            custom 분기와 동일 의미.
-  // 그 외: 칩 조건 모집단('filter').
+  // 발송에 쓰는 최종 filters. 서버 계약(GroupFilters)에 맞춰 합성. 선택 모드별로 다름:
+  //  - include 모드: 고른 소수만(custom 명단). includeStudentIds = included.
+  //    ("전체 해제 후 몇 명" — 칩 조건 무시, 고른 학생들만 발송.)
+  //  - exclude + useCustom: prefill 고정 명단(customStudentIds) 모집단 − 체크 해제분.
+  //  - exclude + 칩: 칩 조건 모집단('filter') − 체크 해제분.
   const filters: GroupFilters = useMemo(() => {
+    if (selectMode === "include") {
+      return {
+        kind: "custom",
+        grades: [],
+        schools: [],
+        subjects: [],
+        regions: [],
+        statuses: [],
+        includeStudentIds: Array.from(included),
+        excludeStudentIds: [],
+        excludeSchools: [],
+        excludeClassIds: [],
+        unmappedSchool: false,
+        mappedSchool: false,
+      };
+    }
     if (useCustom) {
       return {
         kind: "custom",
@@ -258,14 +285,45 @@ export function ComposeInline({
       unmappedSchool: chip.unmappedSchool,
       mappedSchool: chip.mappedSchool,
     };
-  }, [useCustom, customStudentIds, chip, deselected]);
+  }, [selectMode, included, useCustom, customStudentIds, chip, deselected]);
 
-  // 칩만으로 만든 filters(체크 해제 제외) — 명단 조회용. 체크 해제는 명단을 줄이지
-  // 않고(목록은 유지) 발송에서만 빼야 하므로, 명단 조회에는 deselected 를 넣지 않는다.
-  const listFilters: GroupFilters = useMemo(
-    () => ({ ...filters, excludeStudentIds: [] }),
-    [filters],
-  );
+  // 매칭 명단(우측 패널) 조회용 filters — 선택 모드와 무관하게 항상 "칩 조건(또는 prefill
+  // custom)" 코호트를 보여준다. 사용자가 그 안에서 고르거나(include) 빼야(exclude) 하므로
+  // 명단은 선택 상태(deselected/included)에 따라 줄어들면 안 된다.
+  const listFilters: GroupFilters = useMemo(() => {
+    if (useCustom) {
+      return {
+        kind: "custom",
+        grades: [],
+        schools: [],
+        subjects: [],
+        regions: [],
+        statuses: [],
+        includeStudentIds: customStudentIds,
+        excludeStudentIds: [],
+        excludeSchools: [],
+        excludeClassIds: [],
+        unmappedSchool: false,
+        mappedSchool: false,
+      };
+    }
+    return {
+      kind: "filter",
+      grades: chip.grades,
+      schools: chip.schools,
+      subjects: chip.subjects.filter((s): s is FilterSubject =>
+        (SUBJECT_OPTIONS as readonly string[]).includes(s),
+      ),
+      regions: chip.regions,
+      statuses: chip.statuses,
+      includeStudentIds: [],
+      excludeStudentIds: [],
+      excludeSchools: chip.excludeSchools,
+      excludeClassIds: chip.excludeClasses.map((c) => c.id),
+      unmappedSchool: chip.unmappedSchool,
+      mappedSchool: chip.mappedSchool,
+    };
+  }, [useCustom, customStudentIds, chip]);
 
   // 매칭 명단 조회 — 칩/분원 변경 시 디바운스.
   useEffect(() => {
@@ -283,14 +341,16 @@ export function ComposeInline({
       if (r.status === "success") {
         setRecipients(r.recipients);
         setTotal(r.total);
-        // 새 명단에 없는 체크 해제 id 는 정리(stale 제거).
-        setDeselected((prev) => {
+        // 새 명단에 없는 체크 해제/포함 id 는 정리(stale 제거).
+        const ids = new Set(r.recipients.map((x) => x.studentId));
+        const prune = (prev: Set<string>) => {
           if (prev.size === 0) return prev;
-          const ids = new Set(r.recipients.map((x) => x.studentId));
           const next = new Set<string>();
           for (const id of prev) if (ids.has(id)) next.add(id);
-          return next;
-        });
+          return next.size === prev.size ? prev : next;
+        };
+        setDeselected(prune);
+        setIncluded(prune);
       } else {
         setListError(r.reason);
         setRecipients([]);
@@ -496,23 +556,48 @@ export function ComposeInline({
   };
 
   const toggleRecipient = (studentId: string, checked: boolean) => {
-    setDeselected((prev) => {
-      const next = new Set(prev);
-      if (checked) next.delete(studentId);
-      else next.add(studentId);
-      return next;
-    });
+    if (selectMode === "include") {
+      // 포함 모드: 체크 = 발송 대상에 추가.
+      setIncluded((prev) => {
+        const next = new Set(prev);
+        if (checked) next.add(studentId);
+        else next.delete(studentId);
+        return next;
+      });
+    } else {
+      // 제외 모드: 체크 해제 = 발송에서 뺌.
+      setDeselected((prev) => {
+        const next = new Set(prev);
+        if (checked) next.delete(studentId);
+        else next.add(studentId);
+        return next;
+      });
+    }
   };
 
-  // 체크 해제는 화면에 표시된 학생에만 적용(서버가 상위 일부만 내려줌). 따라서
-  // 선택 수 = 전체 매칭(total) − 표시분에서 해제한 수.
-  const checkedCount = total - deselected.size;
-  const allChecked = deselected.size === 0;
+  const isRecipientChecked = (studentId: string) =>
+    selectMode === "include"
+      ? included.has(studentId)
+      : !deselected.has(studentId);
+
+  // 선택 수 — 모드별. include: 고른 수. exclude: 전체 매칭 − 표시분에서 해제한 수.
+  const checkedCount =
+    selectMode === "include" ? included.size : total - deselected.size;
+  // 헤더 체크박스 상태.
+  const allChecked = selectMode === "exclude" && deselected.size === 0;
+  const headerIndeterminate =
+    selectMode === "include" ? included.size > 0 : deselected.size > 0;
   const setAll = (checked: boolean) => {
     if (checked) {
+      // 전체 선택 → 제외 모드 + 해제 없음(전원 선택).
+      setSelectMode("exclude");
       setDeselected(new Set());
+      setIncluded(new Set());
     } else {
-      setDeselected(new Set(recipients.map((r) => r.studentId)));
+      // 전체 해제 → 포함 모드 + 아무도 선택 안 됨. (표시분 1만만 빠지던 버그 + 414 회피.)
+      setSelectMode("include");
+      setIncluded(new Set());
+      setDeselected(new Set());
     }
   };
 
@@ -969,10 +1054,11 @@ export function ComposeInline({
             value={chip}
             onChange={(next) => {
               // 칩을 건드리면 prefill 고정 명단을 벗어나 조건(filter) 모드로 전환.
-              if (useCustom) {
-                setUseCustom(false);
-                setDeselected(new Set());
-              }
+              if (useCustom) setUseCustom(false);
+              // 코호트가 바뀌므로 선택 상태를 "전원 선택"(제외 모드)로 초기화.
+              setSelectMode("exclude");
+              setDeselected(new Set());
+              setIncluded(new Set());
               setChip(next);
             }}
             branch={branch}
@@ -999,9 +1085,7 @@ export function ComposeInline({
                     type="checkbox"
                     checked={recipients.length > 0 && allChecked}
                     ref={(el) => {
-                      if (el)
-                        el.indeterminate =
-                          !allChecked && checkedCount > 0;
+                      if (el) el.indeterminate = headerIndeterminate;
                     }}
                     onChange={(e) => setAll(e.target.checked)}
                     disabled={recipients.length === 0}
@@ -1040,7 +1124,7 @@ export function ComposeInline({
                 <div className="relative flex-1 min-h-0">
                   <ul className="absolute inset-0 overflow-auto divide-y divide-[color:var(--border)]">
                   {visibleRecipients.map((r) => {
-                    const checked = !deselected.has(r.studentId);
+                    const checked = isRecipientChecked(r.studentId);
                     const phone = r.parentPhone || r.studentPhone;
                     return (
                       <li key={r.studentId}>
@@ -1071,7 +1155,9 @@ export function ComposeInline({
                 <p className="px-3 py-2 text-[12px] text-[color:var(--text-dim)] border-t border-[color:var(--border)]">
                   전체 {total.toLocaleString()}명 중 상위{" "}
                   {recipients.length.toLocaleString()}명만 목록에 표시됩니다.
-                  체크 해제는 표시된 학생에만 적용됩니다.
+                  {selectMode === "include"
+                    ? " 표시된 학생 중에서 골라 선택할 수 있어요."
+                    : " 일부만 보내려면 “전체 선택”을 해제한 뒤 보낼 학생만 체크하세요."}
                 </p>
               )}
             </div>
