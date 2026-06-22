@@ -100,7 +100,7 @@ describe("applyAllGuards · 정보성 문자(isAd=false)", () => {
       unsubscribedPhones: [],
     });
     // 비광고도 브랜드 머리를 붙이되 (광고)·footer 는 없음.
-    expect(out.finalBody).toBe("세정학원\n개강 안내");
+    expect(out.finalBody).toBe("세정학원\n\n개강 안내");
     expect(out.allowedToSend).toBe(true);
     expect(out.blockReason).toBeUndefined();
     expect(out.eligible).toHaveLength(1);
@@ -115,7 +115,7 @@ describe("applyAllGuards · 정보성 문자(isAd=false)", () => {
       recipients: [r("s1", "01011112222")],
       unsubscribedPhones: [],
     });
-    expect(out.finalBody).toBe("반포 세정학원\n개강 안내");
+    expect(out.finalBody).toBe("반포 세정학원\n\n개강 안내");
   });
 
   it("정보성 + 탈퇴 학생 1명도 정상적으로 제외됨", () => {

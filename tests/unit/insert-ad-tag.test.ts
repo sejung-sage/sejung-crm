@@ -12,7 +12,8 @@ import {
  * 본문 규약(insertSenderHeader · 2026-06-17 개편):
  *   - 광고/비광고 무관, 본문 맨 위에 발신 브랜드명을 한 줄 항상 붙인다.
  *   - 광고면 그 위에 `(광고)` 줄을 한 번 더 얹는다.
- *   - 비광고: `{브랜드}\n{본문}` · 광고: `(광고)\n{브랜드}\n{본문}`.
+ *   - 브랜드 머리와 본문 사이엔 빈 줄 1개.
+ *   - 비광고: `{브랜드}\n\n{본문}` · 광고: `(광고)\n{브랜드}\n\n{본문}`.
  *   - 이미 (광고)/[광고] 로 시작하거나 첫 줄이 이미 그 브랜드면 중복 삽입 금지.
  *
  * 제목 규약: isAd=true & 제목 있음 → `(광고) {제목}` (브랜드는 제목엔 안 붙임).
@@ -35,15 +36,15 @@ describe("branchBrandName · 분원별 발신 브랜드명", () => {
 });
 
 describe("insertSenderHeader · 비광고(isAd=false)", () => {
-  it("브랜드 머리를 맨 위에 붙임 (광고 표기 없음)", () => {
+  it("브랜드 머리를 맨 위에 붙임 (광고 표기 없음, 본문과 빈 줄 분리)", () => {
     expect(insertSenderHeader("안녕하세요", false, "세정학원")).toBe(
-      "세정학원\n안녕하세요",
+      "세정학원\n\n안녕하세요",
     );
   });
 
   it("분원 브랜드명 반영 (반포)", () => {
     expect(insertSenderHeader("안녕하세요", false, "반포 세정학원")).toBe(
-      "반포 세정학원\n안녕하세요",
+      "반포 세정학원\n\n안녕하세요",
     );
   });
 
@@ -55,15 +56,15 @@ describe("insertSenderHeader · 비광고(isAd=false)", () => {
 });
 
 describe("insertSenderHeader · 광고(isAd=true)", () => {
-  it("(광고) + 브랜드 머리 붙임", () => {
+  it("(광고) + 브랜드 머리 붙임 (본문과 빈 줄 분리)", () => {
     expect(insertSenderHeader("안녕하세요", true, "세정학원")).toBe(
-      "(광고)\n세정학원\n안녕하세요",
+      "(광고)\n세정학원\n\n안녕하세요",
     );
   });
 
   it("분원 브랜드명 반영 (반포)", () => {
     expect(insertSenderHeader("Sale 50%", true, "반포 세정학원")).toBe(
-      "(광고)\n반포 세정학원\nSale 50%",
+      "(광고)\n반포 세정학원\n\nSale 50%",
     );
   });
 });

@@ -6,7 +6,8 @@
  *     (운영자 요청 2026-06-17 — 수신자가 어느 분원에서 온 문자인지 알 수 있게).
  *   - 광고면 그 위에 `(광고)` 줄을 한 번 더 얹는다.
  *   - 브랜드명은 **분원별**(branchBrandName): 대치="세정학원", 그 외="{분원} 세정학원".
- *   - 형식: 비광고 `{브랜드}\n{본문}` · 광고 `(광고)\n{브랜드}\n{본문}`.
+ *   - 형식: 비광고 `{브랜드}\n\n{본문}` · 광고 `(광고)\n{브랜드}\n\n{본문}`.
+ *     (브랜드 머리와 본문 사이에 빈 줄 1개 — 수신자가 머리말과 본문을 또렷이 구분.)
  *   - 이미 `(광고)`/`[광고]` 로 시작하면 머리가 박힌 것으로 보고 그대로(중복 방지).
  *   - 본문 첫 줄이 이미 그 브랜드명이면 중복으로 보고 다시 붙이지 않는다.
  *
@@ -53,7 +54,7 @@ export function insertSenderHeader(
   if (AD_PREFIX_REGEX.test(body)) return body;
   // 첫 줄이 이미 그 브랜드명이면 중복으로 보고 다시 안 붙임.
   const firstLine = body.split("\n", 1)[0]?.trim();
-  const withBrand = firstLine === brand ? body : `${brand}\n${body}`;
+  const withBrand = firstLine === brand ? body : `${brand}\n\n${body}`;
   return isAd ? `(광고)\n${withBrand}` : withBrand;
 }
 
