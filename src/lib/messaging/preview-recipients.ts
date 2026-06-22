@@ -286,12 +286,27 @@ async function previewFromSupabase(
   }
 
   // 3) 4건 병렬 — eligible count / sample / 탈퇴 count / 수신거부 count.
+  //    eligible/sample 은 발송 가능 인원의 핵심 수치라 실패 시 미리보기를 중단한다.
+  //    탈퇴/수신거부 카운트는 "N명 자동 제외" 안내용(부가 정보)일 뿐이고, 실제
+  //    제외는 발송 시점 SQL(load-all-group-recipients / reloadEligibleRecipients)에서
+  //    다시 적용된다. 따라서 이 카운트 하나가 일시적으로 실패(타임아웃 등)해도
+  //    미리보기 전체가 무너져 "발송 대상 0명"이 되어 발송이 막히지 않도록 0 으로 폴백한다.
   const [eligibleCount, eligibleSample, withdrawnCount, unsubExcludedCount] =
     await Promise.all([
       countEligible(supabase, group, mapping, safeUnsubPhones),
       sampleEligible(supabase, group, mapping, safeUnsubPhones),
-      countWithdrawn(supabase, group, mapping),
-      countUnsubExcluded(supabase, group, mapping, safeUnsubPhones),
+      countWithdrawn(supabase, group, mapping).catch((e) => {
+        console.warn(
+          `[preview] 탈퇴 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
+        );
+        return 0;
+      }),
+      countUnsubExcluded(supabase, group, mapping, safeUnsubPhones).catch((e) => {
+        console.warn(
+          `[preview] 수신거부 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
+        );
+        return 0;
+      }),
     ]);
 
   const excludedReasons: PreviewResult["excludedReasons"] = [];
