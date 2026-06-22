@@ -40,6 +40,10 @@ import type { StudentStatus } from "@/types/database";
 import type { DedupeCounts } from "@/types/messaging";
 import { getUnsubscribedPhones } from "./unsubscribed-phones";
 import { loadRecipientsByFilters } from "@/lib/groups/load-all-group-recipients";
+import {
+  buildSearchRecipientsParams,
+  callSearchRecipients,
+} from "@/lib/groups/search-recipients-rpc";
 import { isCustomGroup } from "@/lib/schemas/group";
 import type { GroupFilters } from "@/lib/schemas/group";
 import { isAllSubjects } from "@/lib/schemas/common";
@@ -285,29 +289,39 @@ async function previewFromSupabase(
     return emptyPreview(input, finalBody, quiet);
   }
 
-  // 3) 4건 병렬 — eligible count / sample / 탈퇴 count / 수신거부 count.
-  //    eligible/sample 은 발송 가능 인원의 핵심 수치라 실패 시 미리보기를 중단한다.
-  //    탈퇴/수신거부 카운트는 "N명 자동 제외" 안내용(부가 정보)일 뿐이고, 실제
-  //    제외는 발송 시점 SQL(load-all-group-recipients / reloadEligibleRecipients)에서
-  //    다시 적용된다. 따라서 이 카운트 하나가 일시적으로 실패(타임아웃 등)해도
-  //    미리보기 전체가 무너져 "발송 대상 0명"이 되어 발송이 막히지 않도록 0 으로 폴백한다.
-  const [eligibleCount, eligibleSample, withdrawnCount, unsubExcludedCount] =
-    await Promise.all([
-      countEligible(supabase, group, mapping, safeUnsubPhones),
-      sampleEligible(supabase, group, mapping, safeUnsubPhones),
-      countWithdrawn(supabase, group, mapping).catch((e) => {
-        console.warn(
-          `[preview] 탈퇴 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
-        );
-        return 0;
-      }),
-      countUnsubExcluded(supabase, group, mapping, safeUnsubPhones).catch((e) => {
-        console.warn(
-          `[preview] 수신거부 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
-        );
-        return 0;
-      }),
-    ]);
+  // 3) eligible 카운트+샘플은 search_recipients RPC(0093) 로 — 모든 필터값·ID 배열을
+  //    요청 본문으로 넘겨 큰 코호트(과목/체크해제 수천 건)에서도 414 없이 매칭한다.
+  //    (종전엔 .in()·.not.in() 으로 GET URL 에 박아 414 → "발송 대상 0명" 이 됐다.)
+  //    탈퇴/수신거부 카운트는 "N명 자동 제외" 안내용(부가 정보)일 뿐이고, 실제 제외는
+  //    발송 시점 SQL 에서 다시 적용되므로, 일시적 실패가 미리보기를 무너뜨리지 않게
+  //    0 으로 폴백한다.
+  const eligibleParams = buildSearchRecipientsParams(
+    group.filters,
+    group.branch,
+    true, // 미리보기 eligible/샘플은 학부모 번호 필수
+  );
+  const [eligible, withdrawnCount, unsubExcludedCount] = await Promise.all([
+    callSearchRecipients(supabase, eligibleParams, 0, SAMPLE_LIMIT),
+    countWithdrawn(supabase, group, mapping).catch((e) => {
+      console.warn(
+        `[preview] 탈퇴 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return 0;
+    }),
+    countUnsubExcluded(supabase, group, mapping, safeUnsubPhones).catch((e) => {
+      console.warn(
+        `[preview] 수신거부 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return 0;
+    }),
+  ]);
+  const eligibleCount = eligible.total;
+  const eligibleSample: PreviewSampleRecipient[] = eligible.rows
+    .map((r) => ({
+      name: r.name,
+      phone: (r.parent_phone ?? "").replace(/\D/g, ""),
+    }))
+    .filter((r) => r.phone.length > 0);
 
   const excludedReasons: PreviewResult["excludedReasons"] = [];
   if (withdrawnCount > 0) {
@@ -662,79 +676,7 @@ function buildQuery(
   return q;
 }
 
-// ─── 4건 카운트/샘플 ───────────────────────────────────────
-
-async function countEligible(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  group: PreviewGroupLike,
-  mapping: FilterMapping,
-  unsubPhones: string[],
-): Promise<number> {
-  let q = buildQuery(
-    supabase,
-    "id",
-    { count: "exact", head: true },
-    group,
-    mapping,
-    { statusMode: "eligible" },
-  );
-  q = q.not("parent_phone", "is", null);
-  if (unsubPhones.length > 0) {
-    q = q.not("parent_phone", "in", `(${unsubPhones.join(",")})`);
-  }
-  const { count, error } = (await q) as {
-    count: number | null;
-    error: { message: string } | null;
-  };
-  if (error) {
-    throw new Error(`수신자 카운트 조회에 실패했습니다: ${error.message}`);
-  }
-  return count ?? 0;
-}
-
-async function sampleEligible(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  group: PreviewGroupLike,
-  mapping: FilterMapping,
-  unsubPhones: string[],
-): Promise<PreviewSampleRecipient[]> {
-  let q = buildQuery(
-    supabase,
-    "name, parent_phone",
-    {},
-    group,
-    mapping,
-    { statusMode: "eligible" },
-  );
-  q = q.not("parent_phone", "is", null);
-  if (unsubPhones.length > 0) {
-    q = q.not("parent_phone", "in", `(${unsubPhones.join(",")})`);
-  }
-  const { data, error } = (await (
-    q as unknown as {
-      order: (
-        col: string,
-        opts: { ascending: boolean; nullsFirst?: boolean },
-      ) => {
-        limit: (n: number) => Promise<{
-          data: Array<{ name: string; parent_phone: string | null }> | null;
-          error: { message: string } | null;
-        }>;
-      };
-    }
-  )
-    .order("registered_at", { ascending: false, nullsFirst: false })
-    .limit(SAMPLE_LIMIT));
-  if (error) {
-    throw new Error(`수신자 샘플 조회에 실패했습니다: ${error.message}`);
-  }
-  return (data ?? [])
-    .map((r) => ({
-      name: r.name,
-      phone: (r.parent_phone ?? "").replace(/\D/g, ""),
-    }))
-    .filter((r) => r.phone.length > 0);
-}
+// ─── 카운트 (탈퇴/수신거부 — eligible/샘플은 search_recipients RPC 로 이전) ─────
 
 async function countWithdrawn(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,

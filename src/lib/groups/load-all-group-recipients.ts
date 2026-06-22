@@ -38,17 +38,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getGroup } from "./get-group";
 import { isCustomGroup } from "@/lib/schemas/group";
 import type { GroupFilters } from "@/lib/schemas/group";
-import { isAllSubjects } from "@/lib/schemas/common";
 import type { Database, StudentStatus } from "@/types/database";
 import {
-  UNMAPPED_SCHOOL_OR_EXPR,
-  applyMappedSchoolFilter,
-} from "@/lib/profile/list-students";
-import {
-  applySchoolExclusion,
-  loadExcludedClassStudentIds,
-  mergeExcludedStudentIds,
-} from "./resolve-exclusions";
+  buildSearchRecipientsParams,
+  callSearchRecipients,
+} from "./search-recipients-rpc";
 
 /** PostgREST `max_rows` cap (supabase/config.toml). 이보다 크게 잡으면 cap 으로
  *  잘려 early break 회귀가 발생한다. */
@@ -90,167 +84,41 @@ export async function loadRecipientsByFilters(
   branch: string,
   maxRecipients: number,
 ): Promise<GroupRecipient[]> {
-  // 그룹 종류 분기 (2026-05-27) — isCustomGroup 술어 경유.
-  // custom: includeStudentIds 모집단(필터/excludeSchools/excludeClassIds 무시),
-  //         excludeStudentIds 차감만 유지.
-  // filter: 조건 모집단(includeStudentIds 무시), exclude 3종 차감.
-  const custom = isCustomGroup(filters);
-
-  // 1.5) custom 인데 명단이 비면 모집단 0명 → 즉시 빈 결과.
-  if (custom && filters.includeStudentIds.length === 0) {
+  // custom(고정 명단)인데 명단이 비면 모집단 0명 → 즉시 빈 결과.
+  if (isCustomGroup(filters) && filters.includeStudentIds.length === 0) {
     return [];
   }
 
-  // 2) (filter 전용) subjects 사전 매핑 — count-recipients 와 동일 정책.
-  //    ETL 상 enrollments.subject 는 NULL → classes.subject 로 두 단계 매핑.
-  //    7종 전체 체크 = "조건 없음" 으로 정규화. custom 은 subjects 무시.
-  let subjectMatchedStudentIds: string[] | null = null;
-  if (
-    !custom &&
-    filters.subjects.length > 0 &&
-    !isAllSubjects(filters.subjects)
-  ) {
-    const { data: classRows, error: classErr } = await supabase
-      .from("crm_classes")
-      .select("aca_class_id")
-      .in("subject", filters.subjects)
-      .not("aca_class_id", "is", null);
-    if (classErr) {
-      throw new Error(`강좌 조회에 실패했습니다: ${classErr.message}`);
-    }
-    const acaClassIds = (
-      (classRows ?? []) as Array<{ aca_class_id: string | null }>
-    )
-      .map((r) => r.aca_class_id)
-      .filter((v): v is string => typeof v === "string" && v.length > 0);
-    if (acaClassIds.length === 0) return [];
+  // 모든 필터값·ID 배열을 "요청 본문" 으로 넘기는 search_recipients RPC(0093)로 조회한다.
+  // 과거엔 subjects→학생ID / excludeStudentIds(체크해제) / 강좌제외 펼침을 .in()·.not.in()
+  // 으로 GET URL 에 직렬화해, 목록이 수천 건이면 Cloudflare 414(URI Too Large)로 발송이
+  // 죽었다. RPC 는 subjects/regions/제외 3종/custom 모집단을 서버에서 매칭하므로 안전하다.
+  //
+  // 발송 로더라 학생 레그(0077)용으로 parent_phone NULL 행도 받아야 한다
+  // → require_parent_phone=false. 수신거부 제외는 종전대로 호출자(expandRecipientLegs)가
+  // "레그별 번호" 기준으로 적용한다(여기선 미적용).
+  const params = buildSearchRecipientsParams(filters, branch, false);
 
-    const { data: enrollRows, error: enrollErr } = await supabase
-      .from("crm_enrollments")
-      .select("student_id")
-      .in("aca_class_id", acaClassIds);
-    if (enrollErr) {
-      throw new Error(`수강 정보 조회에 실패했습니다: ${enrollErr.message}`);
-    }
-    const set = new Set<string>();
-    for (const r of (enrollRows ?? []) as Array<{ student_id: string }>) {
-      if (r.student_id) set.add(r.student_id);
-    }
-    if (set.size === 0) return [];
-    subjectMatchedStudentIds = Array.from(set);
-  }
-
-  // 3) (filter 전용) regions 사전 매핑 — crm_school_regions 에서 매칭 school 페치.
-  //    custom 은 regions 조건 무시.
-  let allowedSchools: string[] | null = null;
-  if (!custom && filters.regions.length > 0) {
-    const { data: regionRows, error: regErr } = await supabase
-      .from("crm_school_regions")
-      .select("school")
-      .in("region", filters.regions);
-    if (regErr) {
-      throw new Error(`지역 매핑 조회에 실패했습니다: ${regErr.message}`);
-    }
-    allowedSchools = (regionRows ?? [])
-      .map((r) => (r as { school: string }).school)
-      .filter((s): s is string => typeof s === "string" && s.length > 0);
-    if (allowedSchools.length === 0) return [];
-  }
-
-  // 3.5) (filter 전용) 강좌별 제외 사전 페치 — excludeClassIds(crm_classes.id) →
-  //      aca_class_id → crm_enrollments 매칭 student_id. 강좌 수가 적어 1회성 페치.
-  //      custom 그룹은 excludeClassIds 무시.
-  const excludeClassStudentIds = custom
-    ? []
-    : await loadExcludedClassStudentIds(
-        supabase,
-        filters.excludeClassIds ?? [],
-      );
-  // 명시 제외(excludeStudentIds) + (filter 한정)강좌 제외 펼침을 not.in uuid 목록 병합.
-  // custom 도 excludeStudentIds 차감은 유지(개별 제거).
-  const mergedExcludeIds = mergeExcludedStudentIds(
-    filters.excludeStudentIds ?? [],
-    excludeClassStudentIds,
-  );
-  // 학교별 제외는 filter 전용. custom 은 excludeSchools 무시.
-  const excludeSchools = custom ? [] : (filters.excludeSchools ?? []);
-
-  // 4) crm_students 직접 청크 range 페치 (view 풀집계 우회).
   const collected: GroupRecipient[] = [];
-  let from = 0;
-
+  let offset = 0;
   while (collected.length < maxRecipients) {
-    const to = Math.min(from + CHUNK_SIZE - 1, maxRecipients - 1);
+    // CHUNK_SIZE 는 PostgREST max_rows(1,000) 이하 — RPC 반환도 동일 cap 이라 offset 페이징.
+    const limit = Math.min(CHUNK_SIZE, maxRecipients - collected.length);
+    const { rows } = await callSearchRecipients(supabase, params, offset, limit);
 
-    // 분원 격리 — custom·filter 모두 그룹 분원으로 제한(count-recipients 와 동일).
-    // custom 그룹도 같은 분원 학생만 담기므로(빌더 강제), 타 분원 id 는 걸러진다.
-    let q = supabase
-      .from("crm_students")
-      .select("id, name, parent_phone, phone, status")
-      .neq("status", "탈퇴")
-      .eq("branch", branch);
-
-    // 재원 상태 — count-recipients 와 동일. 빈 배열 default = 탈퇴 빼고 3종 통합.
-    // 옛 그룹 JSONB 에 statuses 키가 없으면 빈 배열 → "탈퇴 빼고 전체" 의미 보존.
-    const wantedStatuses =
-      filters.statuses.length > 0
-        ? filters.statuses
-        : ["재원생", "수강이력자", "수강 x"];
-    q = q.in("status", wantedStatuses);
-
-    if (custom) {
-      // custom(고정 명단): includeStudentIds 모집단만. 필터 조건 무시.
-      q = q.in("id", filters.includeStudentIds);
-    } else {
-      // filter(조건 동기화): 조건 매치. includeStudentIds 무시.
-      if (filters.grades.length > 0) {
-        q = q.in("grade", filters.grades);
-      }
-      if (filters.schools.length > 0) {
-        q = q.in("school", filters.schools);
-      }
-      if (subjectMatchedStudentIds) {
-        q = q.in("id", subjectMatchedStudentIds);
-      }
-      if (allowedSchools) {
-        q = q.in("school", allowedSchools);
-      }
-      // 학교 미등록/등록 토글 — list-group-students 와 동일.
-      if (filters.unmappedSchool) {
-        q = q.or(UNMAPPED_SCHOOL_OR_EXPR) as typeof q;
-      } else if (filters.mappedSchool) {
-        q = applyMappedSchoolFilter(q);
-      }
+    for (const r of rows) {
+      collected.push({
+        id: r.id,
+        name: r.name,
+        parent_phone: r.parent_phone,
+        phone: r.phone,
+        status: r.status as StudentStatus,
+      });
     }
 
-    // 제외 차감(exclude 승리) — include/조건 분기 모두에 적용.
-    //   ① excludeStudentIds + excludeClassIds(펼친 student_id) 병합 not.in
-    //   ② excludeSchools school not.in
-    if (mergedExcludeIds.length > 0) {
-      q = q.not("id", "in", `(${mergedExcludeIds.join(",")})`);
-    }
-    q = applySchoolExclusion(q, excludeSchools);
-
-    // 수신거부 제외는 더 이상 SQL 단(parent_phone 기준)에서 하지 않는다.
-    // 레그 확장(0077) 후 "레그별 번호" 기준으로 호출자(expandRecipientLegs)가
-    // 독립 판정한다 — 학부모 번호 수신거부가 학생 번호 레그를 죽이면 안 되기 때문.
-
-    const { data, error } = await q
-      .order("registered_at", { ascending: false, nullsFirst: false })
-      .range(from, to);
-
-    if (error) {
-      throw new Error(`수신자 일괄 조회 실패: ${error.message}`);
-    }
-
-    const rows = (data ?? []) as GroupRecipient[];
-    collected.push(...rows);
-
-    // 마지막 청크 (요청 크기보다 적게 받음) 면 종료
-    if (rows.length < to - from + 1) break;
-
-    from = to + 1;
-    if (from >= maxRecipients) break;
+    // 받은 행이 요청 limit 보다 적으면 소스 소진 → 종료.
+    if (rows.length < limit) break;
+    offset += rows.length;
   }
 
   return collected;
