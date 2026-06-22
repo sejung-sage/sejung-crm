@@ -122,3 +122,45 @@ export async function callSearchRecipients(
   const total = rows.length > 0 ? Number(rows[0].total_count) : 0;
   return { rows, total };
 }
+
+/** bulk RPC 의 한 행(total_count 없음 — total 은 봉투에서 옴). */
+export interface SearchRecipientBulkRow {
+  id: string;
+  name: string;
+  parent_phone: string | null;
+  phone: string | null;
+}
+
+/**
+ * search_recipients_bulk 1회 호출 — 매칭 전원을 jsonb 로 받는다(max_rows 미적용).
+ * 정렬은 호출자가 이름순으로 한다. total 은 매칭 전체 수(rows 가 p_max 로 잘려도 정확).
+ */
+export async function callSearchRecipientsBulk(
+  supabase: SupabaseClient,
+  params: SearchRecipientsParams,
+  max: number,
+): Promise<{ rows: SearchRecipientBulkRow[]; total: number }> {
+  // bulk 는 offset/limit 대신 p_max. p_require_parent_phone 등 나머지는 동일.
+  const { p_require_parent_phone, ...rest } = params;
+  const { data, error } = await (
+    supabase.rpc as unknown as (
+      fn: "search_recipients_bulk",
+      p: Record<string, unknown>,
+    ) => Promise<{
+      data: { total?: number; rows?: SearchRecipientBulkRow[] } | null;
+      error: { message: string } | null;
+    }>
+  )("search_recipients_bulk", {
+    ...rest,
+    p_require_parent_phone,
+    p_max: max,
+  });
+
+  if (error) {
+    throw new Error(`수신자 조회에 실패했습니다: ${error.message}`);
+  }
+  return {
+    rows: data?.rows ?? [],
+    total: Number(data?.total ?? 0),
+  };
+}

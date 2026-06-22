@@ -37,8 +37,10 @@ import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { loadRecipientsByFilters } from "@/lib/groups/load-all-group-recipients";
-import { countRecipients } from "@/lib/groups/count-recipients";
+import {
+  buildSearchRecipientsParams,
+  callSearchRecipientsBulk,
+} from "@/lib/groups/search-recipients-rpc";
 import { GroupFiltersSchema } from "@/lib/schemas/group";
 import { z } from "zod";
 
@@ -283,15 +285,12 @@ export type ListMatchedRecipientsInput = z.infer<
 >;
 
 /**
- * 체크박스 명단 페치 상한. 이 분량까지는 매칭 학생을 전부 내려 UI 가 모두 그린다
- * (운영자 요청: 일부만 말고 전원 표시 + 이름 가나다순). 전체 매칭 수(total)는 별도
- * head 카운트로 얻어, 상한을 넘는 초대형 코호트일 때만 "상위 N명만 표시" 안내를 띄운다.
- *
- * 상한을 둔 이유: 수만 명 코호트를 전부 DOM 으로 그리면 브라우저가 멈춘다. 1만은
- * 분원·학년 단위 코호트를 대부분 덮으면서 렌더가 버티는 선. 발송 자체는 서버가
- * 필터로 다시 펼치므로 이 상한과 무관하다.
+ * 체크박스 명단 페치 상한(안전선). search_recipients_bulk 가 매칭 전원을 1회 호출로
+ * 반환하고(0095), 프런트는 가상 스크롤로 렌더하므로 1만 명 너머도 전부 보여준다.
+ * 분원 최대 코호트(대치 ~64k)도 덮도록 10만으로 둔다. 이 선을 넘는 초대형 코호트만
+ * "상위 N명만 표시" 안내가 뜬다(현실적으로 도달 안 함).
  */
-const MATCHED_LIST_CAP = 10_000;
+const MATCHED_LIST_CAP = 100_000;
 
 /**
  * 필터로 매칭된 학생 명단(상위 일부) + 전체 매칭 수를 반환 (필터 발송의 체크박스 UI 용).
@@ -327,17 +326,13 @@ export async function listMatchedRecipientsAction(
 
   try {
     const supabase = await createSupabaseServerClient();
-    // 매칭 명단(상한까지 전원)과 전체 매칭 수를 병렬로. total 은 head 카운트라
-    // 상한 초과 코호트에서도 정확한 전체 수를 보여준다.
-    const [rows, count] = await Promise.all([
-      loadRecipientsByFilters(
-        supabase,
-        parsed.filters,
-        parsed.branch,
-        MATCHED_LIST_CAP,
-      ),
-      countRecipients(parsed.filters, parsed.branch),
-    ]);
+    // 매칭 전원 + 전체 수를 search_recipients_bulk 1회 호출로(jsonb, max_rows 미적용).
+    // 학부모 번호 없는 학생도 명단엔 보여야 하므로 requireParentPhone=false.
+    const { rows, total } = await callSearchRecipientsBulk(
+      supabase,
+      buildSearchRecipientsParams(parsed.filters, parsed.branch, false),
+      MATCHED_LIST_CAP,
+    );
     const recipients: MatchedRecipient[] = rows
       .map((r) => ({
         studentId: r.id,
@@ -351,7 +346,7 @@ export async function listMatchedRecipientsAction(
           a.name.localeCompare(b.name, "ko-KR") ||
           a.studentId.localeCompare(b.studentId),
       );
-    return { status: "success", recipients, total: count.total };
+    return { status: "success", recipients, total };
   } catch (e) {
     const reason =
       e instanceof Error ? e.message : "수신자 명단 조회에 실패했습니다";
