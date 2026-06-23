@@ -42,8 +42,15 @@ function listFromDevSeed(query: CampaignListQuery): ListCampaignsResult {
     from: query.from,
     to: query.to,
   });
+  // 테스트 발송 필터.
+  const testFiltered =
+    query.test === "only"
+      ? all.filter((c) => c.is_test)
+      : query.test === "real"
+        ? all.filter((c) => !c.is_test)
+        : all;
   // sent_at/scheduled_at/created_at DESC NULLS LAST
-  const sorted = [...all].sort((a, b) => {
+  const sorted = [...testFiltered].sort((a, b) => {
     const aKey = a.sent_at ?? a.scheduled_at ?? a.created_at;
     const bKey = b.sent_at ?? b.scheduled_at ?? b.created_at;
     return bKey.localeCompare(aKey);
@@ -89,6 +96,7 @@ async function listFromSupabase(
   const applyFilters = <
     Q extends {
       eq(col: string, val: string): Q;
+      is(col: string, val: boolean): Q;
       ilike(col: string, val: string): Q;
       gte(col: string, val: string): Q;
       lte(col: string, val: string): Q;
@@ -99,6 +107,9 @@ async function listFromSupabase(
   ): Q => {
     let next = q;
     if (query.status) next = next.eq("status", query.status);
+    // 테스트 발송 필터 — is_test 컬럼 기준.
+    if (query.test === "only") next = next.is("is_test", true);
+    else if (query.test === "real") next = next.is("is_test", false);
     // q: 제목 OR 본문 ilike. PostgREST or() 안의 콤마/괄호/% 는 항 분리자라
     // 사용자 입력에 섞이면 syntax error → sanitize 한 뒤 사용.
     if (query.q) {

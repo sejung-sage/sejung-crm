@@ -33,6 +33,8 @@ export const CampaignListQuerySchema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "날짜 형식이 YYYY-MM-DD 가 아닙니다")
     .optional(),
   sender: z.string().uuid("발송자 ID 가 유효하지 않습니다").optional(),
+  /** 테스트 발송 필터. 'only'=테스트만, 'real'=실발송만, 미지정=전체. */
+  test: z.enum(["only", "real"]).optional(),
   page: z.coerce.number().int().min(1).optional().default(1),
 });
 export type CampaignListQuery = z.infer<typeof CampaignListQuerySchema>;

@@ -34,6 +34,7 @@ export default async function CampaignsPage({
     from: pick(raw.from),
     to: pick(raw.to),
     sender: pick(raw.sender),
+    test: pick(raw.test),
     page: pick(raw.page) ?? 1,
   });
 

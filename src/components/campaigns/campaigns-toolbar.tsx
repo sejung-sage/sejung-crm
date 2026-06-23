@@ -44,6 +44,7 @@ export function CampaignsToolbar({ senders = [] }: Props) {
   const from = searchParams.get("from") ?? "";
   const to = searchParams.get("to") ?? "";
   const sender = searchParams.get("sender") ?? "";
+  const test = searchParams.get("test") ?? "";
 
   // 폼 input 들의 현재 값을 status/date onChange 시점에도 읽어 보존하기 위함.
   // 사용자가 q 텍스트를 입력하고 Enter 안 누른 상태로 status 만 바꾸면 텍스트가
@@ -126,6 +127,14 @@ export function CampaignsToolbar({ senders = [] }: Props) {
       setTextParams(p);
       if (value) p.set("sender", value);
       else p.delete("sender");
+    });
+  };
+
+  const onTestChange = (value: string) => {
+    updateParams((p) => {
+      setTextParams(p);
+      if (value) p.set("test", value);
+      else p.delete("test");
     });
   };
 
@@ -279,6 +288,23 @@ export function CampaignsToolbar({ senders = [] }: Props) {
           />
         </label>
       </div>
+
+      <select
+        aria-label="테스트 발송 필터"
+        value={test}
+        onChange={(e) => onTestChange(e.target.value)}
+        className="
+          h-10 min-w-32 rounded-lg px-3
+          bg-bg-card border border-[color:var(--border)]
+          text-[15px] text-[color:var(--text)]
+          focus:outline-none focus:border-[color:var(--border-strong)]
+          cursor-pointer
+        "
+      >
+        <option value="">전체 (테스트 포함)</option>
+        <option value="only">테스트만</option>
+        <option value="real">실발송만</option>
+      </select>
 
       {senders.length > 0 && (
         <select
