@@ -22,10 +22,29 @@
  *   - 한 호출에서 캠페인 최대 20개 처리 — 평균 캠페인이 5초 이내 끝난다고 가정.
  */
 
+import { waitUntil } from "@vercel/functions";
 import { dispatchScheduledCampaigns } from "@/lib/messaging/dispatch-scheduled";
+import { getMessagingBaseUrl } from "@/lib/messaging/base-url";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
+
+/** 자체 지연발송으로 '발송중' 전환된 캠페인의 drain 을 fire-and-forget 킥. */
+function kickDrain(campaignId: string, drainSecret: string): void {
+  waitUntil(
+    fetch(`${getMessagingBaseUrl()}/api/messaging/drain`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-drain-secret": drainSecret,
+      },
+      body: JSON.stringify({ campaignId }),
+      keepalive: true,
+    }).catch(() => {
+      // 킥 실패 시 캠페인은 '발송중' + '대기' 로 남는다 — 수동 이어보내기로 복구 가능.
+    }),
+  );
+}
 
 export async function GET(request: Request): Promise<Response> {
   const secret = process.env.CRON_SECRET;
@@ -43,6 +62,16 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     const result = await dispatchScheduledCampaigns();
+
+    // 자체 지연발송 캠페인의 drain 킥 — DRAIN_SECRET 있을 때만. (없으면 '발송중' 으로
+    // 남아 수동 복구 필요. 운영 배포 전 DRAIN_SECRET 필수.)
+    const drainSecret = process.env.DRAIN_SECRET;
+    if (drainSecret) {
+      for (const campaignId of result.started) {
+        kickDrain(campaignId, drainSecret);
+      }
+    }
+
     return Response.json(result);
   } catch (e) {
     const message =

@@ -19,6 +19,11 @@ import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { createSmsAdapter } from "@/lib/messaging/adapters";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getMessagingBaseUrl } from "./base-url";
+import {
+  SCHEDULE_MIN_LEAD_MS,
+  SCHEDULE_MIN_LEAD_LABEL,
+  SENDON_MIN_RESERVATION_MS,
+} from "./schedule-window";
 
 export type RescheduleResult =
   | { status: "rescheduled"; scheduledAt: string }
@@ -43,12 +48,15 @@ export async function rescheduleCampaign(
   if (Number.isNaN(newDate.getTime())) {
     return { status: "failed", reason: "예약 시각 형식이 올바르지 않습니다" };
   }
-  if (newDate.getTime() < Date.now() + 30 * 60_000) {
+  if (newDate.getTime() < Date.now() + SCHEDULE_MIN_LEAD_MS) {
     return {
       status: "failed",
-      reason: "예약 시각은 지금부터 최소 30분 이후여야 합니다",
+      reason: `예약 시각은 지금부터 최소 ${SCHEDULE_MIN_LEAD_LABEL} 이후여야 합니다`,
     };
   }
+  // 자체 지연발송 여부 — 새 시각이 sendon 최소 예약(30분) 미만이면 cron 이 발송한다.
+  const isSelfDelayed =
+    newDate.getTime() - Date.now() < SENDON_MIN_RESERVATION_MS;
 
   const campaign = await getCampaign(campaignId);
   if (!campaign) {
@@ -144,7 +152,9 @@ export async function rescheduleCampaign(
     .update({
       scheduled_at: newDate.toISOString(),
       sent_at: null,
-      status: "발송중",
+      // 자체 지연발송(30분 미만)은 '예약됨' 유지 → cron 이 시각 도래 시 발송.
+      // 네이티브(30분 이상)는 '발송중' → drain 이 sendon reservation 재접수.
+      status: isSelfDelayed ? "예약됨" : "발송중",
       total_cost: 0,
     })
     .eq("id", campaignId)
@@ -160,7 +170,13 @@ export async function rescheduleCampaign(
     return { status: "failed", reason: "이미 처리되어 변경할 수 없습니다" };
   }
 
-  // 4) drain 재킥 → 새 scheduled_at 으로 sendon reservation 재접수.
+  // 4) 자체 지연발송이면 지금 drain 을 킥하지 않는다 — '예약됨' + '대기' 로 두고
+  //    cron(dispatch-scheduled)이 새 예약 시각 도래 시 발송한다.
+  if (isSelfDelayed) {
+    return { status: "rescheduled", scheduledAt: newDate.toISOString() };
+  }
+
+  // 네이티브 예약: drain 재킥 → 새 scheduled_at 으로 sendon reservation 재접수.
   const secret = process.env.DRAIN_SECRET;
   if (!secret) {
     return {

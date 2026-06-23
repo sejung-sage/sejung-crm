@@ -36,6 +36,7 @@ import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { SENDON_MIN_RESERVATION_MS } from "./schedule-window";
 
 export interface SendCampaignInput {
   title: string;
@@ -268,6 +269,12 @@ async function runImmediateSend(args: {
   void preview;
   const branch = target.branch;
 
+  // 자체 지연발송 여부 — 예약 시각이 sendon 최소 예약(30분) 미만이면 sendon 네이티브
+  // 예약을 못 쓰므로 '예약됨' 으로 적재만 하고 cron 이 시각 도래 시 발송한다.
+  const isSelfDelayed =
+    scheduledAt !== null &&
+    scheduledAt.getTime() - Date.now() < SENDON_MIN_RESERVATION_MS;
+
   const targets = resolveSendTargets(input);
 
   // a) eligible 수신자 재조회 (preview 는 5명 샘플만 보존하므로)
@@ -303,7 +310,9 @@ async function runImmediateSend(args: {
     group_id: target.groupId,
     scheduled_at: scheduledAt ? scheduledAt.toISOString() : null,
     sent_at: scheduledAt ? null : new Date().toISOString(),
-    status: "발송중",
+    // 자체 지연발송은 '예약됨' 으로 적재(아직 발송 안 함, cron 이 시각 도래 시 발송).
+    // 즉시/네이티브 예약은 '발송중' — 네이티브는 drain 이 sendon 접수 후 '예약됨' 마감.
+    status: isSelfDelayed ? "예약됨" : "발송중",
     total_recipients: totalRecipients,
     total_cost: 0, // 드레인 워커가 누적 갱신
     created_by: userId,
@@ -387,6 +396,18 @@ async function runImmediateSend(args: {
       sent: 0,
       failed: unsubscribed.length,
       cost: 0,
+    };
+  }
+
+  // d-0) 자체 지연발송: 지금은 '대기' 로 적재만 끝낸 상태. drain 을 킥하지 않고
+  //      cron(dispatch-scheduled)이 scheduled_at 도래 시 '발송중' 전환 + drain 킥한다.
+  if (isSelfDelayed && scheduledAt) {
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    return {
+      status: "scheduled",
+      campaignId,
+      scheduledAt: scheduledAt.toISOString(),
     };
   }
 

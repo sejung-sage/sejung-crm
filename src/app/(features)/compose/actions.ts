@@ -42,6 +42,10 @@ import {
   callSearchRecipientsBulk,
 } from "@/lib/groups/search-recipients-rpc";
 import { GroupFiltersSchema } from "@/lib/schemas/group";
+import {
+  SCHEDULE_MIN_LEAD_MS,
+  SCHEDULE_MIN_LEAD_LABEL,
+} from "@/lib/messaging/schedule-window";
 import { z } from "zod";
 
 // ─── 결과 타입 ──────────────────────────────────────────────
@@ -220,16 +224,16 @@ export async function scheduleAction(
     return { status: "failed", reason: "예약 시각이 설정되지 않았습니다" };
   }
 
-  // 과거 시각 방지 + sendon 최소 예약 간격(30분) 검증.
+  // 과거 시각 방지 + 최소 리드타임 검증.
   const scheduledAt = new Date(parsed.scheduleAt);
   if (Number.isNaN(scheduledAt.getTime())) {
     return { status: "failed", reason: "예약 시각 형식이 올바르지 않습니다" };
   }
-  // sendon 제약: 예약은 현재로부터 최소 30분 이후만 가능.
-  if (scheduledAt.getTime() < Date.now() + 30 * 60_000) {
+  // 최소 리드타임: 5분(5~30분은 자체 지연발송, 30분 이상은 sendon 네이티브 예약).
+  if (scheduledAt.getTime() < Date.now() + SCHEDULE_MIN_LEAD_MS) {
     return {
       status: "failed",
-      reason: "예약 시각은 지금부터 최소 30분 이후여야 합니다",
+      reason: `예약 시각은 지금부터 최소 ${SCHEDULE_MIN_LEAD_LABEL} 이후여야 합니다`,
     };
   }
 

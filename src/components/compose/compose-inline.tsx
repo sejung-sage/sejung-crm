@@ -48,6 +48,10 @@ import {
 } from "@/lib/messaging/guards";
 import { hasNameToken } from "@/lib/messaging/personalize";
 import { deriveCampaignTitle } from "@/lib/messaging/derive-campaign-title";
+import {
+  SCHEDULE_MIN_LEAD_MS,
+  SCHEDULE_MIN_LEAD_LABEL,
+} from "@/lib/messaging/schedule-window";
 import { ConfirmSendDialog } from "./confirm-send-dialog";
 import {
   DedupeCountNote,
@@ -482,7 +486,7 @@ export function ComposeInline({
   }, [step2.type, step2.subject, sampleValues]);
 
   const minScheduleAt = useMemo(
-    () => toLocalDatetimeInput(new Date(Date.now() + 30 * 60_000)),
+    () => toLocalDatetimeInput(new Date(Date.now() + SCHEDULE_MIN_LEAD_MS)),
     [],
   );
 
@@ -1185,8 +1189,8 @@ export function ComposeInline({
         {mode === "schedule" && (
           <p className="flex items-start gap-1.5 text-[12px] text-[color:var(--text-muted)]">
             <CalendarClock className="size-3.5 mt-0.5 shrink-0" strokeWidth={1.75} aria-hidden />
-            최소 30분 이후로 예약할 수 있고, 발송 약 10분 전까지 캠페인 상세에서
-            취소할 수 있어요.
+            최소 {SCHEDULE_MIN_LEAD_LABEL} 이후로 예약할 수 있고, 예약 후
+            캠페인 상세에서 취소·변경할 수 있어요.
           </p>
         )}
 

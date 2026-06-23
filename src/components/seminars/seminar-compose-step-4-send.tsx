@@ -12,6 +12,10 @@ import {
 } from "lucide-react";
 import type { ClassSignupOption } from "@/types/database";
 import type { GroupFilters } from "@/lib/schemas/group";
+import {
+  SCHEDULE_MIN_LEAD_MS,
+  SCHEDULE_MIN_LEAD_LABEL,
+} from "@/lib/messaging/schedule-window";
 import { formatKstDateTime } from "@/lib/datetime";
 import { createSeminarBroadcastAction } from "@/app/(features)/seminars/actions";
 import type { SeminarComposeState } from "./seminar-compose-wizard";
@@ -76,9 +80,9 @@ export function SeminarComposeStep4Send({
   const [result, setResult] = useState<SendUiResult | null>(null);
   const [mode, setMode] = useState<"now" | "schedule">("now");
   const [scheduleAt, setScheduleAt] = useState("");
-  // sendon 최소 예약 간격(30분 후).
+  // 예약 최소 리드타임(5분 후). 5~30분은 자체 지연발송, 30분 이상은 sendon 네이티브.
   const minScheduleAt = useMemo(
-    () => toLocalInput(new Date(Date.now() + 30 * 60_000)),
+    () => toLocalInput(new Date(Date.now() + SCHEDULE_MIN_LEAD_MS)),
     [],
   );
   const canSend =
@@ -192,8 +196,8 @@ export function SeminarComposeStep4Send({
                 strokeWidth={1.75}
                 aria-hidden
               />
-              최소 30분 이후로 예약할 수 있고, 발송 약 10분 전까지 캠페인 상세에서
-              취소·변경할 수 있어요.
+              최소 {SCHEDULE_MIN_LEAD_LABEL} 이후로 예약할 수 있고, 예약 후
+              캠페인 상세에서 취소·변경할 수 있어요.
             </p>
           )}
 

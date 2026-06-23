@@ -61,6 +61,11 @@ import {
 } from "@/lib/supabase/server";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
+import {
+  SCHEDULE_MIN_LEAD_MS,
+  SCHEDULE_MIN_LEAD_LABEL,
+  SENDON_MIN_RESERVATION_MS,
+} from "@/lib/messaging/schedule-window";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { normalizePhone } from "@/lib/phone";
 import type { ClaimInvitationItemResult, CurrentUser } from "@/types/database";
@@ -791,19 +796,23 @@ export async function createSeminarBroadcastAction(
   const auth = await assertSeminarWrite(parsed.branch);
   if (!auth.ok) return { status: "failed", reason: auth.reason };
 
-  // 예약 발송 시각 검증 — 지정 시 sendon 최소 간격(30분) 이후만 허용.
+  // 예약 발송 시각 검증 — 최소 리드타임(5분) 이후만 허용.
+  // 5~30분은 자체 지연발송(cron 이 시각 도래 시 drain 킥), 30분 이상은 sendon 네이티브.
   let scheduledAtDate: Date | null = null;
+  let isSelfDelayed = false;
   if (parsed.scheduled_at) {
     scheduledAtDate = new Date(parsed.scheduled_at);
     if (Number.isNaN(scheduledAtDate.getTime())) {
       return { status: "failed", reason: "예약 시각 형식이 올바르지 않습니다" };
     }
-    if (scheduledAtDate.getTime() < Date.now() + 30 * 60_000) {
+    if (scheduledAtDate.getTime() < Date.now() + SCHEDULE_MIN_LEAD_MS) {
       return {
         status: "failed",
-        reason: "예약 시각은 지금부터 최소 30분 이후여야 합니다",
+        reason: `예약 시각은 지금부터 최소 ${SCHEDULE_MIN_LEAD_LABEL} 이후여야 합니다`,
       };
     }
+    isSelfDelayed =
+      scheduledAtDate.getTime() - Date.now() < SENDON_MIN_RESERVATION_MS;
   }
 
   const supabase = await createSupabaseServerClient();
@@ -1014,7 +1023,8 @@ export async function createSeminarBroadcastAction(
     group_id: null,
     scheduled_at: scheduledAtDate ? scheduledAtDate.toISOString() : null,
     sent_at: scheduledAtDate ? null : new Date().toISOString(),
-    status: "발송중",
+    // 자체 지연발송(5~30분)은 '예약됨' — cron 이 시각 도래 시 drain 킥. 그 외 '발송중'.
+    status: isSelfDelayed ? "예약됨" : "발송중",
     total_recipients: filtered.length,
     total_cost: 0,
     created_by: auth.user.user_id,
@@ -1206,6 +1216,20 @@ export async function createSeminarBroadcastAction(
         reason: `메시지 큐 적재 실패: ${msgErr.message}`,
       };
     }
+  }
+
+  // 9-0) 자체 지연발송: 지금은 '대기' 로 적재만 끝낸 상태. drain 을 킥하지 않고
+  //      cron(dispatch-scheduled)이 scheduled_at 도래 시 '발송중' 전환 + drain 킥한다.
+  if (isSelfDelayed) {
+    revalidatePath("/seminars/compose");
+    revalidatePath("/campaigns");
+    revalidatePath(`/campaigns/${campaignId}`);
+    return {
+      status: "success",
+      campaign_id: campaignId,
+      queued: filtered.length,
+      scheduledAt: scheduledAtDate ? scheduledAtDate.toISOString() : null,
+    };
   }
 
   // 9) 드레인 워커 킥 — fire-and-forget. 즉시 반환하고 백그라운드에서 발송 진행.
