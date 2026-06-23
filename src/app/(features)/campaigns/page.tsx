@@ -80,7 +80,7 @@ export default async function CampaignsPage({
         건
       </p>
 
-      <CampaignsTable rows={result.items} />
+      <CampaignsTable rows={result.items} canDelete={isMaster} />
 
       <Pagination
         page={parsed.page}

@@ -30,6 +30,10 @@ import {
   rescheduleCampaign,
   type RescheduleResult,
 } from "@/lib/messaging/reschedule-campaign";
+import {
+  deleteCampaign,
+  type DeleteCampaignResult,
+} from "@/lib/campaigns/delete-campaign";
 import type { SendCampaignResult } from "@/lib/messaging/send-campaign";
 
 export async function resendFailedAction(
@@ -86,6 +90,19 @@ export async function rescheduleCampaignAction(
   const result = await rescheduleCampaign(campaignId, scheduledAt);
   if (result.status === "rescheduled") {
     revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/campaigns");
+  }
+  return result;
+}
+
+export async function deleteCampaignAction(
+  campaignId: string,
+): Promise<DeleteCampaignResult> {
+  if (typeof campaignId !== "string" || campaignId.length === 0) {
+    return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
+  }
+  const result = await deleteCampaign(campaignId);
+  if (result.status === "deleted") {
     revalidatePath("/campaigns");
   }
   return result;

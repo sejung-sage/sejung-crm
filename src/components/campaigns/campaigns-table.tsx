@@ -2,14 +2,17 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { Copy, MoreHorizontal, RotateCcw, Trash2 } from "lucide-react";
 import type { CampaignListItem } from "@/types/database";
 import { formatKstDateTime } from "@/lib/datetime";
 import { CampaignStatusBadge } from "@/components/campaigns/campaign-status-badge";
+import { deleteCampaignAction } from "@/app/(features)/campaigns/actions";
 
 interface Props {
   rows: CampaignListItem[];
+  /** master 만 발송 내역 삭제 가능. 그 외 역할은 삭제 메뉴를 숨긴다. */
+  canDelete?: boolean;
 }
 
 /**
@@ -22,10 +25,28 @@ interface Props {
  *
  * 재발송/삭제 실구현은 Part B 에서 server action 연동 후 활성화.
  */
-export function CampaignsTable({ rows }: Props) {
+export function CampaignsTable({ rows, canDelete = false }: Props) {
   const router = useRouter();
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isDeleting, startDelete] = useTransition();
+
+  const handleDelete = (campaignId: string, title: string) => {
+    setOpenMenuId(null);
+    const ok = window.confirm(
+      `"${title}" 발송 내역을 삭제할까요?\n발송 기록이 영구 삭제되며 되돌릴 수 없습니다.`,
+    );
+    if (!ok) return;
+    startDelete(async () => {
+      const r = await deleteCampaignAction(campaignId);
+      if (r.status === "deleted") {
+        setNotice("발송 내역을 삭제했습니다.");
+        router.refresh();
+      } else {
+        setNotice(r.reason ?? "삭제에 실패했습니다.");
+      }
+    });
+  };
 
   if (rows.length === 0) {
     return (
@@ -165,11 +186,17 @@ export function CampaignsTable({ rows }: Props) {
                           "캠페인 복제는 Phase 1 에서 제공됩니다. 문자 작성 페이지에서 같은 템플릿으로 새 캠페인을 만들어 주세요.",
                         );
                       }}
+                      canDelete={canDelete}
+                      deleting={isDeleting}
                       onDelete={() => {
-                        setOpenMenuId(null);
-                        setNotice(
-                          "캠페인 삭제는 Part B 에서 제공됩니다 (발송 기록은 회계 감사를 위해 보존).",
-                        );
+                        if (canDelete) {
+                          handleDelete(c.id, c.title);
+                        } else {
+                          setOpenMenuId(null);
+                          setNotice(
+                            "발송 내역 삭제는 마스터 계정만 가능합니다 (발송 기록은 회계 감사를 위해 보존).",
+                          );
+                        }
                       }}
                     />
                   </Td>
@@ -230,12 +257,17 @@ function RowMenu({
   onResend,
   onDuplicate,
   onDelete,
+  canDelete,
+  deleting,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onResend: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+  /** master 만 삭제 메뉴 노출. */
+  canDelete: boolean;
+  deleting: boolean;
 }) {
   return (
     <div className="relative inline-block">
@@ -287,10 +319,19 @@ function RowMenu({
             <MenuItem icon={Copy} onClick={onDuplicate}>
               복제
             </MenuItem>
-            <div className="my-1 h-px bg-[color:var(--border)]" />
-            <MenuItem icon={Trash2} tone="danger" onClick={onDelete}>
-              삭제
-            </MenuItem>
+            {canDelete && (
+              <>
+                <div className="my-1 h-px bg-[color:var(--border)]" />
+                <MenuItem
+                  icon={Trash2}
+                  tone="danger"
+                  onClick={onDelete}
+                  disabled={deleting}
+                >
+                  {deleting ? "삭제 중..." : "삭제"}
+                </MenuItem>
+              </>
+            )}
           </div>
         </>
       )}
