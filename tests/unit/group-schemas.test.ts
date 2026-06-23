@@ -9,6 +9,7 @@ import {
   resolveGroupKind,
   isCustomGroup,
   isValidCustomGroupFilters,
+  isEmptyFilterCohort,
   DEFAULT_GROUP_KIND,
 } from "@/lib/schemas/group";
 import { StudentStatusSchema } from "@/lib/schemas/common";
@@ -637,6 +638,54 @@ describe("GroupListQuerySchema", () => {
 
     it("page 가 음수면 실패", () => {
       expect(() => GroupListQuerySchema.parse({ page: "-1" })).toThrow();
+    });
+  });
+
+  describe("isEmptyFilterCohort · 조건 없는 filter(분원 전원) 판정", () => {
+    it("빈 filter → true (명단 자동 로드 스킵 대상)", () => {
+      expect(isEmptyFilterCohort(GroupFiltersSchema.parse({}))).toBe(true);
+    });
+
+    it("학년 하나라도 있으면 → false", () => {
+      expect(
+        isEmptyFilterCohort(GroupFiltersSchema.parse({ grades: ["고3"] })),
+      ).toBe(false);
+    });
+
+    it("학교/과목/지역/상태/학교토글 중 하나라도 → false", () => {
+      const cases = [
+        { schools: ["세정고"] },
+        { subjects: ["수학"] },
+        { regions: ["강남구"] },
+        { statuses: ["재원생"] },
+        { unmappedSchool: true },
+        { mappedSchool: true },
+        { excludeSchools: ["세정고"] },
+      ];
+      for (const c of cases) {
+        expect(isEmptyFilterCohort(GroupFiltersSchema.parse(c))).toBe(false);
+      }
+    });
+
+    it("custom(고정 명단)은 빈 filter 아님 → false", () => {
+      expect(
+        isEmptyFilterCohort(
+          GroupFiltersSchema.parse({
+            kind: "custom",
+            includeStudentIds: ["11111111-1111-4111-8111-111111111111"],
+          }),
+        ),
+      ).toBe(false);
+    });
+
+    it("excludeStudentIds 만 있는 빈 filter → true (제외만으론 모집단 한정 아님)", () => {
+      expect(
+        isEmptyFilterCohort(
+          GroupFiltersSchema.parse({
+            excludeStudentIds: ["11111111-1111-4111-8111-111111111111"],
+          }),
+        ),
+      ).toBe(true);
     });
   });
 });

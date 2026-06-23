@@ -53,6 +53,28 @@ export function isCustomGroup(filters: { kind?: GroupKind }): boolean {
 }
 
 /**
+ * "조건이 하나도 없는" filter 코호트 여부 — 즉 분원 전원이 대상.
+ *
+ * 용도: 작성 화면에서 무조건 전원(분원 최대 ~6.4만)을 매칭 명단으로 불러오면 느려서
+ * (전원 직렬화 ~1.3초), 조건이 없을 땐 명단 자동 로드를 건너뛴다. custom(고정 명단)은
+ * includeStudentIds 가 모집단이므로 "빈 필터"가 아니다(false).
+ */
+export function isEmptyFilterCohort(filters: GroupFilters): boolean {
+  if (isCustomGroup(filters)) return false;
+  return (
+    filters.grades.length === 0 &&
+    filters.schools.length === 0 &&
+    filters.subjects.length === 0 &&
+    filters.regions.length === 0 &&
+    filters.statuses.length === 0 &&
+    (filters.excludeSchools?.length ?? 0) === 0 &&
+    (filters.excludeClassIds?.length ?? 0) === 0 &&
+    !filters.unmappedSchool &&
+    !filters.mappedSchool
+  );
+}
+
+/**
  * groups.filters (JSONB) 의 정규 구조.
  * 모든 필드는 선택이며, 빈 배열은 "조건 없음(전체 허용)" 의미.
  */

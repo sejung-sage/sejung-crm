@@ -133,7 +133,7 @@ export function SeminarComposeStep2Target({
             <p className="px-3 py-6 text-[13px] text-[color:var(--text-muted)] text-center">
               {devMode
                 ? "개발 시드 모드에서는 매칭 명단이 표시되지 않습니다. 발송·테스트는 차단됩니다."
-                : "조건에 맞는 학생이 없습니다. 위 필터를 조정해 주세요."}
+                : "학년·학교·강좌 등 조건을 선택하면 매칭 학생 명단이 표시됩니다."}
             </p>
           )}
 

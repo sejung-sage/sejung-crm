@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClassSignupOption, Grade } from "@/types/database";
 import type { ClassOption } from "@/lib/classes/list-class-options";
 import type { GroupFilters } from "@/lib/schemas/group";
+import { isEmptyFilterCohort } from "@/lib/schemas/group";
 import {
   listMatchedRecipientsAction,
   type MatchedRecipient,
@@ -159,6 +160,17 @@ export function SeminarComposeWizard({
   useEffect(() => {
     if (!branch) return;
     if (listDebounceRef.current) clearTimeout(listDebounceRef.current);
+    // 조건이 하나도 없으면(분원 전원) 명단을 자동 로드하지 않는다 — 분원 최대 ~6.4만 명을
+    // 매번 직렬화하면 느리고, 그 조회 중 조건을 바꾸면 응답이 뒤늦게 도착해 렉이 걸린다.
+    // 설명회는 보통 특정 학년·강좌 대상이라 조건을 고른 뒤 명단을 그린다.
+    if (isEmptyFilterCohort(listFilters)) {
+      listReqRef.current += 1; // 진행 중이던 직전 요청 결과 무시
+      setRecipients([]);
+      setTotal(0);
+      setListLoading(false);
+      setListError(null);
+      return;
+    }
     setListLoading(true);
     setListError(null);
     listDebounceRef.current = setTimeout(async () => {

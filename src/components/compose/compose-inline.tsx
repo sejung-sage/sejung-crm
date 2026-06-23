@@ -21,6 +21,7 @@ import {
 import type { Grade, StudentStatus, TemplateRow } from "@/types/database";
 import type { ClassOption } from "@/lib/classes/list-class-options";
 import type { GroupFilters } from "@/lib/schemas/group";
+import { isEmptyFilterCohort } from "@/lib/schemas/group";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
 import {
   listMatchedRecipientsAction,
@@ -332,6 +333,18 @@ export function ComposeInline({
   useEffect(() => {
     if (!branch) return;
     if (listDebounceRef.current) clearTimeout(listDebounceRef.current);
+    // 조건이 하나도 없으면(분원 전원) 명단을 자동 로드하지 않는다 — 분원 최대 ~6.4만 명을
+    // 매번 직렬화하면 느리고(~1.3초), 그 조회 중 필터를 바꾸면 응답이 뒤늦게 도착해
+    // 렉이 걸린다. 인원/비용은 가벼운 미리보기(카운트)로 보여주고, 명단(체크 목록)은
+    // 학년·학교 등 조건을 고른 뒤에만 그린다.
+    if (isEmptyFilterCohort(listFilters)) {
+      listReqRef.current += 1; // 진행 중이던 직전 요청 결과 무시
+      setRecipients([]);
+      setTotal(0);
+      setListLoading(false);
+      setListError(null);
+      return;
+    }
     setListLoading(true);
     setListError(null);
     listDebounceRef.current = setTimeout(async () => {
@@ -583,9 +596,16 @@ export function ComposeInline({
       ? included.has(studentId)
       : !deselected.has(studentId);
 
+  // 조건이 없으면(분원 전원) 명단을 자동 로드하지 않으므로 total 은 0 이다. 이때 인원수는
+  // 가벼운 미리보기 카운트로 보여준다(발송은 전원 그대로 진행).
+  const noFilterCohort = isEmptyFilterCohort(listFilters);
+  const effectiveTotal = noFilterCohort ? preview?.recipientCount ?? 0 : total;
+
   // 선택 수 — 모드별. include: 고른 수. exclude: 전체 매칭 − 표시분에서 해제한 수.
   const checkedCount =
-    selectMode === "include" ? included.size : total - deselected.size;
+    selectMode === "include"
+      ? included.size
+      : effectiveTotal - deselected.size;
   // 헤더 체크박스 상태.
   const allChecked = selectMode === "exclude" && deselected.size === 0;
   const headerIndeterminate =
@@ -1056,7 +1076,7 @@ export function ComposeInline({
             hint={
               listLoading
                 ? "불러오는 중..."
-                : `${total.toLocaleString()}명 중 ${checkedCount.toLocaleString()}명 선택`
+                : `${effectiveTotal.toLocaleString()}명 중 ${checkedCount.toLocaleString()}명 선택`
             }
           >
             <div className="rounded-lg border border-[color:var(--border)] bg-bg-card h-full flex flex-col min-h-0">
@@ -1097,7 +1117,9 @@ export function ComposeInline({
                 <p className="px-3 py-6 text-[13px] text-[color:var(--text-muted)] text-center">
                   {devMode
                     ? "개발 시드 모드에서는 매칭 명단이 표시되지 않습니다. 인원수·비용 미리보기는 동작합니다."
-                    : "조건에 맞는 학생이 없습니다. 위 필터를 조정해 주세요."}
+                    : noFilterCohort
+                      ? `분원 전체 ${effectiveTotal.toLocaleString()}명이 발송 대상입니다. 학년·학교 등 조건을 선택하면 명단이 표시됩니다.`
+                      : "조건에 맞는 학생이 없습니다. 위 필터를 조정해 주세요."}
                 </p>
               )}
 
