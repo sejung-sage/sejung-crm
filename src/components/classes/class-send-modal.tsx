@@ -178,7 +178,7 @@ export function ClassSendModal({ recipients, contextLabel, onClose }: Props) {
               />
               <span className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
                 광고성 문자로 발송 — (광고) 표기·무료수신거부 안내가 자동
-                삽입되고 21시~08시에는 발송이 차단됩니다.
+                삽입됩니다.
               </span>
             </label>
 

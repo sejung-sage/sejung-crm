@@ -12,8 +12,6 @@ import {
   AlertTriangle,
   CalendarClock,
   Loader2,
-  Megaphone,
-  Moon,
   Phone,
   Send,
   Users,
@@ -48,7 +46,6 @@ import {
   insertUnsubscribeFooter,
   branchBrandName,
 } from "@/lib/messaging/guards";
-import { checkQuietHours } from "@/lib/messaging/guards/check-quiet-hours";
 import { hasNameToken } from "@/lib/messaging/personalize";
 import { deriveCampaignTitle } from "@/lib/messaging/derive-campaign-title";
 import { ConfirmSendDialog } from "./confirm-send-dialog";
@@ -489,18 +486,6 @@ export function ComposeInline({
     [],
   );
 
-  // 야간 광고 차단(21~08)은 "실제 발송 시각" 기준으로 판정한다 — 즉시면 지금,
-  // 예약이면 예약 시각. preview.blockedByQuietHours 는 미리보기 산출 특성상 항상
-  // "지금" 기준이라, 밤에 광고를 작성해 다음 날 아침으로 예약하려 해도 예약 버튼이
-  // 비활성화되는 버그가 있었다. 서버(scheduleAction)는 실제 예약 시각으로 다시
-  // 판정하므로 최종 안전선은 그대로 유지된다.
-  const quietBlocked = useMemo(() => {
-    if (!step2.isAd) return false;
-    const at =
-      mode === "schedule" && scheduleAt ? new Date(scheduleAt) : new Date();
-    if (Number.isNaN(at.getTime())) return false;
-    return !checkQuietHours(at, true).allowed;
-  }, [step2.isAd, mode, scheduleAt]);
 
   // ── 핸들러 ──
   const onTypeChange = (type: TemplateTypeLiteral) => {
@@ -634,7 +619,6 @@ export function ComposeInline({
     (step2.type === "SMS" || !!(step2.subject && step2.subject.trim())) &&
     !!preview &&
     preview.recipientCount > 0 &&
-    !quietBlocked &&
     !bodyOverflow &&
     !subjectOverflow &&
     (mode === "now" || !!scheduleAt);
@@ -1034,12 +1018,6 @@ export function ComposeInline({
                 </span>
               </span>
             </label>
-            {step2.isAd && (
-              <p className="flex items-start gap-2 text-[12px] leading-relaxed text-[color:var(--warning)]">
-                <Megaphone className="size-3.5 mt-0.5 shrink-0" strokeWidth={1.75} aria-hidden />
-                21시 ~ 08시 광고 발송이 차단됩니다.
-              </p>
-            )}
           </fieldset>
 
         </section>
@@ -1159,24 +1137,6 @@ export function ComposeInline({
             className="rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-4 py-3 text-[14px] text-[color:var(--danger)]"
           >
             {previewError}
-          </div>
-        )}
-
-        {quietBlocked && (
-          <div
-            role="alert"
-            className="flex items-start gap-2 rounded-lg border border-[color:var(--danger)] bg-[color:var(--danger-bg)] px-4 py-3"
-          >
-            <Moon className="size-4 mt-0.5 text-[color:var(--danger)]" strokeWidth={1.75} aria-hidden />
-            <div className="text-[13px] leading-relaxed text-[color:var(--text)]">
-              <strong className="font-medium text-[color:var(--danger)]">
-                야간 광고 차단:
-              </strong>{" "}
-              21시 ~ 08시 사이에는 광고성 문자를 발송할 수 없습니다.{" "}
-              {mode === "schedule"
-                ? "예약 시각을 08시 ~ 21시 사이로 변경해주세요."
-                : "예약 발송으로 시간을 다음 날 아침 이후로 잡아주세요."}
-            </div>
           </div>
         )}
 

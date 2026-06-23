@@ -41,8 +41,8 @@ describe("applyAllGuards · 광고 낮 시간 정상 케이스", () => {
   });
 });
 
-describe("applyAllGuards · 광고 야간 차단", () => {
-  it("2026-04-22T22:00 KST + isAd=true → allowedToSend=false · reason 한글", () => {
+describe("applyAllGuards · 시간대 차단 해제", () => {
+  it("2026-04-22T22:00 KST + isAd=true → 더 이상 차단 안 함(allowedToSend=true)", () => {
     const out = applyAllGuards({
       body: "야간 광고",
       isAd: true,
@@ -52,10 +52,8 @@ describe("applyAllGuards · 광고 야간 차단", () => {
       unsubscribedPhones: [],
       optOutNumber: "080-111-2222",
     });
-    expect(out.allowedToSend).toBe(false);
-    expect(out.blockReason).toBeTruthy();
-    expect(out.blockReason).toContain("야간");
-    // 본문 변환은 야간이어도 진행됨(차단은 발송 여부만 결정)
+    expect(out.allowedToSend).toBe(true);
+    // 본문 변환은 정상 진행
     expect(out.finalBody.startsWith("(광고)\n세정학원\n")).toBe(true);
   });
 });

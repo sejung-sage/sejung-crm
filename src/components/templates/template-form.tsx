@@ -470,7 +470,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
                 <code className="px-1 rounded bg-[color:var(--bg-muted)]">
                   080 수신거부
                 </code>{" "}
-                안내가 자동 삽입되며, 21시 ~ 08시 시간대에는 발송이 차단됩니다.
+                안내가 자동 삽입됩니다.
               </div>
             </div>
           )}

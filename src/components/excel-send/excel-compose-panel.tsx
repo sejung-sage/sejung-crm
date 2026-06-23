@@ -343,7 +343,7 @@ export function ExcelComposePanel({ rows }: Props) {
               앞에 <code className="px-1 rounded bg-[color:var(--bg-card)]">[광고]</code>{" "}
               prefix 와 끝에{" "}
               <code className="px-1 rounded bg-[color:var(--bg-card)]">080 수신거부</code>{" "}
-              안내가 자동 삽입되며, 21시 ~ 08시에는 발송이 차단됩니다.
+              안내가 자동 삽입됩니다.
             </div>
           </div>
         )}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef } from "react";
-import { AlertTriangle, Link as LinkIcon, Megaphone } from "lucide-react";
+import { AlertTriangle, Link as LinkIcon } from "lucide-react";
 import type { ClassSignupOption } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
@@ -281,21 +281,6 @@ export function SeminarComposeStep3Body({
         />
       </div>
 
-      {state.isAd && (
-        <div
-          role="note"
-          className="flex items-start gap-2 rounded-md border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-3 py-2"
-        >
-          <Megaphone
-            className="size-3.5 mt-0.5 text-[color:var(--warning)] shrink-0"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-          <p className="text-[12px] leading-relaxed text-[color:var(--text)]">
-            21시 ~ 08시 광고 발송이 차단됩니다.
-          </p>
-        </div>
-      )}
 
       {/* ── 2박스: 세정학원 문자 / 미리보기 ──────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">

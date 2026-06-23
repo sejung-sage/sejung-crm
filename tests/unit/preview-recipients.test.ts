@@ -105,13 +105,13 @@ describe("previewRecipients · dev-seed · 광고성(낮 시간)", () => {
   });
 });
 
-describe("previewRecipients · dev-seed · 광고성 + 야간 차단", () => {
+describe("previewRecipients · dev-seed · 광고성 + 시간대 차단 해제", () => {
   beforeEach(() => {
     process.env.SEJUNG_DEV_SEED = "1";
     delete process.env.NEXT_PUBLIC_SUPABASE_URL;
   });
 
-  it("22:00 KST + isAd=true → blockedByQuietHours=true · blockReason 한글", async () => {
+  it("22:00 KST + isAd=true → 더 이상 차단 안 함(blockedByQuietHours=false)", async () => {
     const r = await previewRecipients({
       groupId: "dev-group-1",
       body: "야간 광고 시도",
@@ -119,12 +119,10 @@ describe("previewRecipients · dev-seed · 광고성 + 야간 차단", () => {
       type: "SMS",
       scheduledAt: new Date("2026-04-22T22:00:00+09:00"),
     });
-    expect(r.blockedByQuietHours).toBe(true);
-    expect(r.blockReason).toBeTruthy();
-    expect(r.blockReason).toMatch(/야간/);
+    expect(r.blockedByQuietHours).toBe(false);
   });
 
-  it("07:59 KST + 광고 → blockedByQuietHours=true (08:00 정각 전까지 차단)", async () => {
+  it("07:59 KST + 광고 → 차단 없음(blockedByQuietHours=false)", async () => {
     const r = await previewRecipients({
       groupId: "dev-group-1",
       body: "새벽 광고",
@@ -132,7 +130,7 @@ describe("previewRecipients · dev-seed · 광고성 + 야간 차단", () => {
       type: "SMS",
       scheduledAt: new Date("2026-04-22T07:59:00+09:00"),
     });
-    expect(r.blockedByQuietHours).toBe(true);
+    expect(r.blockedByQuietHours).toBe(false);
   });
 
   it("야간이라도 정보성(isAd=false) 은 차단 없음", async () => {
