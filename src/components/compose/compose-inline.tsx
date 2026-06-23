@@ -49,6 +49,7 @@ import {
 } from "@/lib/messaging/guards";
 import { checkQuietHours } from "@/lib/messaging/guards/check-quiet-hours";
 import { hasNameToken } from "@/lib/messaging/personalize";
+import { deriveCampaignTitle } from "@/lib/messaging/derive-campaign-title";
 import { ConfirmSendDialog } from "./confirm-send-dialog";
 import {
   DedupeCountNote,
@@ -205,11 +206,13 @@ export function ComposeInline({
     sendToParent: true,
     sendToStudent: false,
   });
-  const [title, setTitle] = useState("");
   const [scheduleAt, setScheduleAt] = useState<string | null>(null);
   const [mode, setMode] = useState<"now" | "schedule">("now");
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  // 캠페인 제목(내부 관리용)은 입력칸 없이 본문 앞부분으로 자동 생성한다(2026-06-23).
+  const title = useMemo(() => deriveCampaignTitle(step2.body), [step2.body]);
 
   // ── 매칭 명단 ──
   // recipients: 표시용 상위 일부(서버가 캡). total: 전체 매칭 수(head 카운트).
@@ -609,7 +612,6 @@ export function ComposeInline({
   const canSend =
     !!step2.body.trim() &&
     (step2.type === "SMS" || !!(step2.subject && step2.subject.trim())) &&
-    !!title.trim() &&
     !!preview &&
     preview.recipientCount > 0 &&
     !quietBlocked &&
@@ -1020,27 +1022,6 @@ export function ComposeInline({
             )}
           </fieldset>
 
-          {/* 캠페인 제목 */}
-          <div className="space-y-1.5">
-            <label
-              htmlFor="compose-title"
-              className="text-[14px] font-medium text-[color:var(--text)]"
-            >
-              캠페인 제목
-              <span className="ml-2 text-[12px] text-[color:var(--text-dim)]">
-                내부 관리용. 수신자에게 노출되지 않습니다.
-              </span>
-            </label>
-            <input
-              id="compose-title"
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="예: 4월 정기 안내"
-              maxLength={60}
-              className="w-full h-10 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[15px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)]"
-            />
-          </div>
         </section>
 
         {/* ── 발송 대상 ── */}
