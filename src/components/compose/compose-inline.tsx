@@ -350,30 +350,42 @@ export function ComposeInline({
     setListError(null);
     listDebounceRef.current = setTimeout(async () => {
       const myReq = ++listReqRef.current;
-      const r = await listMatchedRecipientsAction({
-        filters: listFilters,
-        branch,
-      });
-      if (myReq !== listReqRef.current) return;
-      if (r.status === "success") {
-        setRecipients(r.recipients);
-        setTotal(r.total);
-        // 새 명단에 없는 체크 해제/포함 id 는 정리(stale 제거).
-        const ids = new Set(r.recipients.map((x) => x.studentId));
-        const prune = (prev: Set<string>) => {
-          if (prev.size === 0) return prev;
-          const next = new Set<string>();
-          for (const id of prev) if (ids.has(id)) next.add(id);
-          return next.size === prev.size ? prev : next;
-        };
-        setDeselected(prune);
-        setIncluded(prune);
-      } else {
-        setListError(r.reason);
+      try {
+        const r = await listMatchedRecipientsAction({
+          filters: listFilters,
+          branch,
+        });
+        if (myReq !== listReqRef.current) return;
+        if (r.status === "success") {
+          setRecipients(r.recipients);
+          setTotal(r.total);
+          // 새 명단에 없는 체크 해제/포함 id 는 정리(stale 제거).
+          const ids = new Set(r.recipients.map((x) => x.studentId));
+          const prune = (prev: Set<string>) => {
+            if (prev.size === 0) return prev;
+            const next = new Set<string>();
+            for (const id of prev) if (ids.has(id)) next.add(id);
+            return next.size === prev.size ? prev : next;
+          };
+          setDeselected(prune);
+          setIncluded(prune);
+        } else {
+          setListError(r.reason);
+          setRecipients([]);
+          setTotal(0);
+        }
+      } catch (e) {
+        // 서버 액션이 reject(타임아웃/네트워크/런타임 에러)해도 로딩이 영구히 걸리지
+        // 않도록 에러를 표시한다(과거 "불러오는 중" 영구 멈춤의 원인).
+        if (myReq !== listReqRef.current) return;
+        setListError(
+          e instanceof Error ? e.message : "명단 조회 중 오류가 발생했습니다",
+        );
         setRecipients([]);
         setTotal(0);
+      } finally {
+        if (myReq === listReqRef.current) setListLoading(false);
       }
-      setListLoading(false);
     }, DEBOUNCE_MS);
     return () => {
       if (listDebounceRef.current) clearTimeout(listDebounceRef.current);
@@ -389,23 +401,31 @@ export function ComposeInline({
     const t = setTimeout(() => {
       setPreviewError(null);
       startPreview(async () => {
-        const r = await previewAction({
-          step1: { filters, branch },
-          step2: {
-            templateId: step2.templateId,
-            type: step2.type,
-            subject: step2.subject,
-            body: step2.body,
-            isAd: step2.isAd,
-            dedupeByPhone: step2.dedupeByPhone,
-            sendToParent: step2.sendToParent,
-            sendToStudent: step2.sendToStudent,
-          },
-        });
-        if (r.status === "success") {
-          setPreview(r.data);
-        } else {
-          setPreviewError(r.reason);
+        try {
+          const r = await previewAction({
+            step1: { filters, branch },
+            step2: {
+              templateId: step2.templateId,
+              type: step2.type,
+              subject: step2.subject,
+              body: step2.body,
+              isAd: step2.isAd,
+              dedupeByPhone: step2.dedupeByPhone,
+              sendToParent: step2.sendToParent,
+              sendToStudent: step2.sendToStudent,
+            },
+          });
+          if (r.status === "success") {
+            setPreview(r.data);
+          } else {
+            setPreviewError(r.reason);
+            setPreview(null);
+          }
+        } catch (e) {
+          // reject(타임아웃 등) 시 에러 표시 — '계산 중' 영구 멈춤 방지.
+          setPreviewError(
+            e instanceof Error ? e.message : "미리보기 산출 중 오류가 발생했습니다",
+          );
           setPreview(null);
         }
       });

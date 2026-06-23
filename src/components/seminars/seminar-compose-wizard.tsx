@@ -175,28 +175,39 @@ export function SeminarComposeWizard({
     setListError(null);
     listDebounceRef.current = setTimeout(async () => {
       const myReq = ++listReqRef.current;
-      const r = await listMatchedRecipientsAction({
-        filters: listFilters,
-        branch,
-      });
-      if (myReq !== listReqRef.current) return;
-      if (r.status === "success") {
-        setRecipients(r.recipients);
-        setTotal(r.total);
-        // 새 명단에 없는 체크 해제 id 는 정리(stale 제거).
-        setDeselected((prev) => {
-          if (prev.size === 0) return prev;
-          const ids = new Set(r.recipients.map((x) => x.studentId));
-          const next = new Set<string>();
-          for (const id of prev) if (ids.has(id)) next.add(id);
-          return next;
+      try {
+        const r = await listMatchedRecipientsAction({
+          filters: listFilters,
+          branch,
         });
-      } else {
-        setListError(r.reason);
+        if (myReq !== listReqRef.current) return;
+        if (r.status === "success") {
+          setRecipients(r.recipients);
+          setTotal(r.total);
+          // 새 명단에 없는 체크 해제 id 는 정리(stale 제거).
+          setDeselected((prev) => {
+            if (prev.size === 0) return prev;
+            const ids = new Set(r.recipients.map((x) => x.studentId));
+            const next = new Set<string>();
+            for (const id of prev) if (ids.has(id)) next.add(id);
+            return next;
+          });
+        } else {
+          setListError(r.reason);
+          setRecipients([]);
+          setTotal(0);
+        }
+      } catch (e) {
+        // 서버 액션 reject(타임아웃 등) 시 로딩 영구 멈춤 방지 — 에러 표시.
+        if (myReq !== listReqRef.current) return;
+        setListError(
+          e instanceof Error ? e.message : "명단 조회 중 오류가 발생했습니다",
+        );
         setRecipients([]);
         setTotal(0);
+      } finally {
+        if (myReq === listReqRef.current) setListLoading(false);
       }
-      setListLoading(false);
     }, DEBOUNCE_MS);
     return () => {
       if (listDebounceRef.current) clearTimeout(listDebounceRef.current);

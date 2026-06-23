@@ -36,7 +36,7 @@ import { testSend } from "@/lib/messaging/test-send";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import {
   buildSearchRecipientsParams,
   callSearchRecipientsBulk,
@@ -92,6 +92,13 @@ export async function previewAction(
       return { status: "failed", reason: zodErrorToReason(e) };
     }
     return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  // 미리보기는 내부적으로 service 클라이언트(RLS 우회)로 조회하므로, 실모드에서는
+  // 분원 발송 권한을 여기서 검사한다(dev-seed 는 Supabase 미사용이라 통과).
+  if (!isDevSeedMode()) {
+    const guard = await assertSendPermission(parsed.step1.branch);
+    if (!guard.ok) return { status: "failed", reason: guard.reason };
   }
 
   try {
@@ -329,7 +336,11 @@ export async function listMatchedRecipientsAction(
   }
 
   try {
-    const supabase = await createSupabaseServerClient();
+    // 권한은 위 assertSendPermission 에서 이미 검사했으므로 조회는 service 클라이언트로
+    // (RLS 우회). 사용자 세션(RLS)으로 RPC 를 호출하면 RLS 정책이 함수 안에서 비효율적
+    // 으로 평가돼 서버 액션이 지연/타임아웃되는 문제가 있어 service 로 일원화한다.
+    // 분원 격리는 RPC 의 p_branch 가 보장(타 분원 학생은 매칭되지 않음).
+    const supabase = createSupabaseServiceClient();
     // 매칭 전원 + 전체 수를 search_recipients_bulk 1회 호출로(jsonb, max_rows 미적용).
     // 학부모 번호 없는 학생도 명단엔 보여야 하므로 requireParentPhone=false.
     const { rows, total } = await callSearchRecipientsBulk(

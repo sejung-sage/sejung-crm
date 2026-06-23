@@ -18,7 +18,10 @@
  * 권한 가드는 호출부(Server Action) 책임.
  */
 
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  createSupabaseServiceClient,
+} from "@/lib/supabase/server";
 import { getGroup } from "@/lib/groups/get-group";
 import {
   DEV_STUDENT_PROFILES,
@@ -265,7 +268,11 @@ async function previewFromSupabase(
   input: PreviewRecipientsInput,
   group: PreviewGroupLike,
 ): Promise<PreviewResult> {
-  const supabase = await createSupabaseServerClient();
+  // 권한은 호출자(previewAction / sendCampaign)가 검사하므로 조회는 service 클라이언트
+  // (RLS 우회)로 한다. 사용자 세션(RLS)으로 RPC 를 호출하면 RLS 정책이 함수 안에서
+  // 비효율적으로 평가돼 지연/타임아웃되는 문제가 있어 service 로 일원화. 분원 격리는
+  // 필터(branch)가 보장한다.
+  const supabase = createSupabaseServiceClient();
   const targets = resolvePreviewTargets(input);
 
   // 텍스트 가드는 row 무관 — 즉시 계산. 발신 브랜드는 분원별.
