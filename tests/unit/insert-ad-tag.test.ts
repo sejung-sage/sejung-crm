@@ -36,15 +36,15 @@ describe("branchBrandName · 분원별 발신 브랜드명", () => {
 });
 
 describe("insertSenderHeader · 비광고(isAd=false)", () => {
-  it("브랜드 머리를 맨 위에 붙임 (광고 표기 없음, 본문과 빈 줄 분리)", () => {
+  it("브랜드 머리를 맨 위에 붙임 (광고 표기 없음, 본문과 빈 줄 2개 분리)", () => {
     expect(insertSenderHeader("안녕하세요", false, "세정학원")).toBe(
-      "세정학원\n\n안녕하세요",
+      "세정학원\n\n\n안녕하세요",
     );
   });
 
   it("분원 브랜드명 반영 (반포)", () => {
     expect(insertSenderHeader("안녕하세요", false, "반포 세정학원")).toBe(
-      "반포 세정학원\n\n안녕하세요",
+      "반포 세정학원\n\n\n안녕하세요",
     );
   });
 
@@ -56,15 +56,15 @@ describe("insertSenderHeader · 비광고(isAd=false)", () => {
 });
 
 describe("insertSenderHeader · 광고(isAd=true)", () => {
-  it("(광고) + 브랜드 머리 붙임 (본문과 빈 줄 분리)", () => {
+  it("(광고) + 브랜드 머리 붙임 (본문과 빈 줄 2개 분리)", () => {
     expect(insertSenderHeader("안녕하세요", true, "세정학원")).toBe(
-      "(광고)\n세정학원\n\n안녕하세요",
+      "(광고)\n세정학원\n\n\n안녕하세요",
     );
   });
 
   it("분원 브랜드명 반영 (반포)", () => {
     expect(insertSenderHeader("Sale 50%", true, "반포 세정학원")).toBe(
-      "(광고)\n반포 세정학원\n\nSale 50%",
+      "(광고)\n반포 세정학원\n\n\nSale 50%",
     );
   });
 });
