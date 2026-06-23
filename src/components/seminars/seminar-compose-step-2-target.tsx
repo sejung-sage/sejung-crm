@@ -9,7 +9,7 @@ import {
   Field,
   type FilterChipValue,
 } from "@/components/groups/filter-chip-panel";
-import { formatPhone } from "@/lib/phone";
+import { VirtualRecipientList } from "@/components/messaging/virtual-recipient-list";
 
 /**
  * F5 · 설명회 발송 Step 2 — 대상(필터) 선택.
@@ -139,32 +139,11 @@ export function SeminarComposeStep2Target({
 
           {visibleRecipients.length > 0 && (
             <div className="relative flex-1 min-h-0">
-              <ul className="absolute inset-0 overflow-auto divide-y divide-[color:var(--border)]">
-              {visibleRecipients.map((r) => {
-                const checked = !deselected.has(r.studentId);
-                const phone = r.parentPhone || r.studentPhone;
-                return (
-                  <li key={r.studentId}>
-                    <label className="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-[color:var(--bg-hover)]">
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        onChange={(e) =>
-                          onToggleRecipient(r.studentId, e.target.checked)
-                        }
-                        className="size-4 accent-[color:var(--action)]"
-                      />
-                      <span className="text-[13px] font-medium text-[color:var(--text)]">
-                        {r.name}
-                      </span>
-                      <span className="text-[12px] tabular-nums text-[color:var(--text-muted)] ml-auto">
-                        {phone ? formatPhone(phone) || phone : "번호 없음"}
-                      </span>
-                    </label>
-                  </li>
-                );
-              })}
-              </ul>
+              <VirtualRecipientList
+                recipients={visibleRecipients}
+                isChecked={(id) => !deselected.has(id)}
+                onToggle={onToggleRecipient}
+              />
             </div>
           )}
 
