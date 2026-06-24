@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
 import { CalendarClock } from "lucide-react";
 import { rescheduleCampaignAction } from "@/app/(features)/campaigns/actions";
+import { ACTION_BTN_DEFAULT } from "./action-button-styles";
 
 /**
  * 예약 시각 변경 버튼 — status='예약됨' 캠페인에서만 노출.
@@ -55,7 +56,7 @@ export function RescheduleButton({ campaignId }: Props) {
   };
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex flex-col items-stretch gap-2">
       <button
         type="button"
         onClick={() => {
@@ -63,13 +64,7 @@ export function RescheduleButton({ campaignId }: Props) {
           setValue("");
           setOpen(true);
         }}
-        className="
-          inline-flex items-center gap-1.5 h-10 px-4 rounded-lg
-          border border-[color:var(--border)] bg-bg-card
-          text-[14px] text-[color:var(--text)]
-          hover:bg-[color:var(--bg-hover)]
-          transition-colors
-        "
+        className={ACTION_BTN_DEFAULT}
       >
         <CalendarClock className="size-4" strokeWidth={1.75} aria-hidden />
         예약 시각 변경

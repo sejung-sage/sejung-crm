@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { RefreshCw, Loader2 } from "lucide-react";
 import { resendScheduledCampaignAction } from "@/app/(features)/campaigns/actions";
+import { ACTION_BTN_DEFAULT } from "./action-button-styles";
 
 /**
  * 예약 캠페인 "같은 시각으로 재발송" 버튼 (master 전용).
@@ -44,19 +45,12 @@ export function ResendScheduledButton({
   };
 
   return (
-    <div className="flex flex-col items-end gap-1">
+    <div className="flex flex-col items-stretch gap-1">
       <button
         type="button"
         onClick={run}
         disabled={pending}
-        className="
-          inline-flex items-center gap-1.5 h-9 px-3 rounded-lg
-          bg-[color:var(--action)] text-[color:var(--action-text)]
-          text-[13px] font-medium
-          hover:bg-[color:var(--action-hover)]
-          disabled:opacity-50 disabled:cursor-not-allowed
-          transition-colors
-        "
+        className={ACTION_BTN_DEFAULT}
       >
         {pending ? (
           <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -67,7 +61,7 @@ export function ResendScheduledButton({
       </button>
       {msg && (
         <p
-          className={`text-[12px] max-w-[18rem] text-right ${
+          className={`self-end w-[13rem] text-[12px] text-right ${
             msg.tone === "ok"
               ? "text-[color:var(--success)]"
               : "text-[color:var(--danger)]"

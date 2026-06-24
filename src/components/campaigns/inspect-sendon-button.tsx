@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { Search, Loader2 } from "lucide-react";
 import { inspectCampaignSendonAction } from "@/app/(features)/campaigns/actions";
 import type { InspectCampaignResult } from "@/lib/messaging/inspect-campaign-sendon";
+import { ACTION_BTN_DEFAULT } from "./action-button-styles";
 
 /**
  * sendon 실제 발송 결과 점검 버튼 (master 전용).
@@ -25,20 +26,12 @@ export function InspectSendonButton({ campaignId }: { campaignId: string }) {
   };
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex flex-col items-stretch gap-2">
       <button
         type="button"
         onClick={run}
         disabled={pending}
-        className="
-          inline-flex items-center gap-1.5 h-9 px-3 rounded-lg
-          bg-[color:var(--bg-muted)] text-[color:var(--text)]
-          border border-[color:var(--border)]
-          text-[13px] font-medium
-          hover:bg-[color:var(--bg-hover)]
-          disabled:opacity-50 disabled:cursor-not-allowed
-          transition-colors
-        "
+        className={ACTION_BTN_DEFAULT}
       >
         {pending ? (
           <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -56,7 +49,7 @@ export function InspectSendonButton({ campaignId }: { campaignId: string }) {
 function ResultPanel({ result }: { result: InspectCampaignResult }) {
   if (result.status !== "ok") {
     return (
-      <p className="text-[12px] text-[color:var(--danger)] max-w-[18rem] text-right">
+      <p className="self-end text-[12px] text-[color:var(--danger)] w-[18rem] text-right">
         {result.reason ?? "조회에 실패했습니다."}
       </p>
     );
@@ -67,7 +60,7 @@ function ResultPanel({ result }: { result: InspectCampaignResult }) {
     db && sendon ? db.발송됨 - (sendon.succeeded + sendon.sending) : 0;
 
   return (
-    <div className="rounded-lg border border-[color:var(--border)] bg-bg-card p-3 text-[12px] text-[color:var(--text)] max-w-[20rem] space-y-1.5">
+    <div className="self-end w-[20rem] rounded-lg border border-[color:var(--border-strong)] bg-bg-card p-3 text-[12px] text-[color:var(--text)] space-y-1.5">
       <p className="font-medium">sendon 실제 결과</p>
       {sendon && (
         <ul className="space-y-0.5 tabular-nums">

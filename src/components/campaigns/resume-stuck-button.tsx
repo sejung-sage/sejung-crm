@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { Play } from "lucide-react";
 import { resumeStuckCampaignAction } from "@/app/(features)/campaigns/actions";
+import { ACTION_BTN_DEFAULT } from "./action-button-styles";
 
 /**
  * F3 Part B · 멈춘 캠페인 이어보내기 버튼.
@@ -62,19 +63,12 @@ export function ResumeStuckButton({ campaignId, pendingCount }: Props) {
   };
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex flex-col items-stretch gap-2">
       <button
         type="button"
         onClick={onClick}
         disabled={pendingCount === 0 || isPending}
-        className="
-          inline-flex items-center gap-1.5 h-10 px-4 rounded-lg
-          border border-[color:var(--border)] bg-bg-card
-          text-[14px] text-[color:var(--text)]
-          hover:bg-[color:var(--bg-hover)]
-          disabled:opacity-40 disabled:cursor-not-allowed
-          transition-colors
-        "
+        className={ACTION_BTN_DEFAULT}
       >
         <Play className="size-4" strokeWidth={1.75} aria-hidden />
         {isPending ? "재개 중..." : "이어보내기"}

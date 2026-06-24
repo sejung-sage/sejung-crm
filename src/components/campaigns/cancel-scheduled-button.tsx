@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { CalendarX } from "lucide-react";
 import { cancelScheduledCampaignAction } from "@/app/(features)/campaigns/actions";
+import { ACTION_BTN_DANGER } from "./action-button-styles";
 
 /**
  * 예약 발송 취소 버튼 — status='예약됨' 캠페인에서만 노출.
@@ -43,21 +44,14 @@ export function CancelScheduledButton({ campaignId }: Props) {
   };
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex flex-col items-stretch gap-2">
       <button
         type="button"
         onClick={() => {
           setResult(null);
           setConfirming(true);
         }}
-        className="
-          inline-flex items-center gap-1.5 h-10 px-4 rounded-lg
-          border border-[color:var(--danger)] bg-bg-card
-          text-[14px] text-[color:var(--danger)]
-          hover:bg-[color:var(--danger-bg)]
-          disabled:opacity-40 disabled:cursor-not-allowed
-          transition-colors
-        "
+        className={ACTION_BTN_DANGER}
       >
         <CalendarX className="size-4" strokeWidth={1.75} aria-hidden />
         예약 취소

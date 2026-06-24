@@ -161,8 +161,8 @@ export function CampaignDetailView({
             </div>
           </div>
 
-          {/* 우상단 액션 */}
-          <div className="shrink-0 flex flex-col items-end gap-2">
+          {/* 우상단 액션 — 고정폭 세로 스택. 버튼은 w-full 로 폭 통일. */}
+          <div className="shrink-0 flex flex-col items-stretch gap-2 w-52">
             {isScheduled && canResend ? (
               <>
                 <RescheduleButton campaignId={campaign.id} />

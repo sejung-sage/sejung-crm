@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { RotateCcw } from "lucide-react";
 import { resendFailedAction } from "@/app/(features)/campaigns/actions";
+import { ACTION_BTN_DEFAULT } from "./action-button-styles";
 
 /**
  * F3 Part B · 캠페인 실패 건 재발송 버튼.
@@ -71,7 +72,7 @@ export function ResendFailedButton({ campaignId, failedCount }: Props) {
   };
 
   return (
-    <div className="flex flex-col items-end gap-2">
+    <div className="flex flex-col items-stretch gap-2">
       <button
         type="button"
         onClick={() => {
@@ -79,14 +80,7 @@ export function ResendFailedButton({ campaignId, failedCount }: Props) {
           setConfirming(true);
         }}
         disabled={failedCount === 0}
-        className="
-          inline-flex items-center gap-1.5 h-10 px-4 rounded-lg
-          border border-[color:var(--border)] bg-bg-card
-          text-[14px] text-[color:var(--text)]
-          hover:bg-[color:var(--bg-hover)]
-          disabled:opacity-40 disabled:cursor-not-allowed
-          transition-colors
-        "
+        className={ACTION_BTN_DEFAULT}
       >
         <RotateCcw className="size-4" strokeWidth={1.75} aria-hidden />
         실패 건 재발송
