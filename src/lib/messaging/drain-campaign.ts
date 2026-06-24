@@ -54,7 +54,6 @@ import {
 } from "@/lib/seminars/dispatch-broadcast";
 import { sendonFromNumber } from "@/config/sender-numbers";
 import { isSlackEnabled } from "@/lib/notify/slack";
-import { notifyCampaignFailure } from "./notify-campaign-failure";
 import type {
   CampaignRow,
   CampaignStatus,
@@ -235,20 +234,12 @@ export async function drainCampaignChunk(
     await updateCampaignStatus(supabase, campaignId, finalStatus);
     campaignDone = true;
 
-    // 발송 시점 실패 알림 — 우리 DB 에 '실패' 가 있으면 Slack 1회(중복은 dedup).
-    // Slack 미설정이면 카운트 쿼리도 생략(hot path 보호).
+    // 발송/예약 접수 완료 후 5분 뒤 sendon 실패 점검을 예약한다. 그때 cron 이 이
+    // 캠페인만 콕 집어 (DB 실패 + sendon 비동기 실패)를 확인해 있으면 Slack 1회 알림.
+    // sendon 실패(포인트 부족 등)는 접수 직후 비동기로 찍혀 지금은 알 수 없으므로 지연.
+    // Slack 미설정이면 예약도 생략.
     if (isSlackEnabled()) {
-      const f = await countFailedForAlert(supabase, campaignId);
-      if (f.count > 0) {
-        await notifyCampaignFailure(supabase, {
-          campaignId,
-          title: campaign.title,
-          branch: campaign.branch,
-          failedCount: f.count,
-          reason: f.reason,
-          source: "send",
-        });
-      }
+      await scheduleSendonCheck(supabase, campaignId);
     }
   }
 
@@ -553,34 +544,32 @@ async function determineFinalStatus(
   return (okCount ?? 0) > 0 ? "완료" : "실패";
 }
 
+/** 발송 완료 후 sendon 실패 점검까지의 지연(분). 비동기 실패가 찍힐 시간을 준다. */
+const SENDON_CHECK_DELAY_MIN = 5;
+
 /**
- * 실패 알림용 — 캠페인의 '실패'(비-테스트) 건수 + 대표 사유 1개.
- * 알림 메시지 구성에만 쓰는 가벼운 조회. 실패 0건이면 알림 안 함.
+ * 발송 완료 캠페인에 'N분 뒤 sendon 실패 점검' 예약을 건다.
+ * sendon_check_due_at 에 미래 시각을 찍어두면 cron 이 그 시각 이후 한 번 점검한다.
  */
-async function countFailedForAlert(
+async function scheduleSendonCheck(
   supabase: SrvClient,
   campaignId: string,
-): Promise<{ count: number; reason?: string }> {
-  const { count } = await supabase
-    .from("crm_messages")
-    .select("id", { count: "exact", head: true })
-    .eq("campaign_id", campaignId)
-    .eq("status", "실패")
-    .eq("is_test", false);
-  const failed = count ?? 0;
-  if (failed === 0) return { count: 0 };
-
-  const { data } = await supabase
-    .from("crm_messages")
-    .select("failed_reason")
-    .eq("campaign_id", campaignId)
-    .eq("status", "실패")
-    .eq("is_test", false)
-    .not("failed_reason", "is", null)
-    .limit(1);
-  const rows = (data ?? []) as Array<{ failed_reason: string | null }>;
-  const reason = rows[0]?.failed_reason?.trim() || undefined;
-  return { count: failed, reason };
+): Promise<void> {
+  const dueAt = new Date(
+    Date.now() + SENDON_CHECK_DELAY_MIN * 60_000,
+  ).toISOString();
+  await (
+    supabase.from("crm_campaigns") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        eq: (
+          col: string,
+          val: string,
+        ) => Promise<{ error: { message: string } | null }>;
+      };
+    }
+  )
+    .update({ sendon_check_due_at: dueAt })
+    .eq("id", campaignId);
 }
 
 /**

@@ -341,6 +341,11 @@ export interface CampaignRow {
    * (일부 매퍼·dev-seed 가 하이드레이트하지 않음).
    */
   sendon_failure_alerted_at?: string | null;
+  /**
+   * 발송 후 sendon 실패 점검 예정 시각(now()+5분). 0097 추가.
+   * cron 이 이 시각 이후 1회 점검하고 NULL 로 비운다. 서버 쿼리로만 다룸 → optional.
+   */
+  sendon_check_due_at?: string | null;
   created_at: string;
   updated_at: string;
 }

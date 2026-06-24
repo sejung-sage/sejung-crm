@@ -1,9 +1,10 @@
 /**
- * Vercel Cron entrypoint — sendon 비동기 발송 실패 점검 + Slack 알림.
+ * Vercel Cron entrypoint — 발송 실패 점검 + Slack 알림.
  *
- * vercel.json 의 crons 항목으로 30분마다 호출됨. 최근 캠페인의 sendon 측 실제
- * 결과를 대조해 '발송됨' 인데 sendon 에서 실패(포인트 부족 등)한 건이 있으면
- * Slack 으로 캠페인당 1회 알린다. Slack 미설정(SLACK_BOT_TOKEN/CHANNEL_ID)이면 skip.
+ * vercel.json 의 crons 항목으로 5분마다 호출됨. drain 이 발송 완료 시 예약해 둔
+ * (sendon_check_due_at <= now) 캠페인만 집어, DB 실패 + sendon 비동기 실패(포인트
+ * 부족 등)를 확인해 있으면 Slack 으로 캠페인당 1회 알린다.
+ * Slack 미설정(SLACK_BOT_TOKEN/CHANNEL_ID)이면 skip.
  *
  * 보안: dispatch-scheduled-campaigns 와 동일 — Vercel 이 박는
  *   `Authorization: Bearer ${CRON_SECRET}` 검증. CRON_SECRET 미설정이면 500.

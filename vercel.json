@@ -8,7 +8,7 @@
     },
     {
       "path": "/api/cron/reconcile-sendon-failures",
-      "schedule": "*/30 * * * *"
+      "schedule": "*/5 * * * *"
     }
   ]
 }

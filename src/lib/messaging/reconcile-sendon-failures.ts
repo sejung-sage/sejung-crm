@@ -1,15 +1,14 @@
 /**
- * sendon 비동기 발송 실패 점검 + Slack 알림 (30분 cron).
+ * 발송 실패 점검 + Slack 알림 (짧은 주기 cron).
  *
- * 배경: 발송 접수(200) 후 sendon 이 비동기로 처리 실패(포인트 부족 등)시킨 건은
- * 우리 DB 가 '발송됨' 으로 남아 추적되지 않는다(도달 webhook 미구현). 이 작업이
- * 최근 캠페인의 sendon 측 실제 결과를 대조해 실패가 있으면 Slack 으로 1회 알린다.
+ * 동작: drain 이 발송/예약 접수를 마감하며 sendon_check_due_at = now()+5분 을 찍는다.
+ * 이 cron 은 점검 시각이 된(sendon_check_due_at <= now()) 캠페인만 집어, 그 캠페인의
+ *   1) 우리 DB '실패'(접수 단계 실패 — 번호오류·배치거부 등)
+ *   2) sendon 비동기 실패(접수됐지만 포인트 부족 등으로 처리 실패 — DB 는 '발송됨')
+ * 를 합산해 1건이라도 있으면 Slack 으로 캠페인당 1회 알린다.
  *
- * 대상: 최근 3일 내 생성 + 아직 실패 알림 안 한(sendon_failure_alerted_at IS NULL)
- *       발송/예약 캠페인. (먼 미래 예약은 3일 창을 벗어날 수 있음 — 근시일 예약 기준.)
- *
- * dedup: notifyCampaignFailure 가 alerted_at 컬럼을 선점하므로 발송시점 알림과
- * 중복되지 않고 캠페인당 1회만 나간다.
+ * 전체 폴링·백필 없음: 발송이 끝난 캠페인만, 그것도 예약된 1회만 점검한다.
+ * claim(due_at → NULL 조건부 갱신)으로 동시 cron 중복 점검을 막는다.
  *
  * Slack 미설정(SLACK_BOT_TOKEN/SLACK_CHANNEL_ID 없음)이면 전체 skip.
  */
@@ -33,8 +32,6 @@ type SrvClient = ReturnType<typeof createSupabaseServiceClient>;
 
 /** 한 번에 점검하는 최대 캠페인 수(호출량·시간 상한). */
 const MAX_CAMPAIGNS_PER_RUN = 30;
-/** 점검 대상 생성 기간(일). */
-const LOOKBACK_DAYS = 3;
 /** 사유 표본 조회 건수. */
 const REASON_SAMPLE = 200;
 
@@ -47,21 +44,19 @@ export async function reconcileSendonFailures(): Promise<ReconcileResult> {
   }
 
   const supabase = createSupabaseServiceClient();
-  const sinceIso = new Date(
-    Date.now() - LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
-  ).toISOString();
+  const nowIso = new Date().toISOString();
 
+  // 점검 시각이 된 캠페인만.
   const { data, error } = await supabase
     .from("crm_campaigns")
     .select("id, title, branch")
-    .is("sendon_failure_alerted_at", null)
-    .in("status", ["완료", "발송중", "예약됨"])
-    .gte("created_at", sinceIso)
-    .order("created_at", { ascending: false })
+    .not("sendon_check_due_at", "is", null)
+    .lte("sendon_check_due_at", nowIso)
+    .order("sendon_check_due_at", { ascending: true })
     .limit(MAX_CAMPAIGNS_PER_RUN);
 
   if (error) {
-    throw new Error(`캠페인 점검 대상 조회 실패: ${error.message}`);
+    throw new Error(`점검 대상 조회 실패: ${error.message}`);
   }
 
   const campaigns = (data ?? []) as Array<{
@@ -73,18 +68,27 @@ export async function reconcileSendonFailures(): Promise<ReconcileResult> {
   let checked = 0;
   let alerted = 0;
   for (const c of campaigns) {
+    // claim — due_at 를 NULL 로 비운다(아직 안 비워졌을 때만). 동시 cron 안전 + 1회 점검.
+    if (!(await claimCheck(supabase, c.id))) continue;
     checked += 1;
-    // 분원별 sendon 계정으로 조회 — 캠페인마다 계정이 다를 수 있어 루프 안에서 생성.
-    const adapter = createSmsAdapter(c.branch);
-    const summary = await summarizeSendonFailures(supabase, adapter, c.id);
-    if (summary.failed <= 0) continue;
+
+    const dbFailed = await countDbFailures(supabase, c.id);
+    // 분원별 sendon 계정으로 조회.
+    const sendon = await summarizeSendonFailures(
+      supabase,
+      createSmsAdapter(c.branch),
+      c.id,
+    );
+    const total = dbFailed.count + sendon.failed;
+    if (total <= 0) continue;
+
     const sent = await notifyCampaignFailure(supabase, {
       campaignId: c.id,
       title: c.title,
       branch: c.branch,
-      failedCount: summary.failed,
-      reason: summary.reason,
-      source: "sendon",
+      failedCount: total,
+      reason: sendon.failed > 0 ? sendon.reason : dbFailed.reason,
+      source: sendon.failed > 0 ? "sendon" : "send",
     });
     if (sent) alerted += 1;
   }
@@ -92,9 +96,67 @@ export async function reconcileSendonFailures(): Promise<ReconcileResult> {
   return { checked, alerted };
 }
 
+/** due_at 를 조건부로 비워 점검을 선점. 이미 비워졌으면(다른 cron) false. */
+async function claimCheck(
+  supabase: SrvClient,
+  campaignId: string,
+): Promise<boolean> {
+  const { data } = (await (
+    supabase.from("crm_campaigns") as unknown as {
+      update: (v: Record<string, unknown>) => {
+        eq: (
+          c: string,
+          v: string,
+        ) => {
+          not: (
+            c: string,
+            op: string,
+            v: null,
+          ) => {
+            select: (cols: string) => Promise<{
+              data: { id: string }[] | null;
+            }>;
+          };
+        };
+      };
+    }
+  )
+    .update({ sendon_check_due_at: null })
+    .eq("id", campaignId)
+    .not("sendon_check_due_at", "is", null)
+    .select("id")) as { data: { id: string }[] | null };
+  return !!data && data.length > 0;
+}
+
+/** 캠페인의 우리 DB '실패'(비-테스트) 건수 + 대표 사유. */
+async function countDbFailures(
+  supabase: SrvClient,
+  campaignId: string,
+): Promise<{ count: number; reason?: string }> {
+  const { count } = await supabase
+    .from("crm_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("campaign_id", campaignId)
+    .eq("status", "실패")
+    .eq("is_test", false);
+  const failed = count ?? 0;
+  if (failed === 0) return { count: 0 };
+
+  const { data } = await supabase
+    .from("crm_messages")
+    .select("failed_reason")
+    .eq("campaign_id", campaignId)
+    .eq("status", "실패")
+    .eq("is_test", false)
+    .not("failed_reason", "is", null)
+    .limit(1);
+  const rows = (data ?? []) as Array<{ failed_reason: string | null }>;
+  return { count: failed, reason: rows[0]?.failed_reason?.trim() || undefined };
+}
+
 /**
  * 캠페인의 sendon 측 실패 건수 합계 + 대표 사유(표본).
- * inspect-campaign-sendon 의 축약 버전 — 카운트와 사유만 모은다.
+ * '발송됨' 인데 sendon 이 비동기로 실패시킨 건(포인트 부족 등)을 잡는다.
  */
 async function summarizeSendonFailures(
   supabase: SrvClient,
@@ -127,7 +189,6 @@ async function summarizeSendonFailures(
     const c = await adapter.queryGroupCounts(gid);
     if (!c.ok) continue;
     failed += c.failed;
-    // 대표 사유 1개만 표본으로 확보(아직 못 구했고 실패가 있는 그룹에서).
     if (!reason && c.failed > 0) {
       const list = await adapter.listGroupMessages(gid, "FAILED", REASON_SAMPLE);
       if (list.ok) {
