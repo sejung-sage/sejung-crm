@@ -77,12 +77,11 @@ export function CampaignsTable({ rows, canDelete = false }: Props) {
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
-              <Th>제목</Th>
-              <Th className="w-36">그룹명</Th>
               <Th className="w-40">발송 / 예약</Th>
+              <Th>제목</Th>
               <Th className="w-24">발송자</Th>
-              <Th className="w-24">상태</Th>
-              <Th className="w-24 text-right">도달률</Th>
+              <Th className="w-24">처리 상태</Th>
+              <Th className="w-24 text-right">요청 건수</Th>
               <Th className="w-28 text-right">비용</Th>
               <Th className="w-12" aria-label="메뉴">
                 <span className="sr-only">메뉴</span>
@@ -91,10 +90,6 @@ export function CampaignsTable({ rows, canDelete = false }: Props) {
           </thead>
           <tbody>
             {rows.map((c) => {
-              const reach =
-                c.total_recipients > 0
-                  ? Math.round((c.delivered_count / c.total_recipients) * 100)
-                  : 0;
               const sendTime = c.sent_at ?? c.scheduled_at;
               const sendLabel = c.sent_at
                 ? "발송"
@@ -117,6 +112,20 @@ export function CampaignsTable({ rows, canDelete = false }: Props) {
                     router.push(`/campaigns/${c.id}`);
                   }}
                 >
+                  <Td className="tabular-nums">
+                    {sendTime ? (
+                      <>
+                        <span className="text-[12px] text-[color:var(--text-dim)] mr-1">
+                          {sendLabel}
+                        </span>
+                        <span className="text-[color:var(--text)]">
+                          {formatDateTime(sendTime)}
+                        </span>
+                      </>
+                    ) : (
+                      <span className="text-[color:var(--text-dim)]">—</span>
+                    )}
+                  </Td>
                   <Td className="whitespace-normal min-w-[16rem]">
                     <Link
                       href={`/campaigns/${c.id}`}
@@ -132,41 +141,15 @@ export function CampaignsTable({ rows, canDelete = false }: Props) {
                     )}
                   </Td>
                   <Td className="text-[color:var(--text-muted)]">
-                    {c.group_name ?? "—"}
-                  </Td>
-                  <Td className="tabular-nums">
-                    {sendTime ? (
-                      <>
-                        <span className="text-[12px] text-[color:var(--text-dim)] mr-1">
-                          {sendLabel}
-                        </span>
-                        <span className="text-[color:var(--text)]">
-                          {formatDateTime(sendTime)}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-[color:var(--text-dim)]">—</span>
-                    )}
-                  </Td>
-                  <Td className="text-[color:var(--text-muted)]">
                     {c.creator_name ?? "—"}
                   </Td>
                   <Td>
                     <CampaignStatusBadge status={c.status} />
                   </Td>
-                  <Td className="text-right tabular-nums text-[color:var(--text-muted)]">
-                    {c.total_recipients > 0 ? (
-                      <>
-                        <span className="text-[color:var(--text)] font-medium">
-                          {reach}%
-                        </span>
-                        <span className="ml-1 text-[12px]">
-                          ({c.delivered_count}/{c.total_recipients})
-                        </span>
-                      </>
-                    ) : (
-                      "—"
-                    )}
+                  <Td className="text-right tabular-nums text-[color:var(--text)]">
+                    {c.total_recipients > 0
+                      ? `${c.total_recipients.toLocaleString()}건`
+                      : "—"}
                   </Td>
                   <Td className="text-right tabular-nums text-[color:var(--text)]">
                     {c.total_cost.toLocaleString()}원
