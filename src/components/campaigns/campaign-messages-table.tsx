@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { CampaignMessageRow, MessageStatus } from "@/types/database";
 import type { CampaignMessageCounts } from "@/lib/campaigns/get-campaign-message-counts";
@@ -136,10 +137,22 @@ export function CampaignMessagesTable({
                   className="border-b border-[color:var(--border)] last:border-b-0 hover:bg-[color:var(--bg-hover)] transition-colors"
                 >
                   <Td className="text-[color:var(--text)]">
-                    {m.student_name ?? (
-                      <span className="text-[color:var(--text-dim)]">
-                        (학생 정보 없음)
-                      </span>
+                    {m.student_id ? (
+                      // 학생 연결이 있으면 이름 클릭 시 학생 상세로 이동(새 탭).
+                      <Link
+                        href={`/students/${m.student_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-[color:var(--text)] hover:underline"
+                      >
+                        {m.student_name ?? "(이름 없음)"}
+                      </Link>
+                    ) : (
+                      (m.student_name ?? (
+                        <span className="text-[color:var(--text-dim)]">
+                          (학생 정보 없음)
+                        </span>
+                      ))
                     )}
                   </Td>
                   <Td className="tabular-nums text-[color:var(--text-muted)]">
