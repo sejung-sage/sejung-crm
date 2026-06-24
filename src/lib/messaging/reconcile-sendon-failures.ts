@@ -11,7 +11,7 @@
  * dedup: notifyCampaignFailure 가 alerted_at 컬럼을 선점하므로 발송시점 알림과
  * 중복되지 않고 캠페인당 1회만 나간다.
  *
- * Slack 미설정(SLACK_WEBHOOK_URL 없음)이면 전체 skip.
+ * Slack 미설정(SLACK_BOT_TOKEN/SLACK_CHANNEL_ID 없음)이면 전체 skip.
  */
 
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
