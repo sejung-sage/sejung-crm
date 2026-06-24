@@ -10,6 +10,7 @@ import { ResumeStuckButton } from "@/components/campaigns/resume-stuck-button";
 import { CancelScheduledButton } from "@/components/campaigns/cancel-scheduled-button";
 import { RescheduleButton } from "@/components/campaigns/reschedule-button";
 import { InspectSendonButton } from "@/components/campaigns/inspect-sendon-button";
+import { ResendScheduledButton } from "@/components/campaigns/resend-scheduled-button";
 import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
 import { formatKstDateTime } from "@/lib/datetime";
 
@@ -165,6 +166,17 @@ export function CampaignDetailView({
               <>
                 <RescheduleButton campaignId={campaign.id} />
                 <CancelScheduledButton campaignId={campaign.id} />
+                {/* sendon 처리 실패 예약을 같은 시각으로 재접수 — master 전용. */}
+                {canRevealPhone && (
+                  <ResendScheduledButton
+                    campaignId={campaign.id}
+                    scheduledLabel={
+                      campaign.scheduled_at
+                        ? formatDateTime(campaign.scheduled_at)
+                        : undefined
+                    }
+                  />
+                )}
               </>
             ) : (
               <>

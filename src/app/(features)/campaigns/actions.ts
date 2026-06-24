@@ -38,6 +38,10 @@ import {
   inspectCampaignSendon,
   type InspectCampaignResult,
 } from "@/lib/messaging/inspect-campaign-sendon";
+import {
+  resendScheduledCampaign,
+  type ResendScheduledResult,
+} from "@/lib/messaging/resend-scheduled-campaign";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import type { SendCampaignResult } from "@/lib/messaging/send-campaign";
 
@@ -115,6 +119,20 @@ export async function inspectCampaignSendonAction(
     return { status: "failed", reason: "마스터 계정만 조회할 수 있습니다" };
   }
   return await inspectCampaignSendon(campaignId);
+}
+
+export async function resendScheduledCampaignAction(
+  campaignId: string,
+): Promise<ResendScheduledResult> {
+  if (typeof campaignId !== "string" || campaignId.length === 0) {
+    return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
+  }
+  const result = await resendScheduledCampaign(campaignId);
+  if (result.status === "resent") {
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/campaigns");
+  }
+  return result;
 }
 
 export async function deleteCampaignAction(
