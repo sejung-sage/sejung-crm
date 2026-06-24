@@ -58,6 +58,40 @@ describe("sendonUserId / sendonApiKey · 분원별 계정", () => {
     expect(sendonUserId("대치")).toBeUndefined();
     expect(sendonApiKey("대치")).toBeUndefined();
   });
+
+  it("방배는 반포 계정 공유 — 방배 계정 키 없어도 반포 계정으로", () => {
+    vi.stubEnv("SENDON_USER_ID", "base-user");
+    vi.stubEnv("SENDON_API_KEY", "base-key");
+    vi.stubEnv("SENDON_USER_ID_BANPO", "banpo-user");
+    vi.stubEnv("SENDON_API_KEY_BANPO", "banpo-key");
+    // 방배 전용 키는 비움 → 반포 계정으로 폴백(기본 base 가 아니라).
+    vi.stubEnv("SENDON_USER_ID_BANGBAE", "");
+    vi.stubEnv("SENDON_API_KEY_BANGBAE", "");
+    expect(sendonUserId("방배")).toBe("banpo-user");
+    expect(sendonApiKey("방배")).toBe("banpo-key");
+  });
+
+  it("방배 전용 키가 있으면 그게 우선(나중에 독립 계정)", () => {
+    vi.stubEnv("SENDON_USER_ID", "base-user");
+    vi.stubEnv("SENDON_USER_ID_BANPO", "banpo-user");
+    vi.stubEnv("SENDON_USER_ID_BANGBAE", "bangbae-user");
+    expect(sendonUserId("방배")).toBe("bangbae-user");
+  });
+
+  it("방배: 반포 계정 키도 없으면 기본 폴백", () => {
+    vi.stubEnv("SENDON_USER_ID", "base-user");
+    vi.stubEnv("SENDON_USER_ID_BANPO", "");
+    vi.stubEnv("SENDON_USER_ID_BANGBAE", "");
+    expect(sendonUserId("방배")).toBe("base-user");
+  });
+
+  it("방배 발신번호는 전용(반포 공유 아님)", () => {
+    vi.stubEnv("SENDON_FROM_NUMBER", "0212340000");
+    vi.stubEnv("SENDON_FROM_NUMBER_BANPO", "0262420909");
+    vi.stubEnv("SENDON_FROM_NUMBER_BANGBAE", "025326552");
+    // 방배 번호는 방배 전용 — 반포 번호로 안 샘.
+    expect(sendonFromNumber("방배")).toBe("025326552");
+  });
 });
 
 describe("sendonFromNumber · 분원별 발신번호 (계정과 동일 폴백)", () => {

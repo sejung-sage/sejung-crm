@@ -70,29 +70,63 @@ function envText(raw: string | undefined): string | undefined {
 }
 
 /**
- * 분원의 sendon 계정 키를 환경변수에서 해석(분원 키 → 기본 키 폴백).
- * envByBranch 가 분원→env키 매핑, fallbackEnv 가 기본 키 이름.
+ * 계정(사업자) 공유 매핑 — "이 분원은 다른 분원과 같은 sendon 계정을 쓴다".
+ *
+ * 방배는 반포와 같은 sendon 사업자 계정을 쓰고 발신번호만 다르다(운영 2026-06-24).
+ * 따라서 방배 계정 키를 따로 넣지 않아도 반포 계정으로 발송하도록 폴백한다.
+ * (발신번호는 분원 전용 — 이 매핑은 계정 USER_ID/API_KEY 에만 적용, 번호엔 미적용.)
+ *
+ * 우선순위: 분원 전용 계정 키 > 공유 분원 계정 키 > 기본 키.
+ * 방배가 나중에 독립 계정이 되면 SENDON_USER_ID_BANGBAE 를 넣으면 그게 우선한다.
  */
-function resolveBranchEnv(
+const ACCOUNT_SHARE: Partial<Record<Branch, Branch>> = {
+  방배: "반포",
+};
+
+/**
+ * 분원의 sendon 계정 키를 환경변수에서 해석.
+ * 우선순위: ① 분원 전용 키 → ② 계정 공유 분원 키(방배→반포) → ③ 기본 키 폴백.
+ */
+function resolveAccountEnv(
   branch: string | null | undefined,
   envByBranch: Record<string, string>,
   fallbackEnv: string,
 ): string | undefined {
   const fallback = envText(process.env[fallbackEnv]);
   if (!branch) return fallback;
-  const key = envByBranch[branch];
-  if (!key) return fallback;
-  return envText(process.env[key]) ?? fallback;
+
+  const tryBranch = (b: string): string | undefined => {
+    const key = envByBranch[b];
+    return key ? envText(process.env[key]) : undefined;
+  };
+
+  // ① 분원 전용
+  const direct = tryBranch(branch);
+  if (direct) return direct;
+  // ② 계정 공유 분원(예: 방배 → 반포)
+  const share = (ACCOUNT_SHARE as Record<string, Branch>)[branch];
+  if (share) {
+    const shared = tryBranch(share);
+    if (shared) return shared;
+  }
+  // ③ 기본 폴백
+  return fallback;
 }
 
-/** 분원의 sendon 로그인 ID(USER_ID). 분원 키 없으면 SENDON_USER_ID 폴백. */
+/**
+ * 분원의 sendon 로그인 ID(USER_ID).
+ * 분원 전용 > 계정 공유 분원(방배→반포) > SENDON_USER_ID 폴백.
+ */
 export function sendonUserId(branch?: string | null): string | undefined {
-  return resolveBranchEnv(branch, BRANCH_USER_ID_ENV, "SENDON_USER_ID");
+  return resolveAccountEnv(branch, BRANCH_USER_ID_ENV, "SENDON_USER_ID");
 }
 
-/** 분원의 sendon API Key. 분원 키 없으면 SENDON_API_KEY 폴백. */
+/**
+ * 분원의 sendon API Key.
+ * 분원 전용 > 계정 공유 분원(방배→반포) > SENDON_API_KEY 폴백.
+ */
 export function sendonApiKey(branch?: string | null): string | undefined {
-  return resolveBranchEnv(branch, BRANCH_API_KEY_ENV, "SENDON_API_KEY");
+  return resolveAccountEnv(branch, BRANCH_API_KEY_ENV, "SENDON_API_KEY");
 }
 
 /**
