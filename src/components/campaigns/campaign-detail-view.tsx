@@ -11,6 +11,7 @@ import { CancelScheduledButton } from "@/components/campaigns/cancel-scheduled-b
 import { RescheduleButton } from "@/components/campaigns/reschedule-button";
 import { InspectSendonButton } from "@/components/campaigns/inspect-sendon-button";
 import { ResendScheduledButton } from "@/components/campaigns/resend-scheduled-button";
+import { ResendSendonFailedButton } from "@/components/campaigns/resend-sendon-failed-button";
 import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
 import { formatKstDateTime } from "@/lib/datetime";
 
@@ -166,16 +167,27 @@ export function CampaignDetailView({
               <>
                 <RescheduleButton campaignId={campaign.id} />
                 <CancelScheduledButton campaignId={campaign.id} />
-                {/* sendon 처리 실패 예약을 같은 시각으로 재접수 — master 전용. */}
+                {/* sendon 처리 실패 예약 재접수 — master 전용.
+                    실패건만(정상 예약 보존) / 전체(취소 후 전체 재접수) 두 갈래. */}
                 {canRevealPhone && (
-                  <ResendScheduledButton
-                    campaignId={campaign.id}
-                    scheduledLabel={
-                      campaign.scheduled_at
-                        ? formatDateTime(campaign.scheduled_at)
-                        : undefined
-                    }
-                  />
+                  <>
+                    <ResendSendonFailedButton
+                      campaignId={campaign.id}
+                      scheduledLabel={
+                        campaign.scheduled_at
+                          ? formatDateTime(campaign.scheduled_at)
+                          : undefined
+                      }
+                    />
+                    <ResendScheduledButton
+                      campaignId={campaign.id}
+                      scheduledLabel={
+                        campaign.scheduled_at
+                          ? formatDateTime(campaign.scheduled_at)
+                          : undefined
+                      }
+                    />
+                  </>
                 )}
               </>
             ) : (

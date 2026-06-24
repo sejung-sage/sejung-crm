@@ -42,6 +42,10 @@ import {
   resendScheduledCampaign,
   type ResendScheduledResult,
 } from "@/lib/messaging/resend-scheduled-campaign";
+import {
+  resendSendonFailed,
+  type ResendSendonFailedResult,
+} from "@/lib/messaging/resend-sendon-failed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import type { SendCampaignResult } from "@/lib/messaging/send-campaign";
 
@@ -128,6 +132,20 @@ export async function resendScheduledCampaignAction(
     return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
   }
   const result = await resendScheduledCampaign(campaignId);
+  if (result.status === "resent") {
+    revalidatePath(`/campaigns/${campaignId}`);
+    revalidatePath("/campaigns");
+  }
+  return result;
+}
+
+export async function resendSendonFailedAction(
+  campaignId: string,
+): Promise<ResendSendonFailedResult> {
+  if (typeof campaignId !== "string" || campaignId.length === 0) {
+    return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
+  }
+  const result = await resendSendonFailed(campaignId);
   if (result.status === "resent") {
     revalidatePath(`/campaigns/${campaignId}`);
     revalidatePath("/campaigns");
