@@ -334,6 +334,13 @@ export interface CampaignRow {
    * send_to_parent 와 독립. 수신거부 제외는 레그의 번호 기준으로 독립 판정.
    */
   send_to_student: boolean;
+  /**
+   * 발송 실패를 Slack 으로 알린 시각. NULL 이면 미알림. 0096 추가.
+   * 캠페인당 1회 알림 dedup — 발송시점 실패와 sendon 비동기 실패 cron 이 공유.
+   * 서버 쿼리(.is/.update)로만 직접 다루고 타입 객체로 읽지 않으므로 optional
+   * (일부 매퍼·dev-seed 가 하이드레이트하지 않음).
+   */
+  sendon_failure_alerted_at?: string | null;
   created_at: string;
   updated_at: string;
 }

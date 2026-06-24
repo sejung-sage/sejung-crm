@@ -5,6 +5,10 @@
     {
       "path": "/api/cron/dispatch-scheduled-campaigns",
       "schedule": "* * * * *"
+    },
+    {
+      "path": "/api/cron/reconcile-sendon-failures",
+      "schedule": "*/30 * * * *"
     }
   ]
 }
