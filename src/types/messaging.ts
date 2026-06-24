@@ -249,11 +249,15 @@ export interface SmsAdapter {
    * groupId 안에서 특정 상태(messageStatus, 예: "FAILED")인 개별 메시지 목록 조회.
    * queryGroupCounts 는 합계만 주지만, 본 메서드는 실제 수신번호·실패 사유까지 준다.
    * 실패 건 재발송 대상을 sendon 기준으로 확정하는 데 쓴다(우리 DB 가 실패를 모를 때).
-   * 한 groupId 의 전 페이지를 어댑터 내부에서 순회해 합쳐 돌려준다.
+   * 어댑터 내부에서 페이지를 순회해 합쳐 돌려준다.
+   *
+   * @param maxMessages 이만큼 모이면 조기 중단(샘플 용도). 미지정이면 전 페이지 순회.
+   *   사유 표시처럼 표본만 필요할 때 작은 값을 줘 라운드트립·지연을 줄인다.
    */
   listGroupMessages(
     vendorMessageId: string,
     messageStatus: string,
+    maxMessages?: number,
   ): Promise<SmsGroupMessagesResult>;
   /**
    * 예약 발송 취소. groupId(vendorMessageId) 로 sendon 예약을 취소한다.

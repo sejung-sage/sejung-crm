@@ -130,11 +130,17 @@ export function createSendonAdapter(opts: SendonAdapterOptions): SmsAdapter {
     async listGroupMessages(
       vendorMessageId: string,
       messageStatus: string,
+      maxMessages?: number,
     ): Promise<SmsGroupMessagesResult> {
       if (mode === "mock") {
         return { ok: true, messages: [] };
       }
-      return await listGroupMessagesLive(vendorMessageId, messageStatus, opts);
+      return await listGroupMessagesLive(
+        vendorMessageId,
+        messageStatus,
+        opts,
+        maxMessages,
+      );
     },
 
     async cancel(vendorMessageId: string): Promise<SmsCancelResult> {
@@ -532,11 +538,14 @@ async function queryGroupCountsLive(
 const LIST_GROUP_PAGE = 500;
 /** 무한 루프 방지 — 한 groupId 당 최대 페이지 수(= 최대 500 * 200 = 10만 건). */
 const LIST_GROUP_MAX_PAGES = 200;
+/** 페이지당 요청 타임아웃(ms). 응답 지연/행으로 무한 대기하지 않도록 강제. */
+const LIST_GROUP_TIMEOUT_MS = 10_000;
 
 async function listGroupMessagesLive(
   vendorMessageId: string,
   messageStatus: string,
   opts: SendonAdapterOptions,
+  maxMessages?: number,
 ): Promise<SmsGroupMessagesResult> {
   if (!opts.userId || !opts.apiKey) {
     return {
@@ -559,16 +568,25 @@ async function listGroupMessagesLive(
     return { ok: false, messages: [], reason: "sendon 클라이언트 초기화 실패" };
   }
 
+  const cap = typeof maxMessages === "number" && maxMessages > 0
+    ? maxMessages
+    : Number.POSITIVE_INFINITY;
+  const pageSize = Number.isFinite(cap)
+    ? Math.min(LIST_GROUP_PAGE, cap)
+    : LIST_GROUP_PAGE;
+
   const messages: SmsGroupMessage[] = [];
   let cursor: string | undefined = undefined;
+  const seenCursors = new Set<string>();
   try {
     for (let page = 0; page < LIST_GROUP_MAX_PAGES; page += 1) {
       const res = await api.listGroupMessages(
         vendorMessageId,
         messageStatus,
         undefined,
-        LIST_GROUP_PAGE,
+        pageSize,
         cursor,
+        { timeout: LIST_GROUP_TIMEOUT_MS },
       );
       const body = res.data;
       if (body.code !== 200) {
@@ -586,8 +604,15 @@ async function listGroupMessagesLive(
           resultText: m.resultText,
         });
       }
+      // 표본 상한 도달 시 조기 종료.
+      if (messages.length >= cap) {
+        messages.length = Math.min(messages.length, Math.floor(cap));
+        break;
+      }
       const next = body.data?.cursor;
-      if (!next || results.length === 0) break;
+      // 커서가 없거나 빈 페이지면 끝. 커서가 직전과 같으면(미전진) 무한루프 방지로 중단.
+      if (!next || results.length === 0 || seenCursors.has(next)) break;
+      seenCursors.add(next);
       cursor = next;
     }
     return { ok: true, messages };

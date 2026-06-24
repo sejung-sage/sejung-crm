@@ -104,11 +104,9 @@ function ResultPanel({ result }: { result: InspectCampaignResult }) {
       {failureReasons && failureReasons.length > 0 && (
         <div className="pt-1 border-t border-[color:var(--border)]">
           <p className="text-[color:var(--text-muted)]">실패 사유</p>
-          <ul className="space-y-0.5 tabular-nums">
-            {failureReasons.map((f) => (
-              <li key={f.reason}>
-                {f.reason} · {f.count.toLocaleString()}건
-              </li>
+          <ul className="space-y-0.5">
+            {failureReasons.map((reason) => (
+              <li key={reason}>{reason}</li>
             ))}
           </ul>
         </div>

@@ -39,10 +39,11 @@ export interface InspectCampaignResult {
   /** 조회 실패한 groupId 들의 사유(상위 몇 개). */
   queryErrors?: string[];
   /**
-   * sendon 이 '실패(FAILED)' 로 처리한 건들의 사유별 집계(내림차순).
-   * 예: [{ reason: "포인트 부족", count: 4000 }]. 재발송이 의미있는지 판단용.
+   * sendon 이 '실패(FAILED)' 로 처리한 건들의 사유(중복 제거, 표본 기반).
+   * 예: ["포인트 부족"]. 전수가 아니라 그룹당 표본만 조회하므로 사유 종류 파악용.
+   * 정확한 실패 '건수' 는 sendon.failed 로 별도 표시한다.
    */
-  failureReasons?: Array<{ reason: string; count: number }>;
+  failureReasons?: string[];
 }
 
 export async function inspectCampaignSendon(
@@ -104,8 +105,9 @@ export async function inspectCampaignSendon(
   let queried = 0;
   let failedToQuery = 0;
   const queryErrors: string[] = [];
-  // sendon FAILED 건의 resultText(사유)별 누적 카운트.
-  const reasonCounts = new Map<string, number>();
+  // sendon FAILED 건의 사유(중복 제거). 전수 아닌 그룹당 표본만 본다(빠르게).
+  const reasons = new Set<string>();
+  let reasonSampleAttempts = 0;
   for (const gid of groupIds) {
     const c = await adapter.queryGroupCounts(gid);
     if (!c.ok) {
@@ -122,23 +124,24 @@ export async function inspectCampaignSendon(
     sendon.pending += c.pending;
     sendon.total += c.total;
 
-    // 실패 건이 있으면 개별 메시지를 조회해 사유를 집계한다.
-    if (c.failed > 0) {
-      const list = await adapter.listGroupMessages(gid, "FAILED");
+    // 실패 건이 있으면 사유 파악용 표본만 조회(전수 X — 수천 건이면 타임아웃).
+    // 조회 시도 자체를 소수 그룹으로 제한해(엔드포인트 장애 시) 누적 지연을 막는다.
+    if (c.failed > 0 && reasonSampleAttempts < FAILURE_REASON_GROUP_ATTEMPTS) {
+      reasonSampleAttempts += 1;
+      const list = await adapter.listGroupMessages(
+        gid,
+        "FAILED",
+        FAILURE_REASON_SAMPLE_PER_GROUP,
+      );
       if (list.ok) {
         for (const m of list.messages) {
-          const reason = m.resultText?.trim() || `코드 ${m.resultCode}`;
-          reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+          reasons.add(m.resultText?.trim() || `코드 ${m.resultCode}`);
         }
       } else if (list.reason && queryErrors.length < 5) {
         queryErrors.push(list.reason);
       }
     }
   }
-
-  const failureReasons = Array.from(reasonCounts.entries())
-    .map(([reason, count]) => ({ reason, count }))
-    .sort((a, b) => b.count - a.count);
 
   return {
     status: "ok",
@@ -147,6 +150,11 @@ export async function inspectCampaignSendon(
     groups: { total: groupIds.size, queried, failedToQuery },
     sendon,
     queryErrors: queryErrors.length > 0 ? queryErrors : undefined,
-    failureReasons: failureReasons.length > 0 ? failureReasons : undefined,
+    failureReasons: reasons.size > 0 ? Array.from(reasons) : undefined,
   };
 }
+
+/** 사유 표본: 그룹당 이만큼만 조회(전수 순회 방지). */
+const FAILURE_REASON_SAMPLE_PER_GROUP = 200;
+/** 사유 표본 조회를 시도하는 최대 그룹 수(장애 시 누적 지연 차단). 보통 사유는 1종. */
+const FAILURE_REASON_GROUP_ATTEMPTS = 2;
