@@ -9,6 +9,7 @@ import { ResendFailedButton } from "@/components/campaigns/resend-failed-button"
 import { ResumeStuckButton } from "@/components/campaigns/resume-stuck-button";
 import { CancelScheduledButton } from "@/components/campaigns/cancel-scheduled-button";
 import { RescheduleButton } from "@/components/campaigns/reschedule-button";
+import { InspectSendonButton } from "@/components/campaigns/inspect-sendon-button";
 import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
 import { formatKstDateTime } from "@/lib/datetime";
 
@@ -178,6 +179,10 @@ export function CampaignDetailView({
                   failedCount={failedCount}
                 />
               </>
+            )}
+            {/* sendon 실제 발송 결과 점검 — master 전용(canRevealPhone=master). */}
+            {canRevealPhone && (
+              <InspectSendonButton campaignId={campaign.id} />
             )}
           </div>
         </div>

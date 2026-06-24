@@ -34,6 +34,11 @@ import {
   deleteCampaign,
   type DeleteCampaignResult,
 } from "@/lib/campaigns/delete-campaign";
+import {
+  inspectCampaignSendon,
+  type InspectCampaignResult,
+} from "@/lib/messaging/inspect-campaign-sendon";
+import { getCurrentUser } from "@/lib/auth/current-user";
 import type { SendCampaignResult } from "@/lib/messaging/send-campaign";
 
 export async function resendFailedAction(
@@ -93,6 +98,23 @@ export async function rescheduleCampaignAction(
     revalidatePath("/campaigns");
   }
   return result;
+}
+
+export async function inspectCampaignSendonAction(
+  campaignId: string,
+): Promise<InspectCampaignResult> {
+  if (typeof campaignId !== "string" || campaignId.length === 0) {
+    return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
+  }
+  // sendon 실제 상태 조회는 master 전용(외부 API 호출 + 전사 관점 점검 도구).
+  const user = await getCurrentUser();
+  if (!user) {
+    return { status: "failed", reason: "로그인 후 이용 가능합니다" };
+  }
+  if (user.role !== "master") {
+    return { status: "failed", reason: "마스터 계정만 조회할 수 있습니다" };
+  }
+  return await inspectCampaignSendon(campaignId);
 }
 
 export async function deleteCampaignAction(

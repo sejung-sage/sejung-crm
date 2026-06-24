@@ -45,6 +45,7 @@ import type {
   SmsSendRequest,
   SmsSendResult,
   SmsStatusQueryResult,
+  SmsGroupCounts,
   SmsType,
 } from "./types";
 
@@ -101,6 +102,25 @@ export function createSendonAdapter(opts: SendonAdapterOptions): SmsAdapter {
         };
       }
       return await queryStatusLive(vendorMessageId, opts);
+    },
+
+    async queryGroupCounts(
+      vendorMessageId: string,
+    ): Promise<SmsGroupCounts> {
+      if (mode === "mock") {
+        // mock 은 발송 즉시 전건 성공 가정.
+        return {
+          ok: true,
+          succeeded: 0,
+          failed: 0,
+          canceled: 0,
+          blocked: 0,
+          sending: 0,
+          pending: 0,
+          total: 0,
+        };
+      }
+      return await queryGroupCountsLive(vendorMessageId, opts);
     },
 
     async cancel(vendorMessageId: string): Promise<SmsCancelResult> {
@@ -432,6 +452,63 @@ async function queryStatusLive(
       status: "queued",
       failedReason: safe || "sendon 상태 조회 실패",
     };
+  }
+}
+
+// ─── live groupId 카운트 조회 ──────────────────────────────
+
+async function queryGroupCountsLive(
+  vendorMessageId: string,
+  opts: SendonAdapterOptions,
+): Promise<SmsGroupCounts> {
+  const zero: SmsGroupCounts = {
+    ok: false,
+    succeeded: 0,
+    failed: 0,
+    canceled: 0,
+    blocked: 0,
+    sending: 0,
+    pending: 0,
+    total: 0,
+  };
+  if (!opts.userId || !opts.apiKey) {
+    return { ...zero, reason: "sendon 인증 정보가 설정되지 않았습니다" };
+  }
+  let client: Sendon;
+  try {
+    client = new Sendon({ id: opts.userId, apikey: opts.apiKey, debug: false });
+  } catch {
+    return { ...zero, reason: "sendon 클라이언트 초기화 실패" };
+  }
+  try {
+    const result = await client.sms.find(vendorMessageId);
+    if (result.code !== 200) {
+      return {
+        ...zero,
+        reason: sanitizeErrorMessage(result.message ?? `code ${result.code}`),
+      };
+    }
+    const info = result.data;
+    const succeeded = info.succeededCount ?? 0;
+    const failed = info.failedCount ?? 0;
+    const canceled = info.canceledCount ?? 0;
+    const blocked = info.blockedCount ?? 0;
+    const sending = info.sendingCount ?? 0;
+    // sendon: messageCount=그룹 전체, standbyCount=예약/대기.
+    const total = info.messageCount ?? 0;
+    const pending = info.standbyCount ?? 0;
+    return {
+      ok: true,
+      succeeded,
+      failed,
+      canceled,
+      blocked,
+      sending,
+      pending,
+      total,
+    };
+  } catch (e: unknown) {
+    return { ...zero, reason: sanitizeErrorMessage(extractErrorMessage(e)) };
   }
 }
 

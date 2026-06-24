@@ -168,6 +168,34 @@ export type SmsStatusQueryResult =
     };
 
 /**
+ * 한 groupId(batch 발송 단위, 보통 1,000건)의 sendon 실제 처리 카운트.
+ *
+ * 발송 시점에 우리는 sendon 접수(200)를 받으면 "발송됨" 으로 기록하지만, sendon 이
+ * 그 후 비동기로 처리 실패(예: 잔액 부족)시킨 건은 추적하지 못한다. 이 조회로 sendon
+ * 측 실제 상태를 가져와 우리 DB 와 대조한다(sendon `find` API).
+ */
+export interface SmsGroupCounts {
+  /** sendon 조회 성공 여부. false 면 reason 에 사유. */
+  ok: boolean;
+  /** 발송 성공 건수(succeededCount). */
+  succeeded: number;
+  /** 발송 실패 건수(failedCount). */
+  failed: number;
+  /** 취소 건수(canceledCount). */
+  canceled: number;
+  /** 수신거부 차단 건수(blockedCount). */
+  blocked: number;
+  /** 발송 중 건수(sendingCount). */
+  sending: number;
+  /** 예약 대기 등 그 외 건수(전체 - 위 합). */
+  pending: number;
+  /** 그룹 전체 건수(totalCount). */
+  total: number;
+  /** 조회 실패 사유(ok=false 일 때). */
+  reason?: string;
+}
+
+/**
  * 예약 발송 취소 결과.
  *  - cancelled : sendon 예약이 정상 취소됨.
  *  - failed    : 취소 실패(이미 발송됨/발송 10분 전 경과/네트워크 등).
@@ -185,6 +213,12 @@ export interface SmsAdapter {
    */
   sendBatch(req: SmsBatchSendRequest): Promise<SmsBatchSendResult>;
   queryStatus(vendorMessageId: string): Promise<SmsStatusQueryResult>;
+  /**
+   * groupId 의 실제 처리 카운트 조회(sendon find API). 캠페인을 sendon 측 실제
+   * 성공/실패와 대조하는 데 사용. queryStatus 는 1건 가정으로 status 하나만 주지만,
+   * 본 메서드는 batch(보통 1,000건)의 카운트 분포를 그대로 돌려준다.
+   */
+  queryGroupCounts(vendorMessageId: string): Promise<SmsGroupCounts>;
   /**
    * 예약 발송 취소. groupId(vendorMessageId) 로 sendon 예약을 취소한다.
    * sendon 제약: 예약 발송 시각 10분 전까지만 가능.
