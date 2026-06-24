@@ -38,6 +38,11 @@ export interface InspectCampaignResult {
   };
   /** 조회 실패한 groupId 들의 사유(상위 몇 개). */
   queryErrors?: string[];
+  /**
+   * sendon 이 '실패(FAILED)' 로 처리한 건들의 사유별 집계(내림차순).
+   * 예: [{ reason: "포인트 부족", count: 4000 }]. 재발송이 의미있는지 판단용.
+   */
+  failureReasons?: Array<{ reason: string; count: number }>;
 }
 
 export async function inspectCampaignSendon(
@@ -99,6 +104,8 @@ export async function inspectCampaignSendon(
   let queried = 0;
   let failedToQuery = 0;
   const queryErrors: string[] = [];
+  // sendon FAILED 건의 resultText(사유)별 누적 카운트.
+  const reasonCounts = new Map<string, number>();
   for (const gid of groupIds) {
     const c = await adapter.queryGroupCounts(gid);
     if (!c.ok) {
@@ -114,7 +121,24 @@ export async function inspectCampaignSendon(
     sendon.sending += c.sending;
     sendon.pending += c.pending;
     sendon.total += c.total;
+
+    // 실패 건이 있으면 개별 메시지를 조회해 사유를 집계한다.
+    if (c.failed > 0) {
+      const list = await adapter.listGroupMessages(gid, "FAILED");
+      if (list.ok) {
+        for (const m of list.messages) {
+          const reason = m.resultText?.trim() || `코드 ${m.resultCode}`;
+          reasonCounts.set(reason, (reasonCounts.get(reason) ?? 0) + 1);
+        }
+      } else if (list.reason && queryErrors.length < 5) {
+        queryErrors.push(list.reason);
+      }
+    }
   }
+
+  const failureReasons = Array.from(reasonCounts.entries())
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count);
 
   return {
     status: "ok",
@@ -123,5 +147,6 @@ export async function inspectCampaignSendon(
     groups: { total: groupIds.size, queried, failedToQuery },
     sendon,
     queryErrors: queryErrors.length > 0 ? queryErrors : undefined,
+    failureReasons: failureReasons.length > 0 ? failureReasons : undefined,
   };
 }

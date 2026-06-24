@@ -196,6 +196,32 @@ export interface SmsGroupCounts {
 }
 
 /**
+ * groupId 안의 개별 메시지 1건(sendon listGroupMessages).
+ * 실패 건 추적·재발송에 필요한 최소 필드만 추린다.
+ */
+export interface SmsGroupMessage {
+  /** 수신번호(하이픈 포함 가능 — 사용 측에서 정규화). */
+  to: string;
+  /** sendon 결과 코드. */
+  resultCode: string;
+  /** sendon 결과 사유(사람이 읽는 문구). 예: "포인트 부족". */
+  resultText: string;
+}
+
+/**
+ * groupId 의 특정 상태(FAILED 등) 메시지 목록 조회 결과.
+ * 한 groupId 가 수천 건이라 페이지네이션을 어댑터 내부에서 끝내고 합쳐서 돌려준다.
+ */
+export interface SmsGroupMessagesResult {
+  /** 조회 성공 여부. false 면 reason 에 사유. */
+  ok: boolean;
+  /** 조회된 메시지 목록. */
+  messages: SmsGroupMessage[];
+  /** 조회 실패 사유(ok=false 일 때). */
+  reason?: string;
+}
+
+/**
  * 예약 발송 취소 결과.
  *  - cancelled : sendon 예약이 정상 취소됨.
  *  - failed    : 취소 실패(이미 발송됨/발송 10분 전 경과/네트워크 등).
@@ -219,6 +245,16 @@ export interface SmsAdapter {
    * 본 메서드는 batch(보통 1,000건)의 카운트 분포를 그대로 돌려준다.
    */
   queryGroupCounts(vendorMessageId: string): Promise<SmsGroupCounts>;
+  /**
+   * groupId 안에서 특정 상태(messageStatus, 예: "FAILED")인 개별 메시지 목록 조회.
+   * queryGroupCounts 는 합계만 주지만, 본 메서드는 실제 수신번호·실패 사유까지 준다.
+   * 실패 건 재발송 대상을 sendon 기준으로 확정하는 데 쓴다(우리 DB 가 실패를 모를 때).
+   * 한 groupId 의 전 페이지를 어댑터 내부에서 순회해 합쳐 돌려준다.
+   */
+  listGroupMessages(
+    vendorMessageId: string,
+    messageStatus: string,
+  ): Promise<SmsGroupMessagesResult>;
   /**
    * 예약 발송 취소. groupId(vendorMessageId) 로 sendon 예약을 취소한다.
    * sendon 제약: 예약 발송 시각 10분 전까지만 가능.

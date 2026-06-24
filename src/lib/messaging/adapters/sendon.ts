@@ -30,6 +30,8 @@
 import { randomUUID } from "node:crypto";
 import {
   Sendon,
+  SdoStatistics,
+  Configuration,
   SmsMessageType,
   type Receiver,
   type SendMessageRequestDto,
@@ -42,6 +44,8 @@ import type {
   SmsBatchSendRequest,
   SmsBatchSendResult,
   SmsCancelResult,
+  SmsGroupMessage,
+  SmsGroupMessagesResult,
   SmsSendRequest,
   SmsSendResult,
   SmsStatusQueryResult,
@@ -121,6 +125,16 @@ export function createSendonAdapter(opts: SendonAdapterOptions): SmsAdapter {
         };
       }
       return await queryGroupCountsLive(vendorMessageId, opts);
+    },
+
+    async listGroupMessages(
+      vendorMessageId: string,
+      messageStatus: string,
+    ): Promise<SmsGroupMessagesResult> {
+      if (mode === "mock") {
+        return { ok: true, messages: [] };
+      }
+      return await listGroupMessagesLive(vendorMessageId, messageStatus, opts);
     },
 
     async cancel(vendorMessageId: string): Promise<SmsCancelResult> {
@@ -509,6 +523,80 @@ async function queryGroupCountsLive(
     };
   } catch (e: unknown) {
     return { ...zero, reason: sanitizeErrorMessage(extractErrorMessage(e)) };
+  }
+}
+
+// ─── live 그룹 개별 메시지 조회(상태 필터) ──────────────────
+
+/** 한 페이지 요청 건수. sendon 권장 범위 내에서 라운드트립을 줄이는 값. */
+const LIST_GROUP_PAGE = 500;
+/** 무한 루프 방지 — 한 groupId 당 최대 페이지 수(= 최대 500 * 200 = 10만 건). */
+const LIST_GROUP_MAX_PAGES = 200;
+
+async function listGroupMessagesLive(
+  vendorMessageId: string,
+  messageStatus: string,
+  opts: SendonAdapterOptions,
+): Promise<SmsGroupMessagesResult> {
+  if (!opts.userId || !opts.apiKey) {
+    return {
+      ok: false,
+      messages: [],
+      reason: "sendon 인증 정보가 설정되지 않았습니다",
+    };
+  }
+
+  let api: SdoStatistics;
+  try {
+    api = new SdoStatistics(
+      new Configuration({
+        username: opts.userId,
+        password: opts.apiKey,
+        basePath: "https://api.sendon.io",
+      }),
+    );
+  } catch {
+    return { ok: false, messages: [], reason: "sendon 클라이언트 초기화 실패" };
+  }
+
+  const messages: SmsGroupMessage[] = [];
+  let cursor: string | undefined = undefined;
+  try {
+    for (let page = 0; page < LIST_GROUP_MAX_PAGES; page += 1) {
+      const res = await api.listGroupMessages(
+        vendorMessageId,
+        messageStatus,
+        undefined,
+        LIST_GROUP_PAGE,
+        cursor,
+      );
+      const body = res.data;
+      if (body.code !== 200) {
+        return {
+          ok: false,
+          messages: [],
+          reason: sanitizeErrorMessage(body.message ?? `code ${body.code}`),
+        };
+      }
+      const results = body.data?.results ?? [];
+      for (const m of results) {
+        messages.push({
+          to: m.to,
+          resultCode: m.resultCode,
+          resultText: m.resultText,
+        });
+      }
+      const next = body.data?.cursor;
+      if (!next || results.length === 0) break;
+      cursor = next;
+    }
+    return { ok: true, messages };
+  } catch (e: unknown) {
+    return {
+      ok: false,
+      messages: [],
+      reason: sanitizeErrorMessage(extractErrorMessage(e)),
+    };
   }
 }
 

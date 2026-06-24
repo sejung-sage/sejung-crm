@@ -14,6 +14,8 @@ export type {
   SmsBatchSendResult,
   SmsCancelResult,
   SmsGroupCounts,
+  SmsGroupMessage,
+  SmsGroupMessagesResult,
   SmsSendRequest,
   SmsSendResult,
   SmsStatusQueryResult,

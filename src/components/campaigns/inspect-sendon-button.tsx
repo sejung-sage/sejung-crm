@@ -62,7 +62,7 @@ function ResultPanel({ result }: { result: InspectCampaignResult }) {
     );
   }
 
-  const { db, sendon, groups, queryErrors } = result;
+  const { db, sendon, groups, queryErrors, failureReasons } = result;
   const mismatch =
     db && sendon ? db.발송됨 - (sendon.succeeded + sendon.sending) : 0;
 
@@ -100,6 +100,18 @@ function ResultPanel({ result }: { result: InspectCampaignResult }) {
         <p className="text-[color:var(--danger)] font-medium">
           ⚠ 우리는 발송됨인데 sendon 에서 안 간 건 약 {mismatch.toLocaleString()}건
         </p>
+      )}
+      {failureReasons && failureReasons.length > 0 && (
+        <div className="pt-1 border-t border-[color:var(--border)]">
+          <p className="text-[color:var(--text-muted)]">실패 사유</p>
+          <ul className="space-y-0.5 tabular-nums">
+            {failureReasons.map((f) => (
+              <li key={f.reason}>
+                {f.reason} · {f.count.toLocaleString()}건
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {groups && groups.failedToQuery > 0 && (
         <p className="text-[color:var(--text-muted)]">
