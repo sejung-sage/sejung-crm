@@ -18,6 +18,11 @@
 
 import { createSendonAdapter } from "./sendon";
 import type { AdapterMode, SmsAdapter } from "./types";
+import {
+  sendonFromNumber,
+  sendonUserId,
+  sendonApiKey,
+} from "@/config/sender-numbers";
 
 type ProviderName = "sendon";
 
@@ -33,20 +38,28 @@ function readMode(): AdapterMode {
 
 /**
  * 현재 환경변수 기준으로 구성된 SmsAdapter 인스턴스를 반환.
+ *
+ * branch 를 주면 그 분원의 sendon 계정(USER_ID/API_KEY)과 발신번호를 주입한다.
+ * 분원마다 sendon 계정·충전·발신번호가 다른 운영을 지원(분원 키 없으면 기본값 폴백 —
+ * 회귀 없음). branch 미지정(전체/마스터/유틸 경로)이면 기본 단일 계정을 쓴다.
+ *
  * 호출자는 반환값을 계속 재사용해도 되고, 매 요청마다 새로 만들어도 된다
- * (어댑터 자체는 상태를 보유하지 않음).
+ * (어댑터 자체는 상태를 보유하지 않음). 단 분원이 다르면 분원별로 새로 만들어야 한다.
  */
-export function createSmsAdapter(): SmsAdapter {
+export function createSmsAdapter(branch?: string | null): SmsAdapter {
   const provider = readProvider();
   const mode = readMode();
 
-  // 진단 로그 — Vercel 함수 로그에서 mode/provider 확인용. env 가 production 에
-  // 박혀있어도 redeploy 안 된 함수 인스턴스는 옛 mock 으로 굴 수 있음. 한 줄.
+  const userId = sendonUserId(branch);
+  const apiKey = sendonApiKey(branch);
+  const fromNumber = sendonFromNumber(branch) ?? undefined;
+
+  // 진단 로그 — Vercel 함수 로그에서 mode/provider/분원 확인용. 키 값은 노출 X.
   console.log(
-    `[sms-adapter] provider=${provider} mode=${mode} ` +
-      `userId=${process.env.SENDON_USER_ID ? "set" : "MISSING"} ` +
-      `apiKey=${process.env.SENDON_API_KEY ? "set" : "MISSING"} ` +
-      `fromNumber=${process.env.SENDON_FROM_NUMBER ? "set" : "MISSING"} ` +
+    `[sms-adapter] provider=${provider} mode=${mode} branch=${branch ?? "-"} ` +
+      `userId=${userId ? "set" : "MISSING"} ` +
+      `apiKey=${apiKey ? "set" : "MISSING"} ` +
+      `fromNumber=${fromNumber ? "set" : "MISSING"} ` +
       `rawModeEnv=${JSON.stringify(process.env.SMS_ADAPTER_MODE ?? null)}`,
   );
 
@@ -54,9 +67,9 @@ export function createSmsAdapter(): SmsAdapter {
     case "sendon":
       return createSendonAdapter({
         mode,
-        userId: process.env.SENDON_USER_ID,
-        apiKey: process.env.SENDON_API_KEY,
-        fromNumber: process.env.SENDON_FROM_NUMBER,
+        userId,
+        apiKey,
+        fromNumber,
         apiBase: process.env.SENDON_API_BASE,
       });
   }

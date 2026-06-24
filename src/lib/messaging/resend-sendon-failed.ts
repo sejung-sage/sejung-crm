@@ -100,7 +100,7 @@ export async function resendSendonFailed(
   }
 
   // 2) 각 groupId 의 sendon FAILED 메시지 → 실패 번호 집합.
-  const adapter = createSmsAdapter();
+  const adapter = createSmsAdapter(campaign.branch);
   const failedPhones = new Set<string>();
   let firstReason = "";
   const queryErrors: string[] = [];

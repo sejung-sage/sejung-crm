@@ -84,7 +84,7 @@ export async function cancelScheduledCampaign(
   );
 
   // 2) sendon 예약 취소 — groupId 단위. 하나라도 실패하면 중단(발송 위험 알림).
-  const adapter = createSmsAdapter();
+  const adapter = createSmsAdapter(campaign.branch);
   for (const gid of groupIds) {
     const r = await adapter.cancel(gid);
     if (r.status !== "cancelled") {

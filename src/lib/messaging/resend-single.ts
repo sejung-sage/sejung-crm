@@ -264,7 +264,7 @@ export async function resendSingleMessage(
   }
 
   // 8) 어댑터 발송
-  const adapter = createSmsAdapter();
+  const adapter = createSmsAdapter(campaign.branch);
   const fromNumber = readFromNumber(adapter.name);
   if (!fromNumber) {
     return {

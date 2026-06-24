@@ -28,11 +28,71 @@ const BRANCH_FROM_NUMBER_ENV: Record<Branch, string> = {
   송도: "SENDON_FROM_NUMBER_SONGDO",
 };
 
+/**
+ * 분원별 sendon 계정(USER_ID / API_KEY) 환경변수 키.
+ *
+ * 분원마다 sendon 계정이 다르면(충전·발신번호가 분원별로 분리) 발송도 그 분원 계정으로
+ * 가야 한다. 발신번호와 동일한 폴백 정책: 분원 키가 비어 있으면 기본 SENDON_USER_ID /
+ * SENDON_API_KEY 로 폴백한다. 따라서 분원 계정을 아직 안 넣었으면 기존 단일 계정으로
+ * 그대로 발송된다(회귀 없음).
+ *
+ * 환경변수(값은 sendon 콘솔의 로그인 ID / API Key):
+ *   SENDON_USER_ID  / SENDON_API_KEY                기본/폴백
+ *   SENDON_USER_ID_DAECHI  / SENDON_API_KEY_DAECHI  대치
+ *   SENDON_USER_ID_BANPO   / SENDON_API_KEY_BANPO   반포
+ *   SENDON_USER_ID_BANGBAE / SENDON_API_KEY_BANGBAE 방배
+ *   SENDON_USER_ID_SONGDO  / SENDON_API_KEY_SONGDO  송도
+ */
+const BRANCH_USER_ID_ENV: Record<Branch, string> = {
+  대치: "SENDON_USER_ID_DAECHI",
+  반포: "SENDON_USER_ID_BANPO",
+  방배: "SENDON_USER_ID_BANGBAE",
+  송도: "SENDON_USER_ID_SONGDO",
+};
+const BRANCH_API_KEY_ENV: Record<Branch, string> = {
+  대치: "SENDON_API_KEY_DAECHI",
+  반포: "SENDON_API_KEY_BANPO",
+  방배: "SENDON_API_KEY_BANGBAE",
+  송도: "SENDON_API_KEY_SONGDO",
+};
+
 /** 환경변수 값에서 숫자만 추출(하이픈·공백 방어). 빈 값이면 null. */
 function digitsOnly(raw: string | undefined): string | null {
   if (!raw) return null;
   const d = raw.replace(/[^0-9]/g, "");
   return d.length > 0 ? d : null;
+}
+
+/** 환경변수 값 trim. 빈 값이면 undefined. (계정 ID/KEY 용 — 숫자 추출 X) */
+function envText(raw: string | undefined): string | undefined {
+  const t = raw?.trim();
+  return t && t.length > 0 ? t : undefined;
+}
+
+/**
+ * 분원의 sendon 계정 키를 환경변수에서 해석(분원 키 → 기본 키 폴백).
+ * envByBranch 가 분원→env키 매핑, fallbackEnv 가 기본 키 이름.
+ */
+function resolveBranchEnv(
+  branch: string | null | undefined,
+  envByBranch: Record<string, string>,
+  fallbackEnv: string,
+): string | undefined {
+  const fallback = envText(process.env[fallbackEnv]);
+  if (!branch) return fallback;
+  const key = envByBranch[branch];
+  if (!key) return fallback;
+  return envText(process.env[key]) ?? fallback;
+}
+
+/** 분원의 sendon 로그인 ID(USER_ID). 분원 키 없으면 SENDON_USER_ID 폴백. */
+export function sendonUserId(branch?: string | null): string | undefined {
+  return resolveBranchEnv(branch, BRANCH_USER_ID_ENV, "SENDON_USER_ID");
+}
+
+/** 분원의 sendon API Key. 분원 키 없으면 SENDON_API_KEY 폴백. */
+export function sendonApiKey(branch?: string | null): string | undefined {
+  return resolveBranchEnv(branch, BRANCH_API_KEY_ENV, "SENDON_API_KEY");
 }
 
 /**

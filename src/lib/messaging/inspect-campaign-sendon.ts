@@ -92,7 +92,7 @@ export async function inspectCampaignSendon(
   }
 
   // 2) 각 groupId 를 sendon 에 조회해 카운트 합산.
-  const adapter = createSmsAdapter();
+  const adapter = createSmsAdapter(campaign.branch);
   const sendon = {
     succeeded: 0,
     failed: 0,

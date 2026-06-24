@@ -297,7 +297,7 @@ export async function excelSend(
   }
 
   // 8) 발송 — 어댑터/발신번호 준비. 분원별 발신번호(엑셀발송은 본인 분원 기준).
-  const adapter = createSmsAdapter();
+  const adapter = createSmsAdapter(user.branch);
   const fromNumber = readFromNumber(adapter.name, user.branch);
   if (!fromNumber) {
     await safeUpdateCampaignStatus(supabase, campaignId, "실패");

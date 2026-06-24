@@ -144,7 +144,7 @@ export async function testSend(
   }
 
   // 6) 어댑터 1회 호출
-  const adapter = createSmsAdapter();
+  const adapter = createSmsAdapter(sendBranch);
   // 분원별 발신번호 — sendBranch(작성 분원, 없으면 본인) 기준.
   // 마스터 등 매핑 없는 분원은 SENDON_FROM_NUMBER 로 폴백.
   const fromNumber = readFromNumber(adapter.name, sendBranch);

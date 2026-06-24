@@ -97,7 +97,7 @@ export async function rescheduleCampaign(
         .filter((v): v is string => typeof v === "string" && v.length > 0),
     ),
   );
-  const adapter = createSmsAdapter();
+  const adapter = createSmsAdapter(campaign.branch);
   for (const gid of groupIds) {
     const r = await adapter.cancel(gid);
     if (r.status !== "cancelled") {

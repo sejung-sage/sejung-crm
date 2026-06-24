@@ -53,6 +53,8 @@ import {
   SENDON_INVITE_PLACEHOLDER,
 } from "@/lib/seminars/dispatch-broadcast";
 import { sendonFromNumber } from "@/config/sender-numbers";
+import { isSlackEnabled } from "@/lib/notify/slack";
+import { notifyCampaignFailure } from "./notify-campaign-failure";
 import type {
   CampaignRow,
   CampaignStatus,
@@ -172,7 +174,7 @@ export async function drainCampaignChunk(
     // 본문은 hasName 일 때만 sendon 치환 문법으로 변환 — 외 경우 그대로 송출.
     sendBody = hasName ? toSendonNameSyntax(guardedBody) : guardedBody;
   }
-  const adapter = createSmsAdapter();
+  const adapter = createSmsAdapter(campaign.branch);
   // 분원별 발신번호 — 캠페인 분원 기준(미설정 분원은 SENDON_FROM_NUMBER 폴백).
   const fromNumber = readFromNumber(adapter.name, campaign.branch);
   if (!fromNumber) {
@@ -232,6 +234,22 @@ export async function drainCampaignChunk(
       : base;
     await updateCampaignStatus(supabase, campaignId, finalStatus);
     campaignDone = true;
+
+    // 발송 시점 실패 알림 — 우리 DB 에 '실패' 가 있으면 Slack 1회(중복은 dedup).
+    // Slack 미설정이면 카운트 쿼리도 생략(hot path 보호).
+    if (isSlackEnabled()) {
+      const f = await countFailedForAlert(supabase, campaignId);
+      if (f.count > 0) {
+        await notifyCampaignFailure(supabase, {
+          campaignId,
+          title: campaign.title,
+          branch: campaign.branch,
+          failedCount: f.count,
+          reason: f.reason,
+          source: "send",
+        });
+      }
+    }
   }
 
   return {
@@ -533,6 +551,36 @@ async function determineFinalStatus(
 
   if (error) throw new Error(`최종 상태 산출 실패: ${error.message}`);
   return (okCount ?? 0) > 0 ? "완료" : "실패";
+}
+
+/**
+ * 실패 알림용 — 캠페인의 '실패'(비-테스트) 건수 + 대표 사유 1개.
+ * 알림 메시지 구성에만 쓰는 가벼운 조회. 실패 0건이면 알림 안 함.
+ */
+async function countFailedForAlert(
+  supabase: SrvClient,
+  campaignId: string,
+): Promise<{ count: number; reason?: string }> {
+  const { count } = await supabase
+    .from("crm_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("campaign_id", campaignId)
+    .eq("status", "실패")
+    .eq("is_test", false);
+  const failed = count ?? 0;
+  if (failed === 0) return { count: 0 };
+
+  const { data } = await supabase
+    .from("crm_messages")
+    .select("failed_reason")
+    .eq("campaign_id", campaignId)
+    .eq("status", "실패")
+    .eq("is_test", false)
+    .not("failed_reason", "is", null)
+    .limit(1);
+  const rows = (data ?? []) as Array<{ failed_reason: string | null }>;
+  const reason = rows[0]?.failed_reason?.trim() || undefined;
+  return { count: failed, reason };
 }
 
 /**
