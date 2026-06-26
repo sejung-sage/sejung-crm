@@ -154,11 +154,34 @@ export type TestSendInput = z.infer<typeof TestSendInputSchema>;
 
 // ─── 미리보기 입력 ───────────────────────────────────────────
 /**
+ * 미리보기 전용 step2 — 검증 완화판.
+ *
+ * 미리보기는 수신자 수·예상 비용 산출이 목적이라 본문·제목이 아직 비어 있어도
+ * 동작해야 한다. ComposeStep2Schema 의 "본문 필수 / LMS 제목 필수 / 발송대상
+ * 둘 다 FALSE 금지 / dedupe↔{이름} 상호배타" 같은 발송 시점 검증을 여기서 강제하면,
+ * 작성 도중(본문 입력 전) 미리보기가 에러를 내고 그 에러가 화면에 남는다
+ * (미리보기는 본문 변경에 재실행 안 함 → stale). 그래서 본문을 선택값으로 두고
+ * refine 을 떼어 항상 산출 가능하게 한다. 발송(sendNow/schedule)은 엄격한
+ * ComposeStep2Schema 로 그대로 검증한다.
+ */
+export const PreviewStep2Schema = z.object({
+  templateId: z.string().uuid().optional(),
+  type: TemplateTypeSchema,
+  subject: z.string().trim().max(40).optional().nullable(),
+  // 빈 본문 허용(min 제거) — 작성 전에도 수신자·비용 미리보기가 떠야 함.
+  body: z.string().trim().max(4000, "본문이 너무 깁니다").default(""),
+  isAd: z.boolean().default(false),
+  dedupeByPhone: z.boolean().default(false),
+  sendToParent: z.boolean().default(true),
+  sendToStudent: z.boolean().default(false),
+});
+
+/**
  * 수신자 카운트·예상 비용·최종 본문 미리보기 산출용.
  * 가드 적용 후 본문([광고]/080 footer)과 야간 차단 여부도 함께 반환.
  */
 export const PreviewInputSchema = z.object({
   step1: ComposeStep1Schema,
-  step2: ComposeStep2Schema,
+  step2: PreviewStep2Schema,
 });
 export type PreviewInput = z.infer<typeof PreviewInputSchema>;

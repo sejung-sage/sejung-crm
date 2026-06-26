@@ -540,11 +540,30 @@ describe("PreviewInputSchema · 미리보기 입력", () => {
     }
   });
 
-  it("step2 본문 빈값 → 실패", () => {
+  it("step2 본문 빈값 → success (미리보기는 본문 없어도 산출)", () => {
+    // 미리보기는 수신자 수·비용 산출이 목적이라 본문이 비어도 동작해야 한다.
+    // (본문 필수는 발송 시점 ComposeStep2Schema 에서만 강제.)
     const r = PreviewInputSchema.safeParse({
       step1: { filters: {}, branch: "대치" },
       step2: { type: "SMS", body: "", isAd: false },
     });
-    expect(r.success).toBe(false);
+    expect(r.success).toBe(true);
+  });
+
+  it("step2 본문 누락(undefined) → success (기본 빈 문자열)", () => {
+    const r = PreviewInputSchema.safeParse({
+      step1: { filters: {}, branch: "대치" },
+      step2: { type: "SMS", isAd: false },
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("LMS 인데 제목 없어도 미리보기는 success", () => {
+    // 발송에선 LMS 제목 필수지만, 작성 도중 미리보기까지 막으면 안 됨.
+    const r = PreviewInputSchema.safeParse({
+      step1: { filters: {}, branch: "대치" },
+      step2: { type: "LMS", body: "", isAd: false },
+    });
+    expect(r.success).toBe(true);
   });
 });
