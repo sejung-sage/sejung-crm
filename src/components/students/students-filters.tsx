@@ -14,7 +14,6 @@ import type { Grade, SchoolLevel } from "@/types/database";
 import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
 import { STUDENT_SORT_VALUES, type StudentSort } from "@/lib/schemas/student";
-import { SUBJECT_VALUES } from "@/lib/schemas/common";
 import type { SchoolGroup } from "@/lib/profile/list-filter-options";
 import type { RegionOption } from "@/config/regions";
 
@@ -175,7 +174,6 @@ export function StudentsFilters({
     ? (statusRaw as StatusOption)
     : "재원생";
   const regions = searchParams.getAll("region");
-  const subjects = searchParams.getAll("subject");
   const schools = searchParams.getAll("school");
   // school_level 은 운영 단순화를 위해 단일 선택 (배열 첫 값만 사용).
   const levelRaw = searchParams.getAll("level");
@@ -227,8 +225,8 @@ export function StudentsFilters({
     });
   };
 
-  /** 다중 토글 — grade/region/subject 공통. (status 는 단일 선택으로 별도 처리) */
-  const toggleValue = (key: "grade" | "region" | "subject", value: string) => {
+  /** 다중 토글 — grade/region 공통. (status 는 단일 선택으로 별도 처리) */
+  const toggleValue = (key: "grade" | "region", value: string) => {
     updateParams((p) => {
       const all = p.getAll(key);
       p.delete(key);
@@ -340,7 +338,6 @@ export function StudentsFilters({
     grades.length > 0 ||
     status !== "재원생" ||
     regions.length > 0 ||
-    subjects.length > 0 ||
     schools.length > 0 ||
     includeHidden ||
     unmappedSchool ||
@@ -354,7 +351,6 @@ export function StudentsFilters({
       p.delete("grade");
       p.delete("status");
       p.delete("region");
-      p.delete("subject");
       p.delete("school");
       p.delete("include_hidden");
       p.delete("no_school");
@@ -584,21 +580,6 @@ export function StudentsFilters({
               label={r}
               active={regions.includes(r)}
               onClick={() => toggleValue("region", r)}
-            />
-          ))}
-        </FilterGroup>
-      </div>
-
-      {/* 수강 과목 칩 (다중) — 현재 진행 중인 강좌의 과목 기준
-          (student_profiles.subjects = classes.subject, 설명회 제외, 0063). */}
-      <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
-        <FilterGroup label="수강 과목">
-          {SUBJECT_VALUES.map((s) => (
-            <Chip
-              key={s}
-              label={s}
-              active={subjects.includes(s)}
-              onClick={() => toggleValue("subject", s)}
             />
           ))}
         </FilterGroup>
