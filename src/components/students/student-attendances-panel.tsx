@@ -4,7 +4,10 @@ import type {
   ExpectedSession,
 } from "@/types/database";
 import { AttendanceStatusChip } from "@/components/students/attendance-status-chip";
-import { parseCourseProgress } from "@/lib/profile/course-progress";
+import {
+  parseCourseProgress,
+  isSeminarCourse,
+} from "@/lib/profile/course-progress";
 
 interface Props {
   // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
@@ -375,7 +378,10 @@ function buildGroups(
       if (!maxDate || d > maxDate) maxDate = d;
     }
     g.lastDate = maxDate;
-    g.isOngoing = parseCourseProgress(g.title) === "ongoing";
+    // 설명회는 진행 중 아님(운영 정책). 그 외는 강좌명 prefix 파싱.
+    g.isOngoing =
+      !isSeminarCourse(null, g.title) &&
+      parseCourseProgress(g.title) === "ongoing";
   }
 
   // 정렬 — 진행 중 위로 → 마지막 일자 최신 순 → 총 카운트 DESC → 이름.

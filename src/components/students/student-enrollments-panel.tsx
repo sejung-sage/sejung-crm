@@ -1,6 +1,20 @@
 import type { EnrollmentWithClass } from "@/types/database";
 import { parseCourseName } from "@/lib/profile/parse-course-name";
-import { parseCourseProgress } from "@/lib/profile/course-progress";
+import {
+  parseCourseProgress,
+  isSeminarCourse,
+} from "@/lib/profile/course-progress";
+
+/**
+ * enrollment 의 "진행 중" 여부. 설명회는 절대 진행 중 아님(운영 정책).
+ * 그 외는 강좌명 prefix 파싱((종)/(폐) → 완료) 기준.
+ */
+function isOngoing(e: EnrollmentWithClass): boolean {
+  if (isSeminarCourse(e.subject ?? e.class?.subject, e.course_name)) {
+    return false;
+  }
+  return parseCourseProgress(e.course_name) === "ongoing";
+}
 
 interface Props {
   enrollments: EnrollmentWithClass[];
@@ -10,8 +24,8 @@ interface Props {
  * 학생 상세 · 수강 이력 패널.
  *
  * 행 정렬: 진행 중 위 → end_date 최신 순.
- *   진행 중 판정: end_date IS NULL || end_date(YYYY-MM-DD 앞 10자) >= today.
- *   '2050-01-01' sentinel 도 자연스럽게 진행 중으로 잡힘.
+ *   진행 중 판정: 강좌명 prefix((종)/(폐) → 완료) + 설명회 제외(isOngoing).
+ *   설명회는 (종) 없고 end_date sentinel('2050-01-01') 라도 진행 중 아님(운영 정책).
  *
  * 선생님·과목 표시 우선순위:
  *   1) enrollments.teacher_name / subject (ETL 가 항상 NULL — placeholder)
@@ -34,8 +48,8 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
   // 진행 중 위로 → end_date 내림차순.
   // 진행 상태는 course_name prefix enum 파싱 — 날짜 sentinel('2050-01-01') 이슈 회피.
   const sorted = [...enrollments].sort((a, b) => {
-    const ao = parseCourseProgress(a.course_name) === "ongoing";
-    const bo = parseCourseProgress(b.course_name) === "ongoing";
+    const ao = isOngoing(a);
+    const bo = isOngoing(b);
     if (ao !== bo) return ao ? -1 : 1;
     const ad = a.end_date ?? "";
     const bd = b.end_date ?? "";
@@ -65,7 +79,11 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
               e.class?.subject_raw ??
               parsed.subject ??
               "—";
-            const ongoing = parseCourseProgress(e.course_name) === "ongoing";
+            const seminar = isSeminarCourse(
+              e.subject ?? e.class?.subject,
+              e.course_name,
+            );
+            const ongoing = isOngoing(e);
             return (
               <tr
                 key={e.id}
@@ -73,7 +91,7 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
               >
                 <Td className="text-[color:var(--text)]">
                   <div className="flex items-center gap-2">
-                    <ProgressBadge ongoing={ongoing} />
+                    <ProgressBadge ongoing={ongoing} seminar={seminar} />
                     <span>{e.course_name}</span>
                   </div>
                 </Td>
@@ -100,7 +118,28 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
  * 강좌 진행 상태 배지 — 출석 탭의 ProgressBadge 와 동일 톤.
  * 운영자가 두 패널 사이 시각 일관성으로 같은 의미라 즉시 인식.
  */
-function ProgressBadge({ ongoing }: { ongoing: boolean }) {
+function ProgressBadge({
+  ongoing,
+  seminar = false,
+}: {
+  ongoing: boolean;
+  seminar?: boolean;
+}) {
+  // 설명회는 진행 중/완료 대신 중립 '설명회' 배지(수업 아님).
+  if (seminar) {
+    return (
+      <span
+        className="
+          inline-flex shrink-0 items-center px-2 py-0.5 rounded-full
+          text-[11px] font-medium
+          bg-[color:var(--bg-muted)] text-[color:var(--text-dim)]
+          border border-[color:var(--border)]
+        "
+      >
+        설명회
+      </span>
+    );
+  }
   if (ongoing) {
     return (
       <span

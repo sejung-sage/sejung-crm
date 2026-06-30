@@ -32,3 +32,23 @@ export function parseCourseProgress(
   }
   return "ongoing";
 }
+
+/**
+ * 설명회 강좌 판정.
+ *
+ * 설명회는 수업이 아니라 일회성 행사라 "진행 중"으로 보면 안 된다(운영 정책).
+ * 그런데 설명회 강좌는 (종) prefix 가 없고 end_date 가 sentinel('2050-01-01')
+ * 인 경우가 많아 prefix·날짜 어느 로직으로도 "진행 중"으로 잡힌다 →
+ * 별도 판정해서 진행 중에서 제외한다.
+ *
+ * crm_classes.subject 가 '설명회'면 신뢰(운영 raw 100% 일치). enrollments.subject
+ * 는 항상 NULL 이라 강좌명에 '설명회' 포함도 보조 신호로 함께 본다.
+ */
+export function isSeminarCourse(
+  subject: string | null | undefined,
+  courseName?: string | null | undefined,
+): boolean {
+  if (subject === "설명회") return true;
+  if (courseName && courseName.includes("설명회")) return true;
+  return false;
+}
