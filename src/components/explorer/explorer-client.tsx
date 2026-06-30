@@ -52,6 +52,8 @@ interface Presets {
   grades: string[];
   statuses: string[];
   subjects: string[];
+  /** 과목 매칭 모드. false=하나라도(합집합), true=전부(교집합). */
+  subjectsMatchAll: boolean;
   regions: string[];
   schools: string[];
   sort: string;
@@ -64,6 +66,7 @@ const EMPTY_PRESETS: Presets = {
   grades: [],
   statuses: [],
   subjects: [],
+  subjectsMatchAll: false,
   regions: [],
   schools: [],
   sort: "registered_desc",
@@ -103,6 +106,7 @@ export function ExplorerClient({
           grades: args.presets.grades,
           statuses: args.presets.statuses,
           subjects: args.presets.subjects,
+          subjectsMatchAll: args.presets.subjectsMatchAll,
           regions: args.presets.regions,
           schools: args.presets.schools,
           sort: args.presets.sort,
@@ -343,6 +347,38 @@ export function ExplorerClient({
           selected={p.subjects}
           onToggle={toggleIn("subjects")}
         />
+        {p.subjects.length >= 2 && (
+          <div className="flex items-center gap-2 pl-[72px]">
+            <span className="text-[13px] text-[color:var(--text-muted)]">
+              선택 과목을
+            </span>
+            <div className="inline-flex rounded-lg border border-[color:var(--border)] overflow-hidden">
+              {(
+                [
+                  { val: false, label: "하나라도 수강 (합집합)" },
+                  { val: true, label: "모두 수강 (교집합)" },
+                ] as const
+              ).map((o) => {
+                const on = p.subjectsMatchAll === o.val;
+                return (
+                  <button
+                    key={String(o.val)}
+                    type="button"
+                    onClick={() => applyPresets({ subjectsMatchAll: o.val })}
+                    aria-pressed={on}
+                    className={`h-8 px-3 text-[13px] font-medium transition-colors ${
+                      on
+                        ? "bg-[color:var(--action)] text-[color:var(--action-text)]"
+                        : "bg-bg-card text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                    }`}
+                  >
+                    {o.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         <ChipGroup
           label="지역"
           options={REGION_OPTIONS}

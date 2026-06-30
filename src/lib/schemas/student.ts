@@ -50,6 +50,11 @@ export const ListStudentsInputSchema = z.object({
   statuses: z.array(StudentStatusSchema).optional().default([]),
   /** 수강 과목 필터 (다중 선택). student_profiles.subjects (text[]) 와 교집합. */
   subjects: z.array(SubjectSchema).optional().default([]),
+  /**
+   * 과목 매칭 모드. false(기본)=선택 과목 중 하나라도 수강(합집합),
+   * true=선택 과목을 전부 수강(교집합). subjects 가 비면 무의미.
+   */
+  subjectsMatchAll: z.coerce.boolean().optional().default(false),
   /** 강사명 필터 (다중 선택). student_profiles.teachers (text[]) 와 교집합. */
   teachers: z.array(z.string().trim().max(50)).optional().default([]),
   /** 학교 필터 (다중 선택). students.school 정확 일치. */

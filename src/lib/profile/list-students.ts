@@ -343,6 +343,7 @@ async function fetchViaView(args: {
         p_offset: number;
         p_limit: number;
         p_subjects: string[] | null;
+        p_subjects_match_all: boolean;
       },
     ) => Promise<{
       data: Array<{ id: string; total_count: number }> | null;
@@ -362,6 +363,7 @@ async function fetchViaView(args: {
     p_offset: from,
     p_limit: to - from + 1,
     p_subjects: input.subjects.length > 0 ? input.subjects : null,
+    p_subjects_match_all: input.subjectsMatchAll,
   });
 
   if (rpcResult.error) {
@@ -770,17 +772,20 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
   }
 
   if (input.subjects.length > 0) {
-    const wanted = new Set<string>(input.subjects);
-    rows = rows.filter((r) => {
-      const fromProfile = (r.subjects ?? []).some((s) => wanted.has(s));
-      if (fromProfile) return true;
-      return DEV_ENROLLMENTS.some(
-        (e) =>
-          e.student_id === r.id &&
-          typeof e.subject === "string" &&
-          wanted.has(e.subject),
+    const wanted = [...new Set(input.subjects)];
+    const hasSubject = (
+      r: StudentProfileRow,
+      subj: (typeof wanted)[number],
+    ): boolean =>
+      (r.subjects ?? []).includes(subj) ||
+      DEV_ENROLLMENTS.some(
+        (e) => e.student_id === r.id && e.subject === subj,
       );
-    });
+    rows = rows.filter((r) =>
+      input.subjectsMatchAll
+        ? wanted.every((subj) => hasSubject(r, subj))
+        : wanted.some((subj) => hasSubject(r, subj)),
+    );
   }
 
   if (input.teachers.length > 0) {
