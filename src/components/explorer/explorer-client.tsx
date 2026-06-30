@@ -1,12 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Download, ChevronLeft, ChevronRight, X, Search } from "lucide-react";
+import {
+  Download,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  X,
+  Search,
+} from "lucide-react";
 import type { ExplorerDataset } from "@/lib/explorer/datasets";
 import {
   runStudentExplorerAction,
+  getExplorerSchoolOptionsAction,
   type ExplorerRunResult,
 } from "@/app/explorer/actions";
+import type { SchoolGroup } from "@/lib/profile/list-filter-options";
 import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
 import { REGION_OPTIONS } from "@/config/regions";
 import { SUBJECT_VALUES } from "@/lib/schemas/common";
@@ -44,6 +53,7 @@ interface Presets {
   statuses: string[];
   subjects: string[];
   regions: string[];
+  schools: string[];
   sort: string;
 }
 
@@ -55,15 +65,22 @@ const EMPTY_PRESETS: Presets = {
   statuses: [],
   subjects: [],
   regions: [],
+  schools: [],
   sort: "registered_desc",
 };
 
 export function ExplorerClient({
   datasets,
+  initialSchoolGroups,
 }: {
   datasets: ReadonlyArray<ExplorerDataset>;
+  initialSchoolGroups: SchoolGroup[];
 }) {
   const [p, setP] = useState<Presets>(EMPTY_PRESETS);
+  const [schoolGroups, setSchoolGroups] =
+    useState<SchoolGroup[]>(initialSchoolGroups);
+  const [schoolPanelOpen, setSchoolPanelOpen] = useState(false);
+  const [schoolQuery, setSchoolQuery] = useState("");
   const [pageSize, setPageSize] = useState<number>(100);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<ExplorerRunResult | null>(null);
@@ -87,6 +104,7 @@ export function ExplorerClient({
           statuses: args.presets.statuses,
           subjects: args.presets.subjects,
           regions: args.presets.regions,
+          schools: args.presets.schools,
           sort: args.presets.sort,
           page: args.page,
           pageSize: args.pageSize,
@@ -130,6 +148,25 @@ export function ExplorerClient({
       applyPresets({ [key]: next } as Partial<Presets>);
     };
 
+  /** 분원 변경 → 학교 선택 초기화 + 학교 옵션 풀 재조회(분원별로 다름). */
+  const onBranchChange = (branch: string) => {
+    const next = { ...p, branch, schools: [] };
+    setP(next);
+    setPage(1);
+    void execute({ presets: next, page: 1, pageSize });
+    void (async () => {
+      const r = await getExplorerSchoolOptionsAction(branch);
+      if (r.ok) setSchoolGroups(r.schoolGroups);
+    })();
+  };
+
+  const toggleSchool = (school: string) => {
+    const next = p.schools.includes(school)
+      ? p.schools.filter((s) => s !== school)
+      : [...p.schools, school];
+    applyPresets({ schools: next });
+  };
+
   const goPage = (next: number) => {
     if (next < 1) return;
     setPage(next);
@@ -145,7 +182,13 @@ export function ExplorerClient({
   const clearAll = () => {
     setP(EMPTY_PRESETS);
     setPage(1);
+    setSchoolPanelOpen(false);
+    setSchoolQuery("");
     void execute({ presets: EMPTY_PRESETS, page: 1, pageSize });
+    void (async () => {
+      const r = await getExplorerSchoolOptionsAction("전체");
+      if (r.ok) setSchoolGroups(r.schoolGroups);
+    })();
   };
 
   const hasFilters =
@@ -155,7 +198,8 @@ export function ExplorerClient({
     p.grades.length > 0 ||
     p.statuses.length > 0 ||
     p.subjects.length > 0 ||
-    p.regions.length > 0;
+    p.regions.length > 0 ||
+    p.schools.length > 0;
 
   const exportCsv = () => {
     if (!result || result.rows.length === 0) return;
@@ -223,7 +267,7 @@ export function ExplorerClient({
           <Field label="분원">
             <select
               value={p.branch}
-              onChange={(e) => applyPresets({ branch: e.target.value })}
+              onChange={(e) => onBranchChange(e.target.value)}
               className={selectCls}
             >
               {BRANCH_FILTER_OPTIONS.map((b) => (
@@ -305,6 +349,67 @@ export function ExplorerClient({
           selected={p.regions}
           onToggle={toggleIn("regions")}
         />
+
+        {/* 학교 선택 (CRM 학생조회와 동일 — 지역별 그룹 + 검색 + 칩) */}
+        <div className="flex items-start gap-2">
+          <span className="mt-1.5 w-16 shrink-0 text-[13px] font-medium text-[color:var(--text-muted)]">
+            학교
+          </span>
+          <div className="flex-1">
+            <button
+              type="button"
+              onClick={() => setSchoolPanelOpen((o) => !o)}
+              aria-expanded={schoolPanelOpen}
+              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md text-[13px] font-medium text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] transition-colors"
+            >
+              <span>학교 선택</span>
+              {p.schools.length > 0 && (
+                <span className="inline-flex items-center justify-center h-5 min-w-5 px-1.5 rounded-full bg-[color:var(--action)] text-[color:var(--action-text)] text-[12px] font-semibold tabular-nums">
+                  {p.schools.length}
+                </span>
+              )}
+              <ChevronDown
+                className={`size-3.5 transition-transform ${
+                  schoolPanelOpen ? "rotate-180" : ""
+                }`}
+                strokeWidth={1.75}
+                aria-hidden
+              />
+            </button>
+
+            {/* 접힘: 선택된 학교 칩 요약 */}
+            {!schoolPanelOpen && p.schools.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {p.schools.map((s) => (
+                  <span
+                    key={s}
+                    className="inline-flex items-center gap-1 h-8 pl-3 pr-1 rounded-full text-[14px] font-medium bg-[color:var(--bg-muted)] text-[color:var(--text)] border border-[color:var(--border)]"
+                  >
+                    <span className="truncate max-w-[12rem]">{s}</span>
+                    <button
+                      type="button"
+                      onClick={() => toggleSchool(s)}
+                      aria-label={`${s} 제거`}
+                      className="inline-flex items-center justify-center size-6 rounded-full text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
+                    >
+                      <X className="size-3.5" strokeWidth={1.75} aria-hidden />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {schoolPanelOpen && (
+              <SchoolPanel
+                schoolGroups={schoolGroups}
+                selected={p.schools}
+                query={schoolQuery}
+                onQueryChange={setSchoolQuery}
+                onToggle={toggleSchool}
+              />
+            )}
+          </div>
+        </div>
 
         {hasFilters && (
           <div className="pt-0.5">
@@ -441,6 +546,119 @@ function ChipGroup({
             </button>
           );
         })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 학교 검색·선택 패널 — CRM /students 의 SchoolSearchPanel 과 동일 UX.
+ * 지역별 그룹 + 부분일치 검색 + 칩 토글. 매칭 없는 그룹은 숨김.
+ */
+function SchoolPanel({
+  schoolGroups,
+  selected,
+  query,
+  onQueryChange,
+  onToggle,
+}: {
+  schoolGroups: SchoolGroup[];
+  selected: string[];
+  query: string;
+  onQueryChange: (q: string) => void;
+  onToggle: (school: string) => void;
+}) {
+  const normalized = query.trim().toLowerCase();
+  const filtered = schoolGroups
+    .map((g) => ({
+      region: g.region,
+      schools:
+        normalized.length === 0
+          ? g.schools
+          : g.schools.filter((s) => s.toLowerCase().includes(normalized)),
+    }))
+    .filter((g) => g.schools.length > 0);
+
+  const totalMatched = filtered.reduce((sum, g) => sum + g.schools.length, 0);
+
+  return (
+    <div className="mt-3 rounded-xl bg-[color:var(--bg-muted)] p-4 space-y-3">
+      <label className="relative block">
+        <span className="sr-only">학교 검색</span>
+        <Search
+          className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
+          strokeWidth={1.75}
+          aria-hidden
+        />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => onQueryChange(e.target.value)}
+          placeholder="학교명 검색 (예: 휘문, 단대부)"
+          className="w-full h-10 rounded-lg pl-9 pr-3 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)]"
+        />
+      </label>
+
+      <p className="text-[12px] text-[color:var(--text-muted)]">
+        {normalized.length > 0
+          ? `검색 결과 ${totalMatched.toLocaleString()}개`
+          : `총 ${schoolGroups
+              .reduce((s, g) => s + g.schools.length, 0)
+              .toLocaleString()}개 학교`}
+        {selected.length > 0 && (
+          <>
+            <span className="mx-1.5 text-[color:var(--text-dim)]">·</span>
+            <span>선택 {selected.length}개</span>
+          </>
+        )}
+      </p>
+
+      <div className="max-h-[420px] overflow-y-auto space-y-4 pr-1">
+        {filtered.length === 0 ? (
+          <p className="py-4 text-center text-[13px] text-[color:var(--text-muted)]">
+            {normalized.length > 0
+              ? `"${query.trim()}" 와(과) 일치하는 학교가 없습니다.`
+              : "표시할 학교가 없습니다."}
+          </p>
+        ) : (
+          filtered.map((group) => {
+            const selectedInGroup = group.schools.filter((s) =>
+              selected.includes(s),
+            ).length;
+            return (
+              <div key={group.region}>
+                <h4 className="mb-1.5 flex items-baseline gap-1.5 text-[13px] font-semibold text-[color:var(--text)]">
+                  {group.region}
+                  <span className="text-[12px] font-normal text-[color:var(--text-muted)] tabular-nums">
+                    {selectedInGroup > 0
+                      ? `${selectedInGroup}/${group.schools.length}`
+                      : `${group.schools.length}`}
+                  </span>
+                </h4>
+                <div className="flex flex-wrap gap-1.5">
+                  {group.schools.map((s) => {
+                    const on = selected.includes(s);
+                    return (
+                      <button
+                        key={s}
+                        type="button"
+                        onClick={() => onToggle(s)}
+                        aria-pressed={on}
+                        className={`inline-flex items-center h-8 px-3 rounded-full text-[14px] font-medium border transition-colors ${
+                          on
+                            ? "bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]"
+                            : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
+                        }`}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

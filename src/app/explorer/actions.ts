@@ -22,6 +22,10 @@ import {
   type ExplorerFilter,
 } from "@/lib/schemas/explorer";
 import { listStudents } from "@/lib/profile/list-students";
+import {
+  listStudentFilterOptions,
+  type SchoolGroup,
+} from "@/lib/profile/list-filter-options";
 import { ListStudentsInputSchema } from "@/lib/schemas/student";
 
 export interface ExplorerRunResult {
@@ -86,6 +90,20 @@ const STUDENT_COLUMNS = [
  * 프리셋 → ListStudentsInput 매핑. 값 검증(과목/학년/상태 enum, pageSize 상한)은
  * ListStudentsInputSchema 가 담당.
  */
+/**
+ * 분원별 학교 옵션(지역 그룹) 조회 — 탐색기 학교 선택 패널용. CRM /students 와
+ * 동일하게 listStudentFilterOptions 재사용(branch 로 학교 풀 좁힘).
+ */
+export async function getExplorerSchoolOptionsAction(
+  branch?: string,
+): Promise<{ ok: boolean; schoolGroups: SchoolGroup[] }> {
+  if (!(await assertMaster())) return { ok: false, schoolGroups: [] };
+  const opts = await listStudentFilterOptions({
+    branch: branch && branch !== "전체" ? branch : undefined,
+  });
+  return { ok: true, schoolGroups: opts.schoolGroups };
+}
+
 export async function runStudentExplorerAction(input: {
   search?: string;
   branch?: string;
@@ -94,6 +112,7 @@ export async function runStudentExplorerAction(input: {
   statuses?: string[];
   subjects?: string[];
   regions?: string[];
+  schools?: string[];
   sort?: string;
   page?: number;
   pageSize?: number;
@@ -114,6 +133,7 @@ export async function runStudentExplorerAction(input: {
     statuses: input.statuses ?? [],
     subjects: input.subjects ?? [],
     regions: input.regions ?? [],
+    schools: input.schools ?? [],
     includeHidden: true, // 탐색기는 졸업·미정도 기본 노출.
     sort: input.sort,
     page: input.page ?? 1,

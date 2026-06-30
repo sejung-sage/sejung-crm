@@ -2,6 +2,7 @@ import { ShieldAlert } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { EXPLORER_DATASETS } from "@/lib/explorer/datasets";
+import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { ExplorerClient } from "@/components/explorer/explorer-client";
 
 /**
@@ -33,5 +34,13 @@ export default async function ExplorerPage() {
     );
   }
 
-  return <ExplorerClient datasets={EXPLORER_DATASETS} />;
+  // 학교 선택 패널의 초기 옵션(전체 분원) prefetch — CRM /students 와 동일.
+  const filterOptions = await listStudentFilterOptions({});
+
+  return (
+    <ExplorerClient
+      datasets={EXPLORER_DATASETS}
+      initialSchoolGroups={filterOptions.schoolGroups}
+    />
+  );
 }
