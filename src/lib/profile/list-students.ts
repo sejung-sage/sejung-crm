@@ -137,18 +137,18 @@ async function listFromSupabase(
   const from = (input.page - 1) * input.pageSize;
   const to = from + input.pageSize - 1;
 
-  // ─── region 필터 → view 경로 위임 ─────────────────────────
-  // region 매핑 학교가 수십~수백 개 단위라 school IN/NOT IN 인자가 PostgREST
-  // URL 한계(~8KB) 초과 가능. 3+ region 선택 시 'IN' 인자가 매핑 학교 합집합으로
-  // 폭주해 발생한 회귀(현장 사례) → region 필터가 있으면 무조건 view 의 region
-  // 컬럼 IN 으로 직접 매칭.
-  //
-  // 비용 트레이드: view 풀 집계 GROUP BY (6만 학생) 1~5초. region 필터 빈도가
-  // 낮아 운영상 허용 범위.
-  if (input.regions.length > 0) {
+  // ─── region/subjects 필터 → RPC 경로 위임 ─────────────────
+  // 두 필터 모두 students 베이스 단순 쿼리로는 못 푼다:
+  //   - region: 매핑 학교가 수십~수백 개라 school IN/NOT IN 인자가 PostgREST URL
+  //     한계(~8KB) 초과 가능(현장 회귀).
+  //   - subjects: 과목은 view 집계 컬럼이라 .overlaps 가 60k view 풀집계를 유발 →
+  //     전체 분원에서 statement_timeout(과목당 38~55초) → 학생 명단 오류(2026-06-30).
+  // 둘 중 하나라도 있으면 search_students_by_region RPC(0098)로 매칭 id+total 만
+  // 받아(students 베이스 + EXISTS 조인, 빠름) 그 50행만 view 에서 materialize 한다.
+  if (input.regions.length > 0 || input.subjects.length > 0) {
     return await fetchViaView({ supabase, input, from, to });
   }
-  // 그 아래 흐름은 region 필터가 없는 케이스만 도달. regionPlan 은 항상 null.
+  // 그 아래 흐름은 region/subjects 필터가 없는 케이스만 도달. regionPlan 은 항상 null.
   const regionPlan: RegionPlan | null = null;
 
   // ─── count 쿼리 (students 베이스, head + exact) ───────────
@@ -308,10 +308,11 @@ async function listFromSupabase(
 }
 
 /**
- * region 필터 전용 fallback — SECURITY INVOKER RPC `search_students_by_region`
- * (0067 마이그) 호출. crm_students + crm_school_regions LEFT JOIN 을 SQL 단에서
- * 직접 처리하므로 PostgREST URL 폭주(NOT IN 학교 매핑 폭주)와 view 풀집계 GROUP
- * BY 의 statement_timeout 모두 회피.
+ * region/subjects 필터 fallback — SECURITY INVOKER RPC `search_students_by_region`
+ * (0067/0098 마이그) 호출. crm_students 베이스에서 region(school_regions LEFT JOIN)
+ * 과 subjects(현재 진행 중 enrollments JOIN classes EXISTS)를 SQL 단에서 직접
+ * 처리하므로 PostgREST URL 폭주와 view 집계 컬럼 overlaps 의 풀집계 statement_timeout
+ * 을 모두 회피한다.
  *
  * RPC 가 반환한 id 와 total_count 를 받아, 그 id 만 student_profiles 뷰에서
  * IN(...) 으로 작은 set materialize. view 풀집계 안 함.
@@ -341,6 +342,7 @@ async function fetchViaView(args: {
         p_sort: string;
         p_offset: number;
         p_limit: number;
+        p_subjects: string[] | null;
       },
     ) => Promise<{
       data: Array<{ id: string; total_count: number }> | null;
@@ -359,6 +361,7 @@ async function fetchViaView(args: {
     p_sort: input.sort,
     p_offset: from,
     p_limit: to - from + 1,
+    p_subjects: input.subjects.length > 0 ? input.subjects : null,
   });
 
   if (rpcResult.error) {
