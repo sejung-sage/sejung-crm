@@ -89,6 +89,18 @@ export const SUBJECT_VALUES = [
 export const SubjectSchema = z.enum(SUBJECT_VALUES);
 
 /**
+ * 강좌명 접두 코드 필터 — Aca2000 강좌명은 '(종)' 접두를 떼면
+ * [연도2자][#|@][R|S][N|Y|D...] 로 시작한다.
+ *  - CLASS_MARK_VALUES: 두 번째 기호 (# / @).
+ *  - CLASS_KIND_VALUES: 세 번째 글자 (R≈정규 / S≈특강).
+ * 매칭은 search_students_by_region RPC(0100) 가 강좌명을 파싱해 처리.
+ */
+export const CLASS_MARK_VALUES = ["#", "@"] as const;
+export const ClassMarkSchema = z.enum(CLASS_MARK_VALUES);
+export const CLASS_KIND_VALUES = ["R", "S"] as const;
+export const ClassKindSchema = z.enum(CLASS_KIND_VALUES);
+
+/**
  * subjects 필터가 7종 enum 모두 포함되어 있는지 — "조건 없음(전체)" 해석용.
  * 운영자 UX: 7종 다 체크 = 전체 의미. enrollment 0건이거나 classes.subject NULL
  * 인 학생도 포함되도록 backend 가 subjects 필터 미적용으로 정규화.

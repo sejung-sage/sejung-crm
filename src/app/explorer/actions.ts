@@ -112,6 +112,8 @@ export async function runStudentExplorerAction(input: {
   statuses?: string[];
   subjects?: string[];
   subjectsMatchAll?: boolean;
+  classMarks?: string[];
+  classKinds?: string[];
   regions?: string[];
   schools?: string[];
   sort?: string;
@@ -134,6 +136,8 @@ export async function runStudentExplorerAction(input: {
     statuses: input.statuses ?? [],
     subjects: input.subjects ?? [],
     subjectsMatchAll: input.subjectsMatchAll ?? false,
+    classMarks: input.classMarks ?? [],
+    classKinds: input.classKinds ?? [],
     regions: input.regions ?? [],
     schools: input.schools ?? [],
     includeHidden: true, // 탐색기는 졸업·미정도 기본 노출.

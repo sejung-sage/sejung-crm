@@ -8,6 +8,10 @@ import {
   SchoolLevelSchema,
   StudentStatusSchema,
   SubjectSchema,
+  ClassMarkSchema,
+  ClassKindSchema,
+  CLASS_MARK_VALUES,
+  CLASS_KIND_VALUES,
 } from "./common";
 
 /**
@@ -55,6 +59,12 @@ export const ListStudentsInputSchema = z.object({
    * true=선택 과목을 전부 수강(교집합). subjects 가 비면 무의미.
    */
   subjectsMatchAll: z.coerce.boolean().optional().default(false),
+  /**
+   * 강좌명 접두 코드 필터 (다중 선택). 현재 진행 중 강좌의 접두 [#|@][R|S] 기준.
+   * marks(#/@) 와 kinds(R/S) 는 같은 강좌에서 함께 만족해야 매칭(RPC 0100).
+   */
+  classMarks: z.array(ClassMarkSchema).optional().default([]),
+  classKinds: z.array(ClassKindSchema).optional().default([]),
   /** 강사명 필터 (다중 선택). student_profiles.teachers (text[]) 와 교집합. */
   teachers: z.array(z.string().trim().max(50)).optional().default([]),
   /** 학교 필터 (다중 선택). students.school 정확 일치. */
@@ -97,6 +107,8 @@ export type ListStudentsInput = z.infer<typeof ListStudentsInputSchema>;
  *   ?level=중&level=고               → schoolLevels
  *   ?status=재원생                   → statuses
  *   ?subject=수학&subject=국어       → subjects (다중 선택)
+ *   ?cmark=#&cmark=@                 → classMarks (강좌 접두 #/@)
+ *   ?ckind=R&ckind=S                 → classKinds (강좌 접두 R/S)
  *   ?teacher=김선생&teacher=박선생   → teachers (다중 선택)
  *   ?school=대치고&school=휘문고     → schools (다중 선택)
  *   ?region=강남구&region=서초구     → regions (다중 선택, 자유 텍스트)
@@ -124,6 +136,8 @@ export function parseStudentsSearchParams(
     "컨설팅",
     "기타",
   ]);
+  const classMarkWhitelist: ReadonlySet<string> = new Set(CLASS_MARK_VALUES);
+  const classKindWhitelist: ReadonlySet<string> = new Set(CLASS_KIND_VALUES);
   const sortWhitelist: ReadonlySet<string> = new Set(STUDENT_SORT_VALUES);
 
   // 강사·학교는 자유 입력값 — 빈 문자열만 걸러내고 길이 컷오프(50자)는 Zod 가 처리.
@@ -152,6 +166,8 @@ export function parseStudentsSearchParams(
       return ["재원생"];
     })(),
     subjects: toArray(raw.subject).filter((s) => subjectWhitelist.has(s)),
+    classMarks: toArray(raw.cmark).filter((m) => classMarkWhitelist.has(m)),
+    classKinds: toArray(raw.ckind).filter((k) => classKindWhitelist.has(k)),
     teachers: cleanFreeText(toArray(raw.teacher)),
     schools: cleanFreeText(toArray(raw.school)),
     regions: cleanFreeText(toArray(raw.region)),

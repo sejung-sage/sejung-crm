@@ -145,7 +145,12 @@ async function listFromSupabase(
   //     전체 분원에서 statement_timeout(과목당 38~55초) → 학생 명단 오류(2026-06-30).
   // 둘 중 하나라도 있으면 search_students_by_region RPC(0098)로 매칭 id+total 만
   // 받아(students 베이스 + EXISTS 조인, 빠름) 그 50행만 view 에서 materialize 한다.
-  if (input.regions.length > 0 || input.subjects.length > 0) {
+  if (
+    input.regions.length > 0 ||
+    input.subjects.length > 0 ||
+    input.classMarks.length > 0 ||
+    input.classKinds.length > 0
+  ) {
     return await fetchViaView({ supabase, input, from, to });
   }
   // 그 아래 흐름은 region/subjects 필터가 없는 케이스만 도달. regionPlan 은 항상 null.
@@ -344,6 +349,8 @@ async function fetchViaView(args: {
         p_limit: number;
         p_subjects: string[] | null;
         p_subjects_match_all: boolean;
+        p_class_marks: string[] | null;
+        p_class_kinds: string[] | null;
       },
     ) => Promise<{
       data: Array<{ id: string; total_count: number }> | null;
@@ -364,6 +371,8 @@ async function fetchViaView(args: {
     p_limit: to - from + 1,
     p_subjects: input.subjects.length > 0 ? input.subjects : null,
     p_subjects_match_all: input.subjectsMatchAll,
+    p_class_marks: input.classMarks.length > 0 ? input.classMarks : null,
+    p_class_kinds: input.classKinds.length > 0 ? input.classKinds : null,
   });
 
   if (rpcResult.error) {
