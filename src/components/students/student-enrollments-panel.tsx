@@ -1,19 +1,20 @@
 import type { EnrollmentWithClass } from "@/types/database";
 import { parseCourseName } from "@/lib/profile/parse-course-name";
 import {
-  parseCourseProgress,
+  isCourseOngoing,
   isSeminarCourse,
 } from "@/lib/profile/course-progress";
 
 /**
- * enrollment 의 "진행 중" 여부. 설명회는 절대 진행 중 아님(운영 정책).
- * 그 외는 강좌명 prefix 파싱((종)/(폐) → 완료) 기준.
+ * enrollment 의 "진행 중" 여부 — 설명회 아님 AND 종강 접두 아님 AND end_date 미래/없음.
+ * 단일 정의 isCourseOngoing 사용(목록 active_enrollment_count·출석 탭과 동일 규칙).
  */
 function isOngoing(e: EnrollmentWithClass): boolean {
-  if (isSeminarCourse(e.subject ?? e.class?.subject, e.course_name)) {
-    return false;
-  }
-  return parseCourseProgress(e.course_name) === "ongoing";
+  return isCourseOngoing({
+    courseName: e.course_name,
+    subject: e.subject ?? e.class?.subject,
+    endDate: e.end_date,
+  });
 }
 
 interface Props {
@@ -24,8 +25,8 @@ interface Props {
  * 학생 상세 · 수강 이력 패널.
  *
  * 행 정렬: 진행 중 위 → end_date 최신 순.
- *   진행 중 판정: 강좌명 prefix((종)/(폐) → 완료) + 설명회 제외(isOngoing).
- *   설명회는 (종) 없고 end_date sentinel('2050-01-01') 라도 진행 중 아님(운영 정책).
+ *   진행 중 판정(isCourseOngoing): 설명회 아님 AND 종강 접두((종)/(폐)) 아님
+ *   AND end_date 미래/없음. sentinel('2050-01-01') 은 미래라 진행 중 유지.
  *
  * 선생님·과목 표시 우선순위:
  *   1) enrollments.teacher_name / subject (ETL 가 항상 NULL — placeholder)
@@ -46,7 +47,6 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
   }
 
   // 진행 중 위로 → end_date 내림차순.
-  // 진행 상태는 course_name prefix enum 파싱 — 날짜 sentinel('2050-01-01') 이슈 회피.
   const sorted = [...enrollments].sort((a, b) => {
     const ao = isOngoing(a);
     const bo = isOngoing(b);

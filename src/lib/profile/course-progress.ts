@@ -52,3 +52,28 @@ export function isSeminarCourse(
   if (courseName && courseName.includes("설명회")) return true;
   return false;
 }
+
+/**
+ * 강좌(수강 행/출석 그룹)의 "진행 중" 여부 — 단일 정의(교집합):
+ *   설명회 아님  AND  종강·폐강 접두 아님  AND  (end_date 없음 OR end_date >= 오늘).
+ *
+ * DB 의 `public.crm_class_is_ongoing(name, subject)` + end_date 조건과 동일 규칙.
+ * 접두만 보면 운영자가 종강 표시를 깜빡한 과거 강좌가 진행 중으로 남고(2026-06-30
+ * 신동아 [1-기말] 케이스), 날짜만 보면 sentinel('2050-01-01') 강좌가 영원히 진행
+ * 중으로 잡힌다 → 둘을 모두 만족해야 진행 중. sentinel 은 미래라 날짜 조건 통과.
+ *
+ * 날짜 비교는 뷰의 CURRENT_DATE(UTC) 와 맞추려 ISO(UTC) 'YYYY-MM-DD' 문자열 비교.
+ */
+export function isCourseOngoing(args: {
+  courseName: string | null | undefined;
+  subject: string | null | undefined;
+  endDate: string | null | undefined;
+}): boolean {
+  if (isSeminarCourse(args.subject, args.courseName)) return false;
+  if (parseCourseProgress(args.courseName) !== "ongoing") return false;
+  if (args.endDate) {
+    const today = new Date().toISOString().slice(0, 10);
+    if (args.endDate.slice(0, 10) < today) return false;
+  }
+  return true;
+}

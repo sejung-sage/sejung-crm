@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   parseCourseProgress,
   isSeminarCourse,
+  isCourseOngoing,
 } from "@/lib/profile/course-progress";
 
 describe("parseCourseProgress · 강좌명 prefix", () => {
@@ -37,5 +38,41 @@ describe("isSeminarCourse · 설명회 판정", () => {
     expect(parseCourseProgress(name)).toBe("ongoing");
     // 설명회 판정으로 진행 중에서 제외돼야 한다.
     expect(isSeminarCourse("설명회", name)).toBe(true);
+  });
+});
+
+describe("isCourseOngoing · 교집합(설명회+종강접두+end_date)", () => {
+  const FUTURE = "2050-01-01"; // sentinel
+  const PAST = "2000-01-01";
+
+  it("접두 없음 + 미래/sentinel end_date → 진행 중", () => {
+    expect(
+      isCourseOngoing({ courseName: "26#SN 정훈구T 과탐 특강", subject: "과탐", endDate: FUTURE }),
+    ).toBe(true);
+    expect(
+      isCourseOngoing({ courseName: "26#SN 수학", subject: "수학", endDate: null }),
+    ).toBe(true);
+  });
+
+  it("회귀(신동아 [1-기말]): 접두 없어도 end_date 과거면 완료", () => {
+    expect(
+      isCourseOngoing({
+        courseName: "26@RN 윤봉희T (단대1 통과) [1-기말] 7+1(직) 일 pm6-9 (5/10)",
+        subject: "과탐",
+        endDate: PAST,
+      }),
+    ).toBe(false);
+  });
+
+  it("종강 접두면 end_date 무관하게 완료", () => {
+    expect(
+      isCourseOngoing({ courseName: "종)26@RN 국어 [1-기말]", subject: "국어", endDate: FUTURE }),
+    ).toBe(false);
+  });
+
+  it("설명회는 무조건 완료(진행 중 아님)", () => {
+    expect(
+      isCourseOngoing({ courseName: "2026 여름방학 설명회 3차", subject: "설명회", endDate: FUTURE }),
+    ).toBe(false);
   });
 });

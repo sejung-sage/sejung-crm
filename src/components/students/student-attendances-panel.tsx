@@ -4,10 +4,7 @@ import type {
   ExpectedSession,
 } from "@/types/database";
 import { AttendanceStatusChip } from "@/components/students/attendance-status-chip";
-import {
-  parseCourseProgress,
-  isSeminarCourse,
-} from "@/lib/profile/course-progress";
+import { isCourseOngoing } from "@/lib/profile/course-progress";
 
 interface Props {
   // 호출 측에서 attended_at DESC 로 정렬되어 들어오지만,
@@ -366,9 +363,10 @@ function buildGroups(
     g.expectedDates.add(s.class_date);
   }
 
-  // group 별 진행 상태 산출 — 강좌명 prefix enum ("(종)" / "(폐)" → closed).
-  // 날짜 sentinel('2050-01-01') 가 진행 중으로 잘못 잡히던 회귀를 enum 으로 차단.
-  // lastDate 는 정렬 보조 키로만 사용.
+  // group 별 진행 상태 산출 — 단일 정의 isCourseOngoing:
+  //   설명회 아님 AND 종강·폐강 접두 아님 AND 마지막 일자(lastDate) 미래/없음.
+  // 수강 이력 패널·목록 active_enrollment_count 와 동일 규칙. lastDate(출결∪예정
+  // 최신 일자) 가 end_date 역할 — 종강 표시 깜빡한 과거 강좌도 완료로 잡힌다.
   for (const g of groupMap.values()) {
     let maxDate: string | null = null;
     for (const d of g.byDate.keys()) {
@@ -378,10 +376,11 @@ function buildGroups(
       if (!maxDate || d > maxDate) maxDate = d;
     }
     g.lastDate = maxDate;
-    // 설명회는 진행 중 아님(운영 정책). 그 외는 강좌명 prefix 파싱.
-    g.isOngoing =
-      !isSeminarCourse(null, g.title) &&
-      parseCourseProgress(g.title) === "ongoing";
+    g.isOngoing = isCourseOngoing({
+      courseName: g.title,
+      subject: null,
+      endDate: maxDate,
+    });
   }
 
   // 정렬 — 진행 중 위로 → 마지막 일자 최신 순 → 총 카운트 DESC → 이름.
