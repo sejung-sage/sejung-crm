@@ -159,10 +159,9 @@ async function listFromSupabase(
   //   해결: count 만 가벼운 students 테이블에서 head + exact 로 분리. 본 select 는
   //   student_profiles 뷰 유지 (출석률·수강 정보 등 집계 컬럼 필요).
   //
-  //   subjects/teachers 필터는 학생 명단 UI 에서 노출 안 되지만 URL 직접 진입 시
-  //   적용될 수 있음. students 베이스로는 정확 count 불가 — 그 경우 count 는
-  //   "필터 적용 전 학생 수" 가 되어 보수적으로 과대. 대안은 enrollments JOIN 인데
-  //   학생 명단 메인 화면 케이스가 아니라 그냥 허용.
+  //   단 subjects/teachers 필터는 view 집계 컬럼이라 students 베이스로는 못 거른다.
+  //   그 필터가 활성화되면 아래 view-direct 분기에서 count 도 view 기준 exact 로
+  //   다시 센다(effectiveCount). students 베이스 countQuery 는 그 외 케이스 전용.
   let countQuery = supabase
     .from("crm_students")
     .select("id", { count: "exact", head: true });
@@ -211,7 +210,8 @@ async function listFromSupabase(
   //
   // view 직접 fetch (fallback):
   //   - 정렬이 view 컬럼(attendance_rate/enrollment_count/total_paid)일 때.
-  //   - subjects/teachers 필터가 활성화될 때 (학생 UI 노출 안 되지만 URL fallback).
+  //   - subjects(수강 과목 칩)/teachers 필터가 활성화될 때 (view 집계 컬럼이라
+  //     2단계 students 좁힘 불가).
   const canUseTwoStage =
     isStudentsColumnSort(input.sort) &&
     input.subjects.length === 0 &&
@@ -287,8 +287,46 @@ async function listFromSupabase(
 
   query = applySupabaseSort(query, input.sort);
 
+  // subjects/teachers 필터가 활성화되면 count 도 view 기준이어야 정확하다.
+  // crm_students 베이스 countQuery 는 view 집계 컬럼(subjects/teachers)을 못 걸러
+  // 총원이 과대 집계되고, 그러면 pagination 이 빈 뒤페이지를 만든다. 이 경우만
+  // student_profiles 뷰에서 동일 필터 + exact count 로 다시 센다(풀집계 비용은
+  // region 필터와 동일하게 허용 — 과목·강사 필터 빈도가 낮음).
+  type CountAwaited = {
+    count: number | null;
+    error: { message: string } | null;
+  };
+  let effectiveCount: Promise<CountAwaited> =
+    countQuery as unknown as Promise<CountAwaited>;
+  if (input.subjects.length > 0 || input.teachers.length > 0) {
+    let vc = supabase
+      .from("student_profiles")
+      .select("id", { count: "exact", head: true });
+    if (input.search) vc = vc.or(buildStudentSearchOr(input.search));
+    if (input.branch && input.branch !== "전체") {
+      vc = vc.eq("branch", input.branch);
+    }
+    if (input.grades.length > 0) vc = vc.in("grade", input.grades);
+    if (input.schoolLevels.length > 0) {
+      vc = vc.in("school_level", input.schoolLevels);
+    }
+    if (input.statuses.length > 0) vc = vc.in("status", input.statuses);
+    if (input.subjects.length > 0) vc = vc.overlaps("subjects", input.subjects);
+    if (input.teachers.length > 0) vc = vc.overlaps("teachers", input.teachers);
+    if (input.schools.length > 0) vc = vc.in("school", input.schools);
+    if (input.unmappedSchool) {
+      vc = vc.or(UNMAPPED_SCHOOL_OR_EXPR);
+    } else if (input.mappedSchool) {
+      vc = applyMappedSchoolFilter(vc);
+    }
+    if (!input.includeHidden && input.grades.length === 0) {
+      vc = vc.not("grade", "in", `(${HIDDEN_GRADES_BY_DEFAULT.join(",")})`);
+    }
+    effectiveCount = vc as unknown as Promise<CountAwaited>;
+  }
+
   const [countResult, dataResult] = await Promise.all([
-    countQuery,
+    effectiveCount,
     query.range(from, to),
   ]);
 

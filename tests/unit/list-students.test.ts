@@ -151,6 +151,24 @@ describe("listStudents · dev seed", () => {
     expect(r.total).toBe(0);
   });
 
+  it("수강 과목 필터 · '국어' → 국어 수강생만, total=rows 일치", async () => {
+    const r = await listStudents({ ...baseInput, subjects: ["국어"] });
+    // 과목 필터가 실제로 좁혀야 함 (무필터 11명보다 적게).
+    expect(r.rows.length).toBeLessThan(11);
+    // dev-seed 카운트는 필터 적용된 rows 와 항상 일치해야 한다
+    // (Supabase 경로의 view-기준 count 와 동일 불변식).
+    expect(r.total).toBe(r.rows.length);
+    // 프로필 subjects 가 국어인 이서연은 반드시 포함.
+    expect(r.rows.some((s) => s.name === "이서연")).toBe(true);
+  });
+
+  it("수강 과목 필터 · '수학' → 수학 수강생 포함 (김민준·박지후)", async () => {
+    const r = await listStudents({ ...baseInput, subjects: ["수학"] });
+    expect(r.total).toBe(r.rows.length);
+    expect(r.rows.some((s) => s.name === "김민준")).toBe(true);
+    expect(r.rows.some((s) => s.name === "박지후")).toBe(true);
+  });
+
   it("분원+학년+상태 복합 필터", async () => {
     const r = await listStudents({
       ...baseInput,
