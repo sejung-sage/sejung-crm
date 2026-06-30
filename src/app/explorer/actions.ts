@@ -77,6 +77,7 @@ interface FilterableQuery {
   lte(c: string, v: unknown): FilterableQuery;
   ilike(c: string, v: string): FilterableQuery;
   in(c: string, v: readonly unknown[]): FilterableQuery;
+  overlaps(c: string, v: readonly string[]): FilterableQuery;
   is(c: string, v: null): FilterableQuery;
   not(c: string, op: string, v: null): FilterableQuery;
   order(
@@ -115,6 +116,14 @@ function applyFilter(
       return q.lte(f.column, v);
     case "in":
       return q.in(
+        f.column,
+        v
+          .split(",")
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0),
+      );
+    case "overlaps":
+      return q.overlaps(
         f.column,
         v
           .split(",")

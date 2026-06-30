@@ -2,202 +2,248 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Plus,
-  X,
-  Loader2,
   Download,
-  Play,
   ArrowUp,
   ArrowDown,
   ChevronLeft,
   ChevronRight,
-  ListFilter,
-  Columns3,
+  X,
 } from "lucide-react";
 import type { ExplorerDataset } from "@/lib/explorer/datasets";
-import {
-  EXPLORER_OPERATORS,
-  operatorNeedsValue,
-  type ExplorerOperator,
-} from "@/lib/explorer/datasets";
 import {
   describeDatasetAction,
   runExplorerQueryAction,
   type ExplorerRunResult,
 } from "@/app/explorer/actions";
-
-interface FilterRow {
-  id: number;
-  column: string;
-  operator: ExplorerOperator;
-  value: string;
-}
-
-const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
-
-let filterIdSeq = 1;
+import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
+import { REGION_OPTIONS } from "@/config/regions";
+import { SUBJECT_VALUES } from "@/lib/schemas/common";
 
 /**
- * 데이터 탐색기 본체 (읽기 전용).
- * 데이터셋을 고르면 컬럼을 introspect 해 필터 빌더·컬럼 선택을 구성하고,
- * '조회' 시 서버 액션으로 SELECT 결과를 받아 테이블/CSV 로 보여준다.
+ * 데이터 탐색기 본체 — CRM 학생조회와 동일한 칩/드롭다운 프리셋 필터.
+ *
+ * 대상은 student_profiles(학생 명단) 고정. 프리셋 선택을 내부에서 (컬럼·연산자·값)
+ * 필터로 변환해 읽기 전용 서버 액션으로 조회한다. 결과는 전체 컬럼 테이블 + CSV.
  */
+
+const DATASET = "student_profiles";
+
+const GRADE_OPTIONS = [
+  "초등",
+  "중1",
+  "중2",
+  "중3",
+  "고1",
+  "고2",
+  "고3",
+  "재수",
+  "졸업",
+  "미정",
+] as const;
+const LEVEL_OPTIONS = ["전체", "초", "중", "고", "기타"] as const;
+const STATUS_OPTIONS = ["재원생", "수강이력자", "수강 x", "탈퇴"] as const;
+const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
+
+interface Presets {
+  branch: string;
+  level: string;
+  grades: string[];
+  statuses: string[];
+  subjects: string[];
+  regions: string[];
+  school: string;
+  name: string;
+  regFrom: string;
+  regTo: string;
+  paidMin: string;
+}
+
+const EMPTY_PRESETS: Presets = {
+  branch: "전체",
+  level: "전체",
+  grades: [],
+  statuses: [],
+  subjects: [],
+  regions: [],
+  school: "",
+  name: "",
+  regFrom: "",
+  regTo: "",
+  paidMin: "",
+};
+
+/** 프리셋 → 서버 액션 필터(컬럼·연산자·값) 변환. */
+function buildFilters(
+  p: Presets,
+): Array<{ column: string; operator: string; value: string }> {
+  const f: Array<{ column: string; operator: string; value: string }> = [];
+  if (p.branch && p.branch !== "전체")
+    f.push({ column: "branch", operator: "eq", value: p.branch });
+  if (p.level && p.level !== "전체")
+    f.push({ column: "school_level", operator: "eq", value: p.level });
+  if (p.grades.length)
+    f.push({ column: "grade", operator: "in", value: p.grades.join(",") });
+  if (p.statuses.length)
+    f.push({ column: "status", operator: "in", value: p.statuses.join(",") });
+  if (p.subjects.length)
+    f.push({
+      column: "subjects",
+      operator: "overlaps",
+      value: p.subjects.join(","),
+    });
+  if (p.regions.length)
+    f.push({ column: "region", operator: "in", value: p.regions.join(",") });
+  if (p.school.trim())
+    f.push({ column: "school", operator: "ilike", value: p.school.trim() });
+  if (p.name.trim())
+    f.push({ column: "name", operator: "ilike", value: p.name.trim() });
+  if (p.regFrom)
+    f.push({ column: "registered_at", operator: "gte", value: p.regFrom });
+  if (p.regTo)
+    f.push({ column: "registered_at", operator: "lte", value: p.regTo });
+  if (p.paidMin.trim())
+    f.push({
+      column: "total_paid",
+      operator: "gte",
+      value: p.paidMin.trim(),
+    });
+  return f;
+}
+
 export function ExplorerClient({
   datasets,
 }: {
   datasets: ReadonlyArray<ExplorerDataset>;
 }) {
-  const [dataset, setDataset] = useState<string>(datasets[0]?.name ?? "");
   const [columns, setColumns] = useState<string[]>([]);
-  const [describing, setDescribing] = useState(false);
-  const [filters, setFilters] = useState<FilterRow[]>([]);
-  const [display, setDisplay] = useState<string[]>([]); // 빈 배열 = 전체 컬럼
-  const [columnPanelOpen, setColumnPanelOpen] = useState(false);
-  const [sortColumn, setSortColumn] = useState<string | undefined>(undefined);
+  const [p, setP] = useState<Presets>(EMPTY_PRESETS);
+  const [sortColumn, setSortColumn] = useState<string | undefined>(
+    "registered_at",
+  );
   const [sortAsc, setSortAsc] = useState(false);
   const [pageSize, setPageSize] = useState<number>(100);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<ExplorerRunResult | null>(null);
   const [running, setRunning] = useState(false);
 
-  const currentDataset = datasets.find((d) => d.name === dataset);
-
-  // 동시 실행 가드 — 마지막 호출만 반영.
+  const datasetNote = datasets.find((d) => d.name === DATASET)?.note;
   const runSeq = useRef(0);
 
-  interface RunArgs {
-    dataset: string;
-    filters: FilterRow[];
-    display: string[];
-    sortColumn: string | undefined;
-    sortAsc: boolean;
-    page: number;
-    pageSize: number;
-  }
-
-  const execute = useCallback(async (args: RunArgs) => {
-    const seq = ++runSeq.current;
-    setRunning(true);
-    try {
-      const r = await runExplorerQueryAction({
-        dataset: args.dataset,
-        filters: args.filters.map((f) => ({
-          column: f.column,
-          operator: f.operator,
-          value: f.value,
-        })),
-        columns: args.display,
-        sortColumn: args.sortColumn,
-        sortAsc: args.sortAsc,
-        page: args.page,
-        pageSize: args.pageSize,
-      });
-      if (seq === runSeq.current) setResult(r);
-    } finally {
-      if (seq === runSeq.current) setRunning(false);
-    }
-  }, []);
-
-  // 데이터셋 선택 → 컬럼 introspect + 상태 리셋 + 첫 페이지 자동 조회.
-  const selectDataset = useCallback(
-    async (name: string) => {
-      setDataset(name);
-      setFilters([]);
-      setDisplay([]);
-      setColumnPanelOpen(false);
-      setSortColumn(undefined);
-      setSortAsc(false);
-      setPage(1);
-      setResult(null);
-      setColumns([]);
-      setDescribing(true);
-      const d = await describeDatasetAction(name);
-      setDescribing(false);
-      if (d.ok) setColumns(d.columns);
-      await execute({
-        dataset: name,
-        filters: [],
-        display: [],
-        sortColumn: undefined,
-        sortAsc: false,
-        page: 1,
-        pageSize,
-      });
+  const execute = useCallback(
+    async (args: {
+      presets: Presets;
+      sortColumn: string | undefined;
+      sortAsc: boolean;
+      page: number;
+      pageSize: number;
+    }) => {
+      const seq = ++runSeq.current;
+      setRunning(true);
+      try {
+        const r = await runExplorerQueryAction({
+          dataset: DATASET,
+          filters: buildFilters(args.presets),
+          columns: [],
+          sortColumn: args.sortColumn,
+          sortAsc: args.sortAsc,
+          page: args.page,
+          pageSize: args.pageSize,
+        });
+        if (seq === runSeq.current) setResult(r);
+      } finally {
+        if (seq === runSeq.current) setRunning(false);
+      }
     },
-    [execute, pageSize],
+    [],
   );
 
-  // 최초 1회 기본 데이터셋 로드.
+  // 최초 1회: 컬럼 introspect + 첫 조회.
   const didInit = useRef(false);
   useEffect(() => {
-    if (didInit.current || !dataset) return;
+    if (didInit.current) return;
     didInit.current = true;
-    void selectDataset(dataset);
-  }, [dataset, selectDataset]);
-
-  const runCurrent = useCallback(
-    (overrides?: Partial<RunArgs>) => {
-      void execute({
-        dataset,
-        filters,
-        display,
-        sortColumn,
-        sortAsc,
-        page,
-        pageSize,
-        ...overrides,
+    void (async () => {
+      const d = await describeDatasetAction(DATASET);
+      if (d.ok) setColumns(d.columns);
+      await execute({
+        presets: EMPTY_PRESETS,
+        sortColumn: "registered_at",
+        sortAsc: false,
+        page: 1,
+        pageSize: 100,
       });
-    },
-    [execute, dataset, filters, display, sortColumn, sortAsc, page, pageSize],
-  );
+    })();
+  }, [execute]);
 
-  // ─── 필터 조작 ────────────────────────────────────────────
-  const addFilter = () => {
-    if (columns.length === 0) return;
-    setFilters((prev) => [
-      ...prev,
-      { id: filterIdSeq++, column: columns[0], operator: "eq", value: "" },
-    ]);
-  };
-  const updateFilter = (id: number, patch: Partial<FilterRow>) => {
-    setFilters((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, ...patch } : f)),
-    );
-  };
-  const removeFilter = (id: number) => {
-    setFilters((prev) => prev.filter((f) => f.id !== id));
+  /** 프리셋 변경 → 페이지 1로 리셋하고 즉시 재조회 (CRM 칩 즉시 반영과 동일). */
+  const applyPresets = (patch: Partial<Presets>) => {
+    const next = { ...p, ...patch };
+    setP(next);
+    setPage(1);
+    void execute({ presets: next, sortColumn, sortAsc, page: 1, pageSize });
   };
 
-  // ─── 정렬 (헤더 클릭) ─────────────────────────────────────
+  /** 텍스트 입력은 onChange 로 상태만 갱신, 조회는 Enter/버튼에서. */
+  const setText = (patch: Partial<Presets>) => setP({ ...p, ...patch });
+  const runText = () => {
+    setPage(1);
+    void execute({ presets: p, sortColumn, sortAsc, page: 1, pageSize });
+  };
+
+  const toggleIn = (key: "grades" | "statuses" | "subjects" | "regions") =>
+    (value: string) => {
+      const cur = p[key];
+      const next = cur.includes(value)
+        ? cur.filter((v) => v !== value)
+        : [...cur, value];
+      applyPresets({ [key]: next } as Partial<Presets>);
+    };
+
   const onSort = (col: string) => {
     const asc = sortColumn === col ? !sortAsc : false;
     setSortColumn(col);
     setSortAsc(asc);
     setPage(1);
-    runCurrent({ sortColumn: col, sortAsc: asc, page: 1 });
+    void execute({ presets: p, sortColumn: col, sortAsc: asc, page: 1, pageSize });
   };
 
-  // ─── 페이지 이동 ──────────────────────────────────────────
   const goPage = (next: number) => {
     if (next < 1) return;
     setPage(next);
-    runCurrent({ page: next });
+    void execute({ presets: p, sortColumn, sortAsc, page: next, pageSize });
   };
 
-  // ─── 표시 컬럼 토글 ───────────────────────────────────────
-  const toggleDisplay = (col: string) => {
-    setDisplay((prev) =>
-      prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col],
-    );
-  };
-
-  // ─── 조회 버튼 (필터/컬럼 적용, 페이지 1) ─────────────────
-  const onRun = () => {
+  const changePageSize = (ps: number) => {
+    setPageSize(ps);
     setPage(1);
-    runCurrent({ page: 1 });
+    void execute({ presets: p, sortColumn, sortAsc, page: 1, pageSize: ps });
   };
 
-  // ─── CSV 내보내기 (현재 결과 행) ──────────────────────────
+  const clearAll = () => {
+    setP(EMPTY_PRESETS);
+    setPage(1);
+    void execute({
+      presets: EMPTY_PRESETS,
+      sortColumn,
+      sortAsc,
+      page: 1,
+      pageSize,
+    });
+  };
+
+  const hasFilters =
+    p.branch !== "전체" ||
+    p.level !== "전체" ||
+    p.grades.length > 0 ||
+    p.statuses.length > 0 ||
+    p.subjects.length > 0 ||
+    p.regions.length > 0 ||
+    p.school.trim() !== "" ||
+    p.name.trim() !== "" ||
+    p.regFrom !== "" ||
+    p.regTo !== "" ||
+    p.paidMin.trim() !== "";
+
   const exportCsv = () => {
     if (!result || result.rows.length === 0) return;
     const cols = result.columns;
@@ -220,239 +266,192 @@ export function ExplorerClient({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${dataset}_${Date.now()}.csv`;
+    a.download = `students_${Date.now()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
   const totalLabel =
-    result?.total != null
-      ? `약 ${result.total.toLocaleString()}건`
-      : "건수 미상";
+    result?.total != null ? `약 ${result.total.toLocaleString()}명` : "—";
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
-      {/* ── 데이터셋 선택 ── */}
-      <div className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col gap-1">
-          <span className="text-[12px] font-medium text-[color:var(--text-muted)]">
-            데이터셋
-          </span>
-          <select
-            value={dataset}
-            onChange={(e) => void selectDataset(e.target.value)}
-            className="h-10 min-w-64 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer"
-          >
-            {datasets.map((d) => (
-              <option key={d.name} value={d.name}>
-                {d.label} ({d.name})
-              </option>
-            ))}
-          </select>
-        </label>
-        {currentDataset && (
-          <p className="pb-2 text-[12px] text-[color:var(--text-dim)] max-w-md">
-            {currentDataset.note}
+      <div>
+        <h1 className="text-[18px] font-semibold text-[color:var(--text)]">
+          학생 데이터 탐색
+        </h1>
+        {datasetNote && (
+          <p className="mt-0.5 text-[12px] text-[color:var(--text-dim)]">
+            {datasetNote}
           </p>
         )}
       </div>
 
-      {/* ── 필터 빌더 ── */}
-      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <ListFilter
-            className="size-4 text-[color:var(--text-muted)]"
-            strokeWidth={1.75}
-            aria-hidden
-          />
-          <span className="text-[13px] font-medium text-[color:var(--text)]">
-            필터
-          </span>
-          <span className="text-[12px] text-[color:var(--text-dim)]">
-            모두 AND 조건
-          </span>
-        </div>
-
-        {filters.length === 0 && (
-          <p className="text-[13px] text-[color:var(--text-dim)]">
-            필터 없음 — 전체 조회. 아래 “필터 추가”로 조건을 막 붙여보세요.
-          </p>
-        )}
-
-        <div className="space-y-2">
-          {filters.map((f) => {
-            const needsValue = operatorNeedsValue(f.operator);
-            return (
-              <div key={f.id} className="flex flex-wrap items-center gap-2">
-                <select
-                  value={f.column}
-                  onChange={(e) =>
-                    updateFilter(f.id, { column: e.target.value })
-                  }
-                  className="h-9 min-w-44 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[13px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)]"
-                >
-                  {columns.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={f.operator}
-                  onChange={(e) =>
-                    updateFilter(f.id, {
-                      operator: e.target.value as ExplorerOperator,
-                    })
-                  }
-                  className="h-9 min-w-32 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[13px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)]"
-                >
-                  {EXPLORER_OPERATORS.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  value={f.value}
-                  disabled={!needsValue}
-                  onChange={(e) =>
-                    updateFilter(f.id, { value: e.target.value })
-                  }
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") onRun();
-                  }}
-                  placeholder={needsValue ? "값" : "(값 불필요)"}
-                  className="h-9 min-w-48 flex-1 rounded-md px-2.5 bg-bg-card border border-[color:var(--border)] text-[13px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)] disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-dim)]"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeFilter(f.id)}
-                  aria-label="필터 제거"
-                  className="inline-flex items-center justify-center size-9 rounded-md text-[color:var(--text-muted)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)]"
-                >
-                  <X className="size-4" strokeWidth={1.75} aria-hidden />
-                </button>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2 pt-1">
+      {/* ── 프리셋 필터 (CRM 학생조회 스타일) ── */}
+      <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 space-y-3.5">
+        {/* 검색 + 학교 + 분원 + 페이지크기 */}
+        <div className="flex flex-wrap items-end gap-3">
+          <Field label="이름 검색">
+            <input
+              value={p.name}
+              onChange={(e) => setText({ name: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && runText()}
+              placeholder="이름"
+              className={inputCls}
+            />
+          </Field>
+          <Field label="학교 검색">
+            <input
+              value={p.school}
+              onChange={(e) => setText({ school: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && runText()}
+              placeholder="학교명 (예: 휘문)"
+              className={inputCls}
+            />
+          </Field>
+          <Field label="분원">
+            <select
+              value={p.branch}
+              onChange={(e) => applyPresets({ branch: e.target.value })}
+              className={selectCls}
+            >
+              {BRANCH_FILTER_OPTIONS.map((b) => (
+                <option key={b} value={b}>
+                  {b === "전체" ? "전체 분원" : b}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="학교급">
+            <select
+              value={p.level}
+              onChange={(e) => applyPresets({ level: e.target.value })}
+              className={selectCls}
+            >
+              {LEVEL_OPTIONS.map((l) => (
+                <option key={l} value={l}>
+                  {l === "전체" ? "전체" : l}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="페이지당">
+            <select
+              value={pageSize}
+              onChange={(e) => changePageSize(Number(e.target.value))}
+              className={selectCls}
+            >
+              {PAGE_SIZE_OPTIONS.map((ps) => (
+                <option key={ps} value={ps}>
+                  {ps}명씩
+                </option>
+              ))}
+            </select>
+          </Field>
           <button
             type="button"
-            onClick={addFilter}
-            disabled={columns.length === 0}
-            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium bg-bg-card text-[color:var(--text)] border border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] disabled:opacity-50 transition-colors"
+            onClick={runText}
+            className="h-10 px-4 rounded-lg text-[14px] font-medium bg-[color:var(--action)] text-[color:var(--action-text)] hover:bg-[color:var(--action-hover)] transition-colors"
           >
-            <Plus className="size-4" strokeWidth={1.75} aria-hidden />
-            필터 추가
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setColumnPanelOpen((o) => !o)}
-            disabled={columns.length === 0}
-            aria-expanded={columnPanelOpen}
-            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium bg-bg-card text-[color:var(--text-muted)] border border-[color:var(--border)] hover:text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] disabled:opacity-50 transition-colors"
-          >
-            <Columns3 className="size-4" strokeWidth={1.75} aria-hidden />
-            표시 컬럼
-            {display.length > 0 && (
-              <span className="ml-0.5 tabular-nums">({display.length})</span>
-            )}
-          </button>
-
-          <select
-            value={pageSize}
-            onChange={(e) => {
-              const ps = Number(e.target.value);
-              setPageSize(ps);
-              setPage(1);
-              runCurrent({ pageSize: ps, page: 1 });
-            }}
-            aria-label="페이지당 행 수"
-            className="h-9 rounded-lg px-2 bg-bg-card border border-[color:var(--border)] text-[13px] text-[color:var(--text)] cursor-pointer"
-          >
-            {PAGE_SIZE_OPTIONS.map((ps) => (
-              <option key={ps} value={ps}>
-                {ps}행씩
-              </option>
-            ))}
-          </select>
-
-          <button
-            type="button"
-            onClick={onRun}
-            disabled={running || describing}
-            className="inline-flex items-center gap-1.5 h-9 px-4 rounded-lg text-[13px] font-semibold bg-[color:var(--action)] text-[color:var(--action-text)] hover:bg-[color:var(--action-hover)] disabled:opacity-60 transition-colors"
-          >
-            {running ? (
-              <Loader2 className="size-4 animate-spin" strokeWidth={2} aria-hidden />
-            ) : (
-              <Play className="size-4" strokeWidth={2} aria-hidden />
-            )}
             조회
           </button>
-
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={!result || result.rows.length === 0}
-            className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium bg-bg-card text-[color:var(--text)] border border-[color:var(--border)] hover:bg-[color:var(--bg-hover)] disabled:opacity-50 transition-colors"
-            title="현재 페이지 결과를 CSV 로 내려받습니다(Excel 호환)"
-          >
-            <Download className="size-4" strokeWidth={1.75} aria-hidden />
-            CSV
-          </button>
         </div>
 
-        {/* 표시 컬럼 패널 */}
-        {columnPanelOpen && columns.length > 0 && (
-          <div className="mt-1 rounded-lg bg-[color:var(--bg-muted)] p-3">
-            <div className="mb-2 flex items-center gap-3 text-[12px] text-[color:var(--text-muted)]">
-              <span>표시할 컬럼을 고르세요. (선택 없으면 전체)</span>
-              <button
-                type="button"
-                onClick={() => setDisplay([])}
-                className="underline hover:text-[color:var(--text)]"
-              >
-                전체 표시
-              </button>
-            </div>
-            <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
-              {columns.map((c) => {
-                const on = display.includes(c);
-                return (
-                  <button
-                    key={c}
-                    type="button"
-                    onClick={() => toggleDisplay(c)}
-                    aria-pressed={on}
-                    className={`inline-flex items-center h-7 px-2.5 rounded-full text-[12px] border transition-colors ${
-                      on
-                        ? "bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]"
-                        : "bg-bg-card text-[color:var(--text-muted)] border-[color:var(--border)] hover:bg-[color:var(--bg-hover)]"
-                    }`}
-                  >
-                    {c}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* 학년 칩 */}
+        <ChipGroup
+          label="학년"
+          options={GRADE_OPTIONS}
+          selected={p.grades}
+          onToggle={toggleIn("grades")}
+        />
+        {/* 재원 상태 칩 */}
+        <ChipGroup
+          label="재원 상태"
+          options={STATUS_OPTIONS}
+          selected={p.statuses}
+          onToggle={toggleIn("statuses")}
+        />
+        {/* 수강 과목 칩 (현재 진행 중 강좌 기준) */}
+        <ChipGroup
+          label="수강 과목"
+          options={SUBJECT_VALUES}
+          selected={p.subjects}
+          onToggle={toggleIn("subjects")}
+        />
+        {/* 지역 칩 */}
+        <ChipGroup
+          label="지역"
+          options={REGION_OPTIONS}
+          selected={p.regions}
+          onToggle={toggleIn("regions")}
+        />
+
+        {/* 등록일 범위 + 누적결제 + 초기화 */}
+        <div className="flex flex-wrap items-end gap-3 pt-0.5">
+          <Field label="등록일 (이후)">
+            <input
+              type="date"
+              value={p.regFrom}
+              onChange={(e) => applyPresets({ regFrom: e.target.value })}
+              className={selectCls}
+            />
+          </Field>
+          <Field label="등록일 (이전)">
+            <input
+              type="date"
+              value={p.regTo}
+              onChange={(e) => applyPresets({ regTo: e.target.value })}
+              className={selectCls}
+            />
+          </Field>
+          <Field label="누적결제 이상(원)">
+            <input
+              type="number"
+              value={p.paidMin}
+              onChange={(e) => setText({ paidMin: e.target.value })}
+              onKeyDown={(e) => e.key === "Enter" && runText()}
+              placeholder="예: 1000000"
+              className={`${selectCls} w-36`}
+            />
+          </Field>
+          {hasFilters && (
+            <button
+              type="button"
+              onClick={clearAll}
+              className="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-[14px] font-medium text-red-600 border border-red-300 bg-bg-card hover:bg-red-50 transition-colors"
+            >
+              <X className="size-4" strokeWidth={1.75} aria-hidden />
+              필터 초기화
+            </button>
+          )}
+        </div>
       </div>
 
-      {/* ── 결과 ── */}
+      {/* ── 결과 헤더 ── */}
       <div className="flex items-center justify-between">
-        <p className="text-[13px] text-[color:var(--text-muted)]">
-          {describing
-            ? "컬럼 불러오는 중…"
-            : result
-              ? `${totalLabel} · ${result.rows.length}행 표시 (${result.page}페이지)`
-              : "—"}
+        <p className="text-[14px] text-[color:var(--text-muted)]">
+          {result ? (
+            <>
+              <span className="font-medium text-[color:var(--text)]">
+                {totalLabel}
+              </span>
+              <span className="mx-1.5 text-[color:var(--text-dim)]">·</span>
+              {result.rows.length}명 표시 ({result.page}페이지)
+            </>
+          ) : (
+            "불러오는 중…"
+          )}
         </p>
+        <button
+          type="button"
+          onClick={exportCsv}
+          disabled={!result || result.rows.length === 0}
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium bg-bg-card text-[color:var(--text)] border border-[color:var(--border)] hover:bg-[color:var(--bg-hover)] disabled:opacity-50 transition-colors"
+          title="현재 페이지 결과를 CSV 로 내려받습니다(Excel 호환)"
+        >
+          <Download className="size-4" strokeWidth={1.75} aria-hidden />
+          CSV 내보내기
+        </button>
       </div>
 
       {result?.error ? (
@@ -461,7 +460,7 @@ export function ExplorerClient({
         </div>
       ) : (
         <ResultsTable
-          columns={result?.columns ?? []}
+          columns={result?.columns ?? columns}
           rows={result?.rows ?? []}
           sortColumn={sortColumn}
           sortAsc={sortAsc}
@@ -470,7 +469,6 @@ export function ExplorerClient({
         />
       )}
 
-      {/* ── 페이지네이션 ── */}
       {result && result.rows.length > 0 && (
         <div className="flex items-center justify-center gap-2">
           <PagerButton
@@ -492,6 +490,68 @@ export function ExplorerClient({
           </PagerButton>
         </div>
       )}
+    </div>
+  );
+}
+
+const inputCls =
+  "h-10 w-44 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)]";
+const selectCls =
+  "h-10 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer";
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[12px] font-medium text-[color:var(--text-muted)]">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
+}
+
+function ChipGroup({
+  label,
+  options,
+  selected,
+  onToggle,
+}: {
+  label: string;
+  options: ReadonlyArray<string>;
+  selected: string[];
+  onToggle: (v: string) => void;
+}) {
+  return (
+    <div className="flex items-start flex-wrap gap-2">
+      <span className="mt-1.5 w-16 shrink-0 text-[13px] font-medium text-[color:var(--text-muted)]">
+        {label}
+      </span>
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o) => {
+          const on = selected.includes(o);
+          return (
+            <button
+              key={o}
+              type="button"
+              onClick={() => onToggle(o)}
+              aria-pressed={on}
+              className={`inline-flex items-center h-8 px-3 rounded-full text-[14px] font-medium border transition-colors ${
+                on
+                  ? "bg-[color:var(--action)] text-[color:var(--action-text)] border-[color:var(--action)]"
+                  : "bg-bg-card text-[color:var(--text)] border-[color:var(--border)] hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)]"
+              }`}
+            >
+              {o}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

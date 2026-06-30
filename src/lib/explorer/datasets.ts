@@ -67,6 +67,7 @@ export const EXPLORER_OPERATORS = [
   { value: "lt", label: "< 미만", needsValue: true },
   { value: "lte", label: "≤ 이하", needsValue: true },
   { value: "in", label: "목록 중 (콤마)", needsValue: true },
+  { value: "overlaps", label: "배열 겹침 (콤마)", needsValue: true },
   { value: "is_null", label: "비어있음", needsValue: false },
   { value: "not_null", label: "값 있음", needsValue: false },
 ] as const;
