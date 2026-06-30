@@ -21,6 +21,8 @@ import {
   ExplorerQuerySchema,
   type ExplorerFilter,
 } from "@/lib/schemas/explorer";
+import { listStudents } from "@/lib/profile/list-students";
+import { ListStudentsInputSchema } from "@/lib/schemas/student";
 
 export interface ExplorerRunResult {
   ok: boolean;
@@ -65,6 +67,79 @@ export async function describeDatasetAction(
   const supabase = createSupabaseServiceClient();
   const columns = await introspectColumns(supabase, dataset);
   return { ok: true, columns };
+}
+
+/** student_profiles 전 컬럼(빈 결과일 때 헤더 폴백용). */
+const STUDENT_COLUMNS = [
+  "id", "name", "school", "grade", "grade_raw", "school_level", "status",
+  "branch", "parent_phone", "phone", "registered_at", "enrollment_count",
+  "active_enrollment_count", "total_paid", "subjects", "teachers",
+  "attendance_rate", "absent_count", "last_attended_at", "last_paid_at",
+  "region",
+];
+
+/**
+ * 학생(student_profiles) 전용 빠른 조회 — CRM /students 와 동일한 listStudents
+ * 파이프라인(2단계 + RPC) 재사용. 뷰를 직접 정렬·풀집계하면 107k×무거운 서브쿼리로
+ * 느려지므로, 일반 탐색 액션 대신 이 경로를 쓴다.
+ *
+ * 프리셋 → ListStudentsInput 매핑. 값 검증(과목/학년/상태 enum, pageSize 상한)은
+ * ListStudentsInputSchema 가 담당.
+ */
+export async function runStudentExplorerAction(input: {
+  search?: string;
+  branch?: string;
+  level?: string;
+  grades?: string[];
+  statuses?: string[];
+  subjects?: string[];
+  regions?: string[];
+  sort?: string;
+  page?: number;
+  pageSize?: number;
+}): Promise<ExplorerRunResult> {
+  const fail = (error: string): ExplorerRunResult => ({
+    ok: false, columns: STUDENT_COLUMNS, rows: [], total: null,
+    page: 1, pageSize: 100, error,
+  });
+  if (!(await assertMaster())) return fail("master 전용 페이지입니다.");
+
+  const parsedInput = ListStudentsInputSchema.safeParse({
+    search: input.search ?? "",
+    branch:
+      input.branch && input.branch !== "전체" ? input.branch : undefined,
+    grades: input.grades ?? [],
+    schoolLevels:
+      input.level && input.level !== "전체" ? [input.level] : [],
+    statuses: input.statuses ?? [],
+    subjects: input.subjects ?? [],
+    regions: input.regions ?? [],
+    includeHidden: true, // 탐색기는 졸업·미정도 기본 노출.
+    sort: input.sort,
+    page: input.page ?? 1,
+    pageSize: input.pageSize ?? 100,
+  });
+  if (!parsedInput.success) return fail("입력값이 올바르지 않습니다.");
+
+  try {
+    const r = await listStudents(parsedInput.data);
+    const columns =
+      r.rows.length > 0
+        ? Object.keys(r.rows[0] as unknown as Record<string, unknown>)
+        : STUDENT_COLUMNS;
+    return {
+      ok: true,
+      columns,
+      rows: r.rows as unknown as Array<Record<string, unknown>>,
+      total: r.total,
+      page: r.page,
+      pageSize: r.pageSize,
+    };
+  } catch (e) {
+    return fail(
+      `조회 실패: ${e instanceof Error ? e.message : "알 수 없는 오류"}`,
+    );
+  }
 }
 
 /** PostgREST 빌더의 좁힌 인터페이스 — 동적 필터 체이닝용(strict, any 회피). */

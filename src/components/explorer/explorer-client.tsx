@@ -1,18 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Download,
-  ArrowUp,
-  ArrowDown,
-  ChevronLeft,
-  ChevronRight,
-  X,
-} from "lucide-react";
+import { Download, ChevronLeft, ChevronRight, X, Search } from "lucide-react";
 import type { ExplorerDataset } from "@/lib/explorer/datasets";
 import {
-  describeDatasetAction,
-  runExplorerQueryAction,
+  runStudentExplorerAction,
   type ExplorerRunResult,
 } from "@/app/explorer/actions";
 import { BRANCH_FILTER_OPTIONS } from "@/config/branches";
@@ -20,132 +12,82 @@ import { REGION_OPTIONS } from "@/config/regions";
 import { SUBJECT_VALUES } from "@/lib/schemas/common";
 
 /**
- * 데이터 탐색기 본체 — CRM 학생조회와 동일한 칩/드롭다운 프리셋 필터.
+ * 데이터 탐색기 본체 — CRM 학생조회(listStudents) 와 동일한 빠른 파이프라인 재사용.
  *
- * 대상은 student_profiles(학생 명단) 고정. 프리셋 선택을 내부에서 (컬럼·연산자·값)
- * 필터로 변환해 읽기 전용 서버 액션으로 조회한다. 결과는 전체 컬럼 테이블 + CSV.
+ * student_profiles 뷰를 직접 정렬·풀집계하면 느리므로(107k×무거운 서브쿼리),
+ * CRM /students 와 같은 2단계+RPC 경로(runStudentExplorerAction)로 조회한다.
+ * 프리셋 칩/드롭다운 → 서버에서 ListStudentsInput 으로 매핑.
  */
 
-const DATASET = "student_profiles";
-
 const GRADE_OPTIONS = [
-  "초등",
-  "중1",
-  "중2",
-  "중3",
-  "고1",
-  "고2",
-  "고3",
-  "재수",
-  "졸업",
-  "미정",
+  "초등", "중1", "중2", "중3", "고1", "고2", "고3", "재수", "졸업", "미정",
 ] as const;
 const LEVEL_OPTIONS = ["전체", "초", "중", "고", "기타"] as const;
 const STATUS_OPTIONS = ["재원생", "수강이력자", "수강 x", "탈퇴"] as const;
-const PAGE_SIZE_OPTIONS = [50, 100, 200, 500] as const;
+const PAGE_SIZE_OPTIONS = [50, 100, 200] as const;
+
+const SORT_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "registered_desc", label: "최근 등록순" },
+  { value: "registered_asc", label: "오래된 등록순" },
+  { value: "name_asc", label: "이름 가나다순" },
+  { value: "name_desc", label: "이름 역순" },
+  { value: "enrollment_count_desc", label: "수강 많은 순 (누적)" },
+  { value: "active_enrollment_count_desc", label: "수강 중 많은 순" },
+  { value: "total_paid_desc", label: "누적 결제 많은 순" },
+];
 
 interface Presets {
+  search: string;
   branch: string;
   level: string;
   grades: string[];
   statuses: string[];
   subjects: string[];
   regions: string[];
-  school: string;
-  name: string;
-  regFrom: string;
-  regTo: string;
-  paidMin: string;
+  sort: string;
 }
 
 const EMPTY_PRESETS: Presets = {
+  search: "",
   branch: "전체",
   level: "전체",
   grades: [],
   statuses: [],
   subjects: [],
   regions: [],
-  school: "",
-  name: "",
-  regFrom: "",
-  regTo: "",
-  paidMin: "",
+  sort: "registered_desc",
 };
-
-/** 프리셋 → 서버 액션 필터(컬럼·연산자·값) 변환. */
-function buildFilters(
-  p: Presets,
-): Array<{ column: string; operator: string; value: string }> {
-  const f: Array<{ column: string; operator: string; value: string }> = [];
-  if (p.branch && p.branch !== "전체")
-    f.push({ column: "branch", operator: "eq", value: p.branch });
-  if (p.level && p.level !== "전체")
-    f.push({ column: "school_level", operator: "eq", value: p.level });
-  if (p.grades.length)
-    f.push({ column: "grade", operator: "in", value: p.grades.join(",") });
-  if (p.statuses.length)
-    f.push({ column: "status", operator: "in", value: p.statuses.join(",") });
-  if (p.subjects.length)
-    f.push({
-      column: "subjects",
-      operator: "overlaps",
-      value: p.subjects.join(","),
-    });
-  if (p.regions.length)
-    f.push({ column: "region", operator: "in", value: p.regions.join(",") });
-  if (p.school.trim())
-    f.push({ column: "school", operator: "ilike", value: p.school.trim() });
-  if (p.name.trim())
-    f.push({ column: "name", operator: "ilike", value: p.name.trim() });
-  if (p.regFrom)
-    f.push({ column: "registered_at", operator: "gte", value: p.regFrom });
-  if (p.regTo)
-    f.push({ column: "registered_at", operator: "lte", value: p.regTo });
-  if (p.paidMin.trim())
-    f.push({
-      column: "total_paid",
-      operator: "gte",
-      value: p.paidMin.trim(),
-    });
-  return f;
-}
 
 export function ExplorerClient({
   datasets,
 }: {
   datasets: ReadonlyArray<ExplorerDataset>;
 }) {
-  const [columns, setColumns] = useState<string[]>([]);
   const [p, setP] = useState<Presets>(EMPTY_PRESETS);
-  const [sortColumn, setSortColumn] = useState<string | undefined>(
-    "registered_at",
-  );
-  const [sortAsc, setSortAsc] = useState(false);
   const [pageSize, setPageSize] = useState<number>(100);
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<ExplorerRunResult | null>(null);
   const [running, setRunning] = useState(false);
 
-  const datasetNote = datasets.find((d) => d.name === DATASET)?.note;
+  const datasetNote = datasets.find(
+    (d) => d.name === "student_profiles",
+  )?.note;
   const runSeq = useRef(0);
 
   const execute = useCallback(
-    async (args: {
-      presets: Presets;
-      sortColumn: string | undefined;
-      sortAsc: boolean;
-      page: number;
-      pageSize: number;
-    }) => {
+    async (args: { presets: Presets; page: number; pageSize: number }) => {
       const seq = ++runSeq.current;
       setRunning(true);
       try {
-        const r = await runExplorerQueryAction({
-          dataset: DATASET,
-          filters: buildFilters(args.presets),
-          columns: [],
-          sortColumn: args.sortColumn,
-          sortAsc: args.sortAsc,
+        const r = await runStudentExplorerAction({
+          search: args.presets.search,
+          branch: args.presets.branch,
+          level: args.presets.level,
+          grades: args.presets.grades,
+          statuses: args.presets.statuses,
+          subjects: args.presets.subjects,
+          regions: args.presets.regions,
+          sort: args.presets.sort,
           page: args.page,
           pageSize: args.pageSize,
         });
@@ -157,40 +99,29 @@ export function ExplorerClient({
     [],
   );
 
-  // 최초 1회: 컬럼 introspect + 첫 조회.
   const didInit = useRef(false);
   useEffect(() => {
     if (didInit.current) return;
     didInit.current = true;
-    void (async () => {
-      const d = await describeDatasetAction(DATASET);
-      if (d.ok) setColumns(d.columns);
-      await execute({
-        presets: EMPTY_PRESETS,
-        sortColumn: "registered_at",
-        sortAsc: false,
-        page: 1,
-        pageSize: 100,
-      });
-    })();
+    void execute({ presets: EMPTY_PRESETS, page: 1, pageSize: 100 });
   }, [execute]);
 
-  /** 프리셋 변경 → 페이지 1로 리셋하고 즉시 재조회 (CRM 칩 즉시 반영과 동일). */
+  /** 칩/드롭다운 변경 → 페이지 1 리셋하고 즉시 재조회. */
   const applyPresets = (patch: Partial<Presets>) => {
     const next = { ...p, ...patch };
     setP(next);
     setPage(1);
-    void execute({ presets: next, sortColumn, sortAsc, page: 1, pageSize });
+    void execute({ presets: next, page: 1, pageSize });
   };
 
-  /** 텍스트 입력은 onChange 로 상태만 갱신, 조회는 Enter/버튼에서. */
-  const setText = (patch: Partial<Presets>) => setP({ ...p, ...patch });
-  const runText = () => {
+  /** 텍스트(검색)는 onChange 로 상태만, 조회는 Enter/버튼. */
+  const runSearch = () => {
     setPage(1);
-    void execute({ presets: p, sortColumn, sortAsc, page: 1, pageSize });
+    void execute({ presets: p, page: 1, pageSize });
   };
 
-  const toggleIn = (key: "grades" | "statuses" | "subjects" | "regions") =>
+  const toggleIn =
+    (key: "grades" | "statuses" | "subjects" | "regions") =>
     (value: string) => {
       const cur = p[key];
       const next = cur.includes(value)
@@ -199,50 +130,32 @@ export function ExplorerClient({
       applyPresets({ [key]: next } as Partial<Presets>);
     };
 
-  const onSort = (col: string) => {
-    const asc = sortColumn === col ? !sortAsc : false;
-    setSortColumn(col);
-    setSortAsc(asc);
-    setPage(1);
-    void execute({ presets: p, sortColumn: col, sortAsc: asc, page: 1, pageSize });
-  };
-
   const goPage = (next: number) => {
     if (next < 1) return;
     setPage(next);
-    void execute({ presets: p, sortColumn, sortAsc, page: next, pageSize });
+    void execute({ presets: p, page: next, pageSize });
   };
 
   const changePageSize = (ps: number) => {
     setPageSize(ps);
     setPage(1);
-    void execute({ presets: p, sortColumn, sortAsc, page: 1, pageSize: ps });
+    void execute({ presets: p, page: 1, pageSize: ps });
   };
 
   const clearAll = () => {
     setP(EMPTY_PRESETS);
     setPage(1);
-    void execute({
-      presets: EMPTY_PRESETS,
-      sortColumn,
-      sortAsc,
-      page: 1,
-      pageSize,
-    });
+    void execute({ presets: EMPTY_PRESETS, page: 1, pageSize });
   };
 
   const hasFilters =
+    p.search.trim() !== "" ||
     p.branch !== "전체" ||
     p.level !== "전체" ||
     p.grades.length > 0 ||
     p.statuses.length > 0 ||
     p.subjects.length > 0 ||
-    p.regions.length > 0 ||
-    p.school.trim() !== "" ||
-    p.name.trim() !== "" ||
-    p.regFrom !== "" ||
-    p.regTo !== "" ||
-    p.paidMin.trim() !== "";
+    p.regions.length > 0;
 
   const exportCsv = () => {
     if (!result || result.rows.length === 0) return;
@@ -272,7 +185,7 @@ export function ExplorerClient({
   };
 
   const totalLabel =
-    result?.total != null ? `약 ${result.total.toLocaleString()}명` : "—";
+    result?.total != null ? `${result.total.toLocaleString()}명` : "—";
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
@@ -289,25 +202,23 @@ export function ExplorerClient({
 
       {/* ── 프리셋 필터 (CRM 학생조회 스타일) ── */}
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 space-y-3.5">
-        {/* 검색 + 학교 + 분원 + 페이지크기 */}
+        {/* 검색 + 분원 + 학교급 + 정렬 + 페이지크기 */}
         <div className="flex flex-wrap items-end gap-3">
-          <Field label="이름 검색">
-            <input
-              value={p.name}
-              onChange={(e) => setText({ name: e.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && runText()}
-              placeholder="이름"
-              className={inputCls}
-            />
-          </Field>
-          <Field label="학교 검색">
-            <input
-              value={p.school}
-              onChange={(e) => setText({ school: e.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && runText()}
-              placeholder="학교명 (예: 휘문)"
-              className={inputCls}
-            />
+          <Field label="검색 (이름·학교·연락처)">
+            <div className="relative">
+              <Search
+                className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <input
+                value={p.search}
+                onChange={(e) => setP({ ...p, search: e.target.value })}
+                onKeyDown={(e) => e.key === "Enter" && runSearch()}
+                placeholder="이름·학교·연락처"
+                className={`${inputCls} w-64 pl-9`}
+              />
+            </div>
           </Field>
           <Field label="분원">
             <select
@@ -330,7 +241,20 @@ export function ExplorerClient({
             >
               {LEVEL_OPTIONS.map((l) => (
                 <option key={l} value={l}>
-                  {l === "전체" ? "전체" : l}
+                  {l}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <Field label="정렬">
+            <select
+              value={p.sort}
+              onChange={(e) => applyPresets({ sort: e.target.value })}
+              className={selectCls}
+            >
+              {SORT_OPTIONS.map((s) => (
+                <option key={s.value} value={s.value}>
+                  {s.label}
                 </option>
               ))}
             </select>
@@ -350,35 +274,31 @@ export function ExplorerClient({
           </Field>
           <button
             type="button"
-            onClick={runText}
+            onClick={runSearch}
             className="h-10 px-4 rounded-lg text-[14px] font-medium bg-[color:var(--action)] text-[color:var(--action-text)] hover:bg-[color:var(--action-hover)] transition-colors"
           >
             조회
           </button>
         </div>
 
-        {/* 학년 칩 */}
         <ChipGroup
           label="학년"
           options={GRADE_OPTIONS}
           selected={p.grades}
           onToggle={toggleIn("grades")}
         />
-        {/* 재원 상태 칩 */}
         <ChipGroup
           label="재원 상태"
           options={STATUS_OPTIONS}
           selected={p.statuses}
           onToggle={toggleIn("statuses")}
         />
-        {/* 수강 과목 칩 (현재 진행 중 강좌 기준) */}
         <ChipGroup
           label="수강 과목"
           options={SUBJECT_VALUES}
           selected={p.subjects}
           onToggle={toggleIn("subjects")}
         />
-        {/* 지역 칩 */}
         <ChipGroup
           label="지역"
           options={REGION_OPTIONS}
@@ -386,45 +306,18 @@ export function ExplorerClient({
           onToggle={toggleIn("regions")}
         />
 
-        {/* 등록일 범위 + 누적결제 + 초기화 */}
-        <div className="flex flex-wrap items-end gap-3 pt-0.5">
-          <Field label="등록일 (이후)">
-            <input
-              type="date"
-              value={p.regFrom}
-              onChange={(e) => applyPresets({ regFrom: e.target.value })}
-              className={selectCls}
-            />
-          </Field>
-          <Field label="등록일 (이전)">
-            <input
-              type="date"
-              value={p.regTo}
-              onChange={(e) => applyPresets({ regTo: e.target.value })}
-              className={selectCls}
-            />
-          </Field>
-          <Field label="누적결제 이상(원)">
-            <input
-              type="number"
-              value={p.paidMin}
-              onChange={(e) => setText({ paidMin: e.target.value })}
-              onKeyDown={(e) => e.key === "Enter" && runText()}
-              placeholder="예: 1000000"
-              className={`${selectCls} w-36`}
-            />
-          </Field>
-          {hasFilters && (
+        {hasFilters && (
+          <div className="pt-0.5">
             <button
               type="button"
               onClick={clearAll}
-              className="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg text-[14px] font-medium text-red-600 border border-red-300 bg-bg-card hover:bg-red-50 transition-colors"
+              className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg text-[13px] font-medium text-red-600 border border-red-300 bg-bg-card hover:bg-red-50 transition-colors"
             >
               <X className="size-4" strokeWidth={1.75} aria-hidden />
               필터 초기화
             </button>
-          )}
-        </div>
+          </div>
+        )}
       </div>
 
       {/* ── 결과 헤더 ── */}
@@ -433,7 +326,7 @@ export function ExplorerClient({
           {result ? (
             <>
               <span className="font-medium text-[color:var(--text)]">
-                {totalLabel}
+                총 {totalLabel}
               </span>
               <span className="mx-1.5 text-[color:var(--text-dim)]">·</span>
               {result.rows.length}명 표시 ({result.page}페이지)
@@ -460,11 +353,8 @@ export function ExplorerClient({
         </div>
       ) : (
         <ResultsTable
-          columns={result?.columns ?? columns}
+          columns={result?.columns ?? []}
           rows={result?.rows ?? []}
-          sortColumn={sortColumn}
-          sortAsc={sortAsc}
-          onSort={onSort}
           running={running}
         />
       )}
@@ -495,7 +385,7 @@ export function ExplorerClient({
 }
 
 const inputCls =
-  "h-10 w-44 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)]";
+  "h-10 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)]";
 const selectCls =
   "h-10 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer";
 
@@ -559,22 +449,16 @@ function ChipGroup({
 function ResultsTable({
   columns,
   rows,
-  sortColumn,
-  sortAsc,
-  onSort,
   running,
 }: {
   columns: string[];
   rows: Array<Record<string, unknown>>;
-  sortColumn: string | undefined;
-  sortAsc: boolean;
-  onSort: (col: string) => void;
   running: boolean;
 }) {
-  if (columns.length === 0) {
+  if (columns.length === 0 || rows.length === 0) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center text-[14px] text-[color:var(--text-muted)]">
-        {running ? "불러오는 중…" : "결과가 없습니다."}
+        {running ? "불러오는 중…" : "조건에 맞는 학생이 없습니다."}
       </div>
     );
   }
@@ -587,31 +471,14 @@ function ResultsTable({
       <table className="w-full border-collapse text-[13px]">
         <thead className="sticky top-0 z-10">
           <tr className="bg-[color:var(--bg-muted)] border-b border-[color:var(--border)]">
-            {columns.map((c) => {
-              const active = sortColumn === c;
-              return (
-                <th
-                  key={c}
-                  onClick={() => onSort(c)}
-                  className="px-3 py-2 text-left font-medium text-[color:var(--text-muted)] whitespace-nowrap cursor-pointer hover:text-[color:var(--text)] select-none"
-                  title={`${c} 정렬`}
-                >
-                  <span className="inline-flex items-center gap-1">
-                    {c}
-                    {active &&
-                      (sortAsc ? (
-                        <ArrowUp className="size-3" strokeWidth={2} aria-hidden />
-                      ) : (
-                        <ArrowDown
-                          className="size-3"
-                          strokeWidth={2}
-                          aria-hidden
-                        />
-                      ))}
-                  </span>
-                </th>
-              );
-            })}
+            {columns.map((c) => (
+              <th
+                key={c}
+                className="px-3 py-2 text-left font-medium text-[color:var(--text-muted)] whitespace-nowrap"
+              >
+                {c}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
