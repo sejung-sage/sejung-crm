@@ -9,6 +9,7 @@ import {
   BellOff,
   UserCircle2,
   Building2,
+  LayoutDashboard,
 } from "lucide-react";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { getSelectedBranch } from "@/lib/auth/branch-context";
@@ -99,6 +100,13 @@ const NAV_ITEMS: NavItem[] = [
       { href: "/templates", label: "문자 & 알림톡 템플릿" },
       { href: "/campaigns", label: "문자 발송 내역" },
     ],
+  },
+  {
+    // 발송 대시보드 — 기간·분원·발송자별 문자 발송 집계. master 전용.
+    href: "/dashboard",
+    label: "발송 대시보드",
+    icon: LayoutDashboard,
+    roles: ["master"],
   },
   // 설명회는 "문자 발송 > 설명회 문자" 하나로 통합 (2026-06-02).
   // 목록·신규·상세 라우트는 보존되어 그 페이지의 "설명회 목록" 탭에서 접근.
