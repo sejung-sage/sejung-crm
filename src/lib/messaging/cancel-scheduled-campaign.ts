@@ -15,12 +15,16 @@
  *     (예약이 그대로 발송될 수 있으므로 운영자에게 명확히 알린다)
  */
 
+import { waitUntil } from "@vercel/functions";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { getCampaign } from "@/lib/campaigns/get-campaign";
 import { createSupabaseServiceClient } from "@/lib/supabase/server";
 import { createSmsAdapter } from "@/lib/messaging/adapters";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
+
+/** sendon 예약 취소 동시 호출 상한(sendon 레이트리밋 보호). */
+const CANCEL_CONCURRENCY = 8;
 
 export type CancelScheduledResult =
   | { status: "cancelled" }
@@ -63,36 +67,49 @@ export async function cancelScheduledCampaign(
 
   const supabase = createSupabaseServiceClient();
 
-  // 1) 이 캠페인이 sendon 에 접수한 예약 groupId 들(메시지의 vendor_message_id).
-  const { data: rows, error: readErr } = (await supabase
-    .from("crm_messages")
-    .select("vendor_message_id")
-    .eq("campaign_id", campaignId)
-    .not("vendor_message_id", "is", null)) as unknown as {
-    data: { vendor_message_id: string | null }[] | null;
-    error: { message: string } | null;
-  };
+  // 1) 이 캠페인이 sendon 에 접수한 예약 groupId 들(DISTINCT).
+  //    crm_messages 통째 select 는 max_rows(1000)에 잘려 대형 예약에서 일부
+  //    groupId 를 놓치므로(=취소 표시돼도 발송됨), DISTINCT RPC 로 전체를 확보한다.
+  const { data: rows, error: readErr } = await (
+    supabase.rpc as unknown as (
+      fn: string,
+      args: Record<string, unknown>,
+    ) => Promise<{
+      data: { vendor_message_id: string | null }[] | null;
+      error: { message: string } | null;
+    }>
+  )("crm_campaign_reservation_group_ids", { p_campaign_id: campaignId });
   if (readErr) {
     return { status: "failed", reason: `예약 정보 조회 실패: ${readErr.message}` };
   }
-  const groupIds = Array.from(
-    new Set(
-      (rows ?? [])
-        .map((r) => r.vendor_message_id)
-        .filter((v): v is string => typeof v === "string" && v.length > 0),
+  const groupIds = (rows ?? [])
+    .map((r) => r.vendor_message_id)
+    .filter((v): v is string => typeof v === "string" && v.length > 0);
+
+  // 2) sendon 예약 취소 — groupId 단위 병렬(동시성 제한). 하나라도 실패하면
+  //    DB 를 바꾸지 않고 중단한다(예약이 그대로 발송될 수 있으므로 명확히 알림).
+  //    실제 취소 확인은 동기로 유지(안전 핵심). 병렬화로 왕복이 겹쳐 빠르다.
+  const adapter = createSmsAdapter(campaign.branch);
+  const cancelResults: { status: string; reason?: string }[] = [];
+  let cursor = 0;
+  async function cancelWorker() {
+    while (cursor < groupIds.length) {
+      const idx = cursor++;
+      cancelResults[idx] = await adapter.cancel(groupIds[idx]);
+    }
+  }
+  await Promise.all(
+    Array.from(
+      { length: Math.min(CANCEL_CONCURRENCY, groupIds.length) },
+      cancelWorker,
     ),
   );
-
-  // 2) sendon 예약 취소 — groupId 단위. 하나라도 실패하면 중단(발송 위험 알림).
-  const adapter = createSmsAdapter(campaign.branch);
-  for (const gid of groupIds) {
-    const r = await adapter.cancel(gid);
-    if (r.status !== "cancelled") {
-      return {
-        status: "failed",
-        reason: `sendon 예약 취소 실패: ${r.reason}. 발송 시각 10분 전이 지났을 수 있습니다.`,
-      };
-    }
+  const firstFail = cancelResults.find((r) => r.status !== "cancelled");
+  if (firstFail) {
+    return {
+      status: "failed",
+      reason: `sendon 예약 취소 실패: ${firstFail.reason}. 발송 시각 10분 전이 지났을 수 있습니다.`,
+    };
   }
 
   // 3) DB 정리 — 메시지·캠페인 '취소'. 캠페인은 원자적(예약됨일 때만).
@@ -130,16 +147,23 @@ export async function cancelScheduledCampaign(
     return { status: "failed", reason: "이미 처리되어 취소할 수 없습니다" };
   }
 
-  // 메시지는 enum 에 '취소' 가 없어 '실패' + 사유로 정리(베스트에포트).
-  await (
-    supabase.from("crm_messages") as unknown as {
-      update: (v: Record<string, unknown>) => {
-        eq: (c: string, v: string) => Promise<{ error: unknown }>;
-      };
-    }
-  )
-    .update({ status: "실패", failed_reason: "예약 취소" })
-    .eq("campaign_id", campaignId);
+  // 4) 메시지 대량 정리는 백그라운드로 뺀다(수천~수만 행 UPDATE → UI 블로킹 방지).
+  //    sendon 예약은 이미 취소됐고 캠페인 status='취소' 라 발송은 멈춘 상태이므로,
+  //    건별 status 표시는 fire-and-forget 로 이어가도 안전하다. 사용자는 즉시
+  //    다른 작업을 계속할 수 있다. (enum 에 '취소' 가 없어 '실패' + 사유로 표기)
+  waitUntil(
+    (async () => {
+      await (
+        supabase.from("crm_messages") as unknown as {
+          update: (v: Record<string, unknown>) => {
+            eq: (c: string, v: string) => Promise<{ error: unknown }>;
+          };
+        }
+      )
+        .update({ status: "실패", failed_reason: "예약 취소" })
+        .eq("campaign_id", campaignId);
+    })(),
+  );
 
   return { status: "cancelled" };
 }
