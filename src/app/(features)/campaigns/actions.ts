@@ -47,6 +47,7 @@ import {
   type ResendSendonFailedResult,
 } from "@/lib/messaging/resend-sendon-failed";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import { acknowledgeFailedCampaigns } from "@/lib/notifications/failed-campaign-alerts";
 import type { SendCampaignResult } from "@/lib/messaging/send-campaign";
 
 export async function resendFailedAction(
@@ -149,6 +150,29 @@ export async function resendSendonFailedAction(
   if (result.status === "resent") {
     revalidatePath(`/campaigns/${campaignId}`);
     revalidatePath("/campaigns");
+  }
+  return result;
+}
+
+/**
+ * 발송 실패 알림 확인(dismiss).
+ * campaignIds 미지정이면 미확인 전체("all")를 확인 처리한다.
+ * 스코프(본인/마스터)는 acknowledgeFailedCampaigns 내부 가드에서 강제.
+ * 배너가 셸 전역이라 레이아웃까지 재검증한다.
+ */
+export async function acknowledgeFailedCampaignsAction(
+  campaignIds?: string[],
+): Promise<{ acknowledged: number }> {
+  const user = await getCurrentUser();
+  const ids =
+    Array.isArray(campaignIds) &&
+    campaignIds.every((id) => typeof id === "string")
+      ? campaignIds
+      : "all";
+  const result = await acknowledgeFailedCampaigns(ids, user);
+  if (result.acknowledged > 0) {
+    revalidatePath("/campaigns");
+    revalidatePath("/", "layout");
   }
   return result;
 }
