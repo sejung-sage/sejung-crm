@@ -96,7 +96,7 @@ export function TemplatesTable({ rows }: Props) {
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-visible">
         <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+            <tr className="border-b border-[color:var(--border)]">
               <Th>제목</Th>
               <Th className="w-20">유형</Th>
               <Th className="w-20">광고</Th>

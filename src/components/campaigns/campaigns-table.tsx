@@ -76,7 +76,7 @@ export function CampaignsTable({ rows, canDelete = false }: Props) {
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-visible">
         <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+            <tr className="border-b border-[color:var(--border)]">
               <Th className="w-40">발송 / 예약</Th>
               <Th>제목</Th>
               <Th className="w-24">발송자</Th>

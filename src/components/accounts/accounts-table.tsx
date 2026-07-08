@@ -135,7 +135,7 @@ export function AccountsTable({
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-visible">
         <table className="w-full border-collapse">
           <thead>
-            <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+            <tr className="border-b border-[color:var(--border)]">
               <Th>이름</Th>
               <Th>이메일</Th>
               <Th className="w-36">비밀번호</Th>

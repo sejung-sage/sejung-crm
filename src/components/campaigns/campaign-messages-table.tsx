@@ -119,7 +119,7 @@ export function CampaignMessagesTable({
         <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-visible">
           <table className="w-full border-collapse">
             <thead>
-              <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+              <tr className="border-b border-[color:var(--border)]">
                 <Th className="w-40">학생명</Th>
                 <Th className="w-44">수신번호</Th>
                 <Th className="w-24">상태</Th>

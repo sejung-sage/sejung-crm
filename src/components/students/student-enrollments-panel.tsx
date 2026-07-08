@@ -60,7 +60,7 @@ export function StudentEnrollmentsPanel({ enrollments }: Props) {
     <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
       <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+          <tr className="border-b border-[color:var(--border)]">
             <Th>수업내용</Th>
             <Th className="w-32">선생님</Th>
             <Th className="w-24 text-center">과목</Th>

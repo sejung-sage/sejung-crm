@@ -225,7 +225,7 @@ export function ClassRoster({
         ) : (
           <table className="w-full border-collapse">
             <thead>
-              <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+              <tr className="border-b border-[color:var(--border)]">
                 {selectable && (
                   <Th className="w-12 text-center">
                     <input

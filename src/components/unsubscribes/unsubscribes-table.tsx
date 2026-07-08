@@ -85,7 +85,7 @@ export function UnsubscribesTable({ rows, canRemove }: Props) {
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+              <tr className="border-b border-[color:var(--border)]">
                 <th
                   scope="col"
                   className="px-4 py-2.5 text-[13px] font-medium text-[color:var(--text-muted)]"

@@ -38,7 +38,7 @@ export function ClassStudentsPanel({ students, canRevealPhone = false }: Props) 
     <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
       <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+          <tr className="border-b border-[color:var(--border)]">
             <Th>이름</Th>
             <Th>학교</Th>
             <Th className="w-20 text-center">학년</Th>

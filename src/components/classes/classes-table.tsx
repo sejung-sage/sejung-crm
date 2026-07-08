@@ -56,7 +56,7 @@ export function ClassesTable({ rows, sendableBranches = null }: Props) {
     <div className="rounded-xl border border-[color:var(--border)] bg-bg-card overflow-hidden">
       <table className="w-full border-collapse">
         <thead>
-          <tr className="border-b border-[color:var(--border)] bg-[color:var(--bg-muted)]">
+          <tr className="border-b border-[color:var(--border)]">
             <Th>반명</Th>
             <Th className="w-20">분원</Th>
             <Th className="w-20 text-center">과목</Th>
