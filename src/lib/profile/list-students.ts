@@ -11,6 +11,18 @@ import {
 } from "@/lib/schemas/common";
 
 /**
+ * 졸업·미정 학년의 기본 숨김을 무효화할지 결정.
+ * 재원생(활성) 단독 뷰에서는 졸업·미정도 포함한다 — 졸업 후 재수 등으로 아직
+ * 재원 중인 학생을 재원생 목록에서 놓치지 않기 위함. 그 외 뷰(전체·수강이력자·
+ * 수강 x)에서는 기존대로 졸업·미정을 기본 숨김한다.
+ */
+function effectiveIncludeHidden(input: ListStudentsInput): boolean {
+  const activeOnly =
+    input.statuses.length === 1 && input.statuses[0] === "재원생";
+  return input.includeHidden || activeOnly;
+}
+
+/**
  * '학교 미등록' 필터 PostgREST `.or(...)` 표현식.
  * school IS NULL OR school IN (placeholder set).
  * 입력 값(고/중/대학교 등)은 한글이지만 메타문자 없음 — 인젝션 안전.
@@ -199,7 +211,7 @@ async function listFromSupabase(
   if (regionPlan) {
     countQuery = applyRegionPlanToCount(countQuery, regionPlan);
   }
-  if (!input.includeHidden && input.grades.length === 0) {
+  if (!effectiveIncludeHidden(input) && input.grades.length === 0) {
     countQuery = countQuery.not(
       "grade",
       "in",
@@ -282,7 +294,7 @@ async function listFromSupabase(
   }
 
   // 기본 숨김
-  if (!input.includeHidden && input.grades.length === 0) {
+  if (!effectiveIncludeHidden(input) && input.grades.length === 0) {
     query = query.not(
       "grade",
       "in",
@@ -365,7 +377,7 @@ async function fetchViaView(args: {
       input.schoolLevels.length > 0 ? input.schoolLevels : null,
     p_statuses: input.statuses.length > 0 ? input.statuses : null,
     p_schools: input.schools.length > 0 ? input.schools : null,
-    p_include_hidden: input.includeHidden,
+    p_include_hidden: effectiveIncludeHidden(input),
     p_sort: input.sort,
     p_offset: from,
     p_limit: to - from + 1,
@@ -478,7 +490,7 @@ async function fetchTwoStage(args: {
   if (regionPlan) {
     idsQuery = applyRegionPlanToCount(idsQuery, regionPlan);
   }
-  if (!input.includeHidden && input.grades.length === 0) {
+  if (!effectiveIncludeHidden(input) && input.grades.length === 0) {
     idsQuery = idsQuery.not(
       "grade",
       "in",
@@ -833,7 +845,7 @@ function listFromDevSeed(input: ListStudentsInput): ListStudentsResult {
     rows = rows.filter((r) => wanted.has(r.region));
   }
 
-  if (!input.includeHidden && input.grades.length === 0) {
+  if (!effectiveIncludeHidden(input) && input.grades.length === 0) {
     rows = rows.filter(
       (r) =>
         r.grade === null ||

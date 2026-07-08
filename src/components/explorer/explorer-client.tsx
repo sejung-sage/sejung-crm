@@ -21,13 +21,12 @@ import { REGION_OPTIONS } from "@/config/regions";
 import {
   SUBJECT_VALUES,
   CLASS_MARK_VALUES,
-  CLASS_KIND_VALUES,
 } from "@/lib/schemas/common";
 
-/** 강좌 유형 코드(R/S) → 칩 라벨. #/@ 는 의미 미확정이라 기호 그대로. */
-const CLASS_KIND_LABEL: Record<string, string> = {
-  R: "정규(R)",
-  S: "특강(S)",
+/** 강좌 구분 코드(#/@) → 칩 라벨. @=내신, #=특강. */
+const CLASS_MARK_LABEL: Record<string, string> = {
+  "@": "내신(@)",
+  "#": "특강(#)",
 };
 
 /**
@@ -64,9 +63,8 @@ interface Presets {
   subjects: string[];
   /** 과목 매칭 모드. false=하나라도(합집합), true=전부(교집합). */
   subjectsMatchAll: boolean;
-  /** 강좌 접두 코드 필터. classMarks=#/@, classKinds=R/S. */
+  /** 강좌 접두 코드 필터. classMarks=#/@ (@=내신, #=특강). */
   classMarks: string[];
-  classKinds: string[];
   regions: string[];
   schools: string[];
   sort: string;
@@ -81,7 +79,6 @@ const EMPTY_PRESETS: Presets = {
   subjects: [],
   subjectsMatchAll: false,
   classMarks: [],
-  classKinds: [],
   regions: [],
   schools: [],
   sort: "registered_desc",
@@ -123,7 +120,6 @@ export function ExplorerClient({
           subjects: args.presets.subjects,
           subjectsMatchAll: args.presets.subjectsMatchAll,
           classMarks: args.presets.classMarks,
-          classKinds: args.presets.classKinds,
           regions: args.presets.regions,
           schools: args.presets.schools,
           sort: args.presets.sort,
@@ -166,7 +162,6 @@ export function ExplorerClient({
         | "statuses"
         | "subjects"
         | "classMarks"
-        | "classKinds"
         | "regions",
     ) =>
     (value: string) => {
@@ -228,7 +223,6 @@ export function ExplorerClient({
     p.statuses.length > 0 ||
     p.subjects.length > 0 ||
     p.classMarks.length > 0 ||
-    p.classKinds.length > 0 ||
     p.regions.length > 0 ||
     p.schools.length > 0;
 
@@ -411,13 +405,7 @@ export function ExplorerClient({
           options={CLASS_MARK_VALUES}
           selected={p.classMarks}
           onToggle={toggleIn("classMarks")}
-        />
-        <ChipGroup
-          label="강좌 유형"
-          options={CLASS_KIND_VALUES}
-          selected={p.classKinds}
-          onToggle={toggleIn("classKinds")}
-          optionLabel={(v) => CLASS_KIND_LABEL[v] ?? v}
+          optionLabel={(v) => CLASS_MARK_LABEL[v] ?? v}
         />
         <ChipGroup
           label="지역"

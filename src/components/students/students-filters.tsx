@@ -17,7 +17,6 @@ import { STUDENT_SORT_VALUES, type StudentSort } from "@/lib/schemas/student";
 import {
   SUBJECT_VALUES,
   CLASS_MARK_VALUES,
-  CLASS_KIND_VALUES,
 } from "@/lib/schemas/common";
 import type { SchoolGroup } from "@/lib/profile/list-filter-options";
 import type { RegionOption } from "@/config/regions";
@@ -82,10 +81,10 @@ function gradeOptionsForLevel(
 const STATUS_OPTIONS = ["전체", "재원생", "수강이력자", "수강 x"] as const;
 type StatusOption = (typeof STATUS_OPTIONS)[number];
 
-/** 강좌 유형 코드(R/S) → 칩 라벨. #/@ 는 의미 미확정이라 기호 그대로 노출. */
-const CLASS_KIND_LABEL: Record<string, string> = {
-  R: "정규(R)",
-  S: "특강(S)",
+/** 강좌 구분 코드(#/@) → 칩 라벨. @=내신, #=특강. */
+const CLASS_MARK_LABEL: Record<string, string> = {
+  "@": "내신(@)",
+  "#": "특강(#)",
 };
 // 지역 칩 옵션은 SSOT(src/config/regions.ts) 의 REGION_OPTIONS 사용.
 
@@ -187,7 +186,6 @@ export function StudentsFilters({
   const regions = searchParams.getAll("region");
   const subjects = searchParams.getAll("subject");
   const classMarks = searchParams.getAll("cmark");
-  const classKinds = searchParams.getAll("ckind");
   const schools = searchParams.getAll("school");
   // school_level 은 운영 단순화를 위해 단일 선택 (배열 첫 값만 사용).
   const levelRaw = searchParams.getAll("level");
@@ -357,7 +355,6 @@ export function StudentsFilters({
     regions.length > 0 ||
     subjects.length > 0 ||
     classMarks.length > 0 ||
-    classKinds.length > 0 ||
     schools.length > 0 ||
     includeHidden ||
     unmappedSchool ||
@@ -610,7 +607,7 @@ export function StudentsFilters({
 
       {/* 수강 과목 + 강좌 코드 칩 (다중) — 현재 진행 중인 강좌 기준
           (search_students_by_region RPC: enrollments JOIN classes, 진행 중).
-          강좌 구분(#/@)·유형(R/S)은 강좌명 접두 코드 파싱(0100). */}
+          강좌 구분(@=내신/#=특강)은 강좌명 접두 코드 파싱(0100). */}
       <div className="flex flex-wrap gap-x-6 gap-y-3 items-start pt-1">
         <FilterGroup label="수강 과목">
           {SUBJECT_VALUES.map((s) => (
@@ -627,20 +624,9 @@ export function StudentsFilters({
           {CLASS_MARK_VALUES.map((m) => (
             <Chip
               key={m}
-              label={m}
+              label={CLASS_MARK_LABEL[m] ?? m}
               active={classMarks.includes(m)}
               onClick={() => toggleValue("cmark", m)}
-            />
-          ))}
-        </FilterGroup>
-
-        <FilterGroup label="강좌 유형">
-          {CLASS_KIND_VALUES.map((k) => (
-            <Chip
-              key={k}
-              label={CLASS_KIND_LABEL[k] ?? k}
-              active={classKinds.includes(k)}
-              onClick={() => toggleValue("ckind", k)}
             />
           ))}
         </FilterGroup>
