@@ -157,8 +157,8 @@ export async function Sidebar() {
       aria-label="주 메뉴"
       className="app-sidebar-navy w-60 shrink-0 border-r border-border bg-[color:var(--bg-card)] flex flex-col h-screen sticky top-0"
     >
-      {/* 로고 — 브랜드 로고(SEJUNG Academy). 네이비 사이드바 위라 흰색으로 반전. */}
-      <div className="px-6 pt-6 pb-4">
+      {/* 로고 — 브랜드 로고(SEJUNG Academy). 네이비 사이드바 위라 흰색으로 반전. 가운데 정렬. */}
+      <div className="px-6 pt-6 pb-4 flex justify-center">
         <Link href="/" className="block" aria-label="SEJUNG Academy 홈">
           <Image
             src="/sejung-logo-white.png"
