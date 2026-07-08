@@ -96,6 +96,21 @@
   --sidebar-ring: var(--border-strong);
 }
 
+/* 사이드바 네이비 스코프 — 이 클래스 하위에서만 색 토큰을 네이비로 재정의한다.
+   내부의 var(--text)/var(--bg-card)/var(--border) 등이 자동으로 네이비 팔레트로
+   해석되어, 개별 클래스 수정 없이 사이드바만 네이비가 된다. 메인 콘텐츠(흰색)엔
+   영향 없음. 브랜드 네이비 적용(2026-07-08). */
+.app-sidebar-navy {
+  --bg: #171f38;
+  --bg-card: #171f38;    /* 사이드바 표면 · 딥 네이비 */
+  --bg-muted: #2a3556;   /* 활성 nav 배경 */
+  --bg-hover: #222c4a;   /* 호버 */
+  --text: #eef1f7;       /* nav 텍스트 · 거의 흰색 */
+  --text-muted: #a3adc9; /* 아이콘 · 보조 텍스트 */
+  --text-dim: #7480a3;   /* 섹션 라벨 · 플레이스홀더 */
+  --border: #2b3658;     /* 사이드바 보더 */
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

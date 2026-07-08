@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   Users,
   GraduationCap,
@@ -27,7 +28,7 @@ import type { UserRole } from "@/types/database";
  * 좌측 사이드바 (폭 240px 고정)
  *
  * PRD 3.3 구조 그대로 정적 렌더:
- *  - 상단: SEJUNG Academy 로고 (Cormorant Garamond)
+ *  - 상단: SEJUNG Academy 브랜드 로고(흰색, 네이비 사이드바 위)
  *  - 검색창
  *  - 계정과 권한 관리 / 학생 명단 / 문자 발송(+하위 3개) / 데이터 관리
  *  - 하단: 현재 로그인 사용자 프로필 + 메뉴(내 계정 / 로그아웃)
@@ -154,16 +155,19 @@ export async function Sidebar() {
   return (
     <aside
       aria-label="주 메뉴"
-      className="w-60 shrink-0 border-r border-border bg-[color:var(--bg-card)] flex flex-col h-screen sticky top-0"
+      className="app-sidebar-navy w-60 shrink-0 border-r border-border bg-[color:var(--bg-card)] flex flex-col h-screen sticky top-0"
     >
-      {/* 로고 */}
+      {/* 로고 — 브랜드 로고(SEJUNG Academy). 네이비 사이드바 위라 흰색으로 반전. */}
       <div className="px-6 pt-6 pb-4">
-        <Link
-          href="/"
-          className="font-serif text-[20px] font-medium tracking-wide text-[color:var(--text)]"
-          style={{ fontFamily: "var(--font-serif)" }}
-        >
-          SEJUNG Academy
+        <Link href="/" className="block" aria-label="SEJUNG Academy 홈">
+          <Image
+            src="/sejung-logo-white.png"
+            alt="SEJUNG Academy"
+            width={160}
+            height={70}
+            priority
+            className="h-9 w-auto"
+          />
         </Link>
       </div>
 
