@@ -343,9 +343,11 @@ export async function listMatchedRecipientsAction(
     const supabase = createSupabaseServiceClient();
     // 매칭 전원 + 전체 수를 search_recipients_bulk 1회 호출로(jsonb, max_rows 미적용).
     // 학부모 번호 없는 학생도 명단엔 보여야 하므로 requireParentPhone=false.
+    // excludeUnsubscribed=true — 수신거부 번호는 명단에서 번호 단위로 가려지고, 보낼 수
+    // 있는 번호가 하나도 없는 학생은 행 자체가 빠진다(0106).
     const { rows, total } = await callSearchRecipientsBulk(
       supabase,
-      buildSearchRecipientsParams(parsed.filters, parsed.branch, false),
+      buildSearchRecipientsParams(parsed.filters, parsed.branch, false, true),
       MATCHED_LIST_CAP,
     );
     const recipients: MatchedRecipient[] = rows

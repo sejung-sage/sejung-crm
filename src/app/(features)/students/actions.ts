@@ -110,7 +110,10 @@ export async function createStudentAction(
   const insertPayload: Record<string, unknown> = {
     aca2000_id,
     name: parsed.name,
-    parent_phone: parsed.parent_phone,
+    // ETL(normalize_phone)과 동일하게 숫자만 저장한다. 하이픈이 섞여 들어가면
+    // 번호 등가 비교(수신거부 제외 등)가 조용히 어긋난다 — 실제로 0106 배포 후
+    // 하이픈 표기 4건에서 수신거부가 무력화됐다(0107 로 SQL 도 정규화 비교로 수정).
+    parent_phone: parsed.parent_phone.replace(/\D/g, "") || null,
     phone: null,
     school: parsed.school || null,
     grade: parsed.grade ?? null,

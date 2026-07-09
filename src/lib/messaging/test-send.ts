@@ -27,6 +27,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { sendonFromNumber } from "@/config/sender-numbers";
 import type { SendCampaignResult } from "./send-campaign";
+import { isPhoneUnsubscribed } from "./unsubscribed-phones";
 
 /** 테스트 발송 본문에서 `{이름}` 토큰을 치환할 때 사용하는 fallback 이름. */
 const TEST_NAME_PLACEHOLDER = "테스트 수신자";
@@ -71,6 +72,11 @@ export async function testSend(
     return { status: "failed", reason: "휴대폰 번호 형식이 올바르지 않습니다" };
   }
 
+  // 수신거부 번호는 테스트 발송도 막는다(0106). "무조건 제외" 에 예외를 두지 않는다.
+  if (await isPhoneUnsubscribed(phone)) {
+    return { status: "blocked", reason: "수신거부로 등록된 번호입니다" };
+  }
+
   // 3) 가드 적용 (야간 광고 차단 등). 발신 브랜드는 sendBranch(작성 분원) 기준.
   const guarded = applyAllGuards({
     body: input.body,
@@ -85,6 +91,7 @@ export async function testSend(
         status: "재원생",
       },
     ],
+    // 수신거부는 위에서 이미 early-return 으로 막았다.
     unsubscribedPhones: [],
   });
 

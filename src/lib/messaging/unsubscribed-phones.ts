@@ -15,6 +15,7 @@
  */
 
 import { cache } from "react";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 /** 수신거부 phone 값에 허용할 문자 패턴 (숫자/하이픈만). */
@@ -35,6 +36,30 @@ export const getUnsubscribedPhones = cache(async (): Promise<string[]> => {
         typeof v === "string" && v.length > 0 && SAFE_PHONE_PATTERN.test(v),
     );
 });
+
+/**
+ * 임의의 Supabase 클라이언트로 수신거부 번호를 읽어 **정규화된 Set** 으로 반환.
+ *
+ * React cache(요청 스코프)를 쓸 수 없는 곳 — 드레인 워커처럼 service role 클라이언트로
+ * 요청 밖에서 도는 코드 — 를 위한 진입점. 반환값은 하이픈 제거된 숫자 문자열.
+ * SQL 절에 박지 않고 Set 비교만 하므로 SAFE_PHONE_PATTERN 검사는 불필요하다.
+ */
+export async function fetchUnsubscribedPhoneSet(
+  supabase: SupabaseClient,
+): Promise<Set<string>> {
+  const { data, error } = await supabase
+    .from("crm_unsubscribes")
+    .select("phone");
+  if (error) {
+    throw new Error(`수신거부 목록 조회에 실패했습니다: ${error.message}`);
+  }
+  const set = new Set<string>();
+  for (const row of data ?? []) {
+    const norm = normalizePhone((row as { phone: string }).phone);
+    if (norm) set.add(norm);
+  }
+  return set;
+}
 
 /** 하이픈 등 비숫자 제거. 빈 결과는 null. */
 function normalizePhone(raw: string | null | undefined): string | null {

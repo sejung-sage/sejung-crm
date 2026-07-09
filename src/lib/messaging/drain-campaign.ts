@@ -41,6 +41,7 @@ import {
   branchBrandName,
 } from "./guards/insert-ad-tag";
 import { insertUnsubscribeFooter } from "./guards/insert-unsubscribe-footer";
+import { fetchUnsubscribedPhoneSet } from "./unsubscribed-phones";
 import { calculateCost } from "./calculate-cost";
 import {
   applyDateToken,
@@ -189,6 +190,14 @@ export async function drainCampaignChunk(
   let totalAddedCost = 0;
   const t0 = Date.now();
 
+  // 3-1) 수신거부 하드 가드용 목록 — 벤더로 나가기 전 마지막 방어선(0106).
+  //   종전엔 수신거부가 "메시지 생성 시점"에만 걸렸다. 그래서 예약 발송 / 실패 재발송 /
+  //   중단 캠페인 재개처럼 이미 만들어 둔 '대기' 행을 나중에 다시 드레인하는 경로는,
+  //   생성 이후 수신거부한 번호를 걸러내지 못하고 그대로 발송했다.
+  //   드레인 1회 호출(최대 TIME_BUDGET_MS)당 한 번만 읽는다 — 그 사이의 수신거부 등록은
+  //   다음 호출에서 잡힌다.
+  const unsubSet = await fetchUnsubscribedPhoneSet(supabase);
+
   // 4) 청크 루프 — time budget / MAX_BATCHES 가 다 차면 break, 그 외엔 끝까지
   for (let batchIdx = 0; batchIdx < MAX_BATCHES_PER_INVOCATION; batchIdx += 1) {
     if (Date.now() - t0 > TIME_BUDGET_MS) break;
@@ -196,9 +205,26 @@ export async function drainCampaignChunk(
     const pending = await fetchPending(supabase, campaignId);
     if (pending.length === 0) break; // 더 처리할 게 없음
 
+    // 수신거부 번호는 벤더에 넘기지 않고 '실패(수신거부)' 로 확정한다. 이 청크에서
+    // 빠지면서 '대기' 를 벗어나므로 다음 fetchPending 은 자연히 다음 구간을 읽는다.
+    const { sendable, blocked } = splitUnsubscribed(pending, unsubSet);
+    if (blocked.length > 0) {
+      await markMessagesFailed(
+        supabase,
+        blocked.map((b) => b.id),
+        "수신거부",
+        new Date().toISOString(),
+      );
+      totalFailed += blocked.length;
+      console.warn(
+        `[drain] 수신거부 차단 ${blocked.length}건 (campaign=${campaignId})`,
+      );
+    }
+    if (sendable.length === 0) continue; // 이 청크는 전부 수신거부
+
     const result = await processOneBatch({
       supabase,
-      pending,
+      pending: sendable,
       adapter,
       sendBody,
       subject: insertAdSubjectTag(campaign.subject, campaign.is_ad),
@@ -468,6 +494,29 @@ interface PendingRow {
   id: string;
   phone: string;
   student_id: string | null;
+}
+
+/**
+ * 발송 직전 수신거부 하드 가드 (순수 함수 · 테스트용 export).
+ *
+ * '대기' 메시지를 벤더로 보낼 것(sendable)과 수신거부라 막을 것(blocked)으로 가른다.
+ * 비교는 하이픈 제거된 숫자 문자열 기준 — `unsubSet` 도 정규화된 값이어야 한다.
+ *
+ * 수신거부는 메시지 **생성 시점**에도 걸리지만, 예약 발송·실패 재발송·중단 캠페인
+ * 재개는 이미 만들어 둔 '대기' 행을 나중에 다시 드레인한다. 그 사이에 수신거부한
+ * 번호를 잡아내는 곳이 여기뿐이다.
+ */
+export function splitUnsubscribed(
+  pending: PendingRow[],
+  unsubSet: Set<string>,
+): { sendable: PendingRow[]; blocked: PendingRow[] } {
+  const sendable: PendingRow[] = [];
+  const blocked: PendingRow[] = [];
+  for (const p of pending) {
+    if (unsubSet.has(p.phone.replace(/\D/g, ""))) blocked.push(p);
+    else sendable.push(p);
+  }
+  return { sendable, blocked };
 }
 
 // ─── 헬퍼 ──────────────────────────────────────────────────

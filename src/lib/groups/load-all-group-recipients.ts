@@ -97,7 +97,11 @@ export async function loadRecipientsByFilters(
   // 발송 로더라 학생 레그(0077)용으로 parent_phone NULL 행도 받아야 한다
   // → require_parent_phone=false. 수신거부 제외는 종전대로 호출자(expandRecipientLegs)가
   // "레그별 번호" 기준으로 적용한다(여기선 미적용).
-  const params = buildSearchRecipientsParams(filters, branch, false);
+  //
+  // exclude_unsubscribed=false 는 의도적이다(0106). SQL 에서 미리 지우면 send-campaign 이
+  // 캠페인 상세에 남기는 '실패(수신거부)' 감사 행을 만들 수 없다. 실제 발송 차단은
+  // (1) send-campaign 의 레그별 분리, (2) drain-campaign 의 발송 직전 하드 가드가 맡는다.
+  const params = buildSearchRecipientsParams(filters, branch, false, false);
 
   const collected: GroupRecipient[] = [];
   let offset = 0;

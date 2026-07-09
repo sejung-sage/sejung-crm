@@ -284,10 +284,7 @@ async function previewFromSupabase(
   const finalBody = insertUnsubscribeFooter(withHeader, input.isAd);
   const quiet = checkQuietHours(input.scheduledAt ?? new Date(), input.isAd);
 
-  // 1) 수신거부 phone 목록 — React cache 로 같은 요청 내 dedupe.
-  const safeUnsubPhones = await getUnsubscribedPhones();
-
-  // 2) subjects/regions 사전 매핑.
+  // 1) subjects/regions 사전 매핑.
   //    student_profiles 뷰의 array_agg(subjects) overlaps / region join 대신
   //    enrollments · school_regions 의 작은 인덱스 조회로 student_id/school 만
   //    뽑아 crm_students 의 in() 절로 적용. 풀 집계 회피.
@@ -296,32 +293,47 @@ async function previewFromSupabase(
     return emptyPreview(input, finalBody, quiet);
   }
 
-  // 3) eligible 카운트+샘플은 search_recipients RPC(0093) 로 — 모든 필터값·ID 배열을
+  // 2) eligible 카운트+샘플은 search_recipients RPC(0093) 로 — 모든 필터값·ID 배열을
   //    요청 본문으로 넘겨 큰 코호트(과목/체크해제 수천 건)에서도 414 없이 매칭한다.
   //    (종전엔 .in()·.not.in() 으로 GET URL 에 박아 414 → "발송 대상 0명" 이 됐다.)
-  //    탈퇴/수신거부 카운트는 "N명 자동 제외" 안내용(부가 정보)일 뿐이고, 실제 제외는
-  //    발송 시점 SQL 에서 다시 적용되므로, 일시적 실패가 미리보기를 무너뜨리지 않게
-  //    0 으로 폴백한다.
+  //    탈퇴 카운트는 "N명 자동 제외" 안내용(부가 정보)일 뿐이고, 실제 제외는 발송 시점
+  //    SQL 에서 다시 적용되므로, 일시적 실패가 미리보기를 무너뜨리지 않게 0 으로 폴백한다.
+  //
+  //    수신거부는 안내용이 아니라 실제 제외다(0106). eligible 은 exclude_unsubscribed=true
+  //    로 뽑아 수신거부 학부모 번호를 애초에 배제하고, "수신거부 N명 제외" 배지는 같은
+  //    RPC 를 exclude_unsubscribed=false 로 한 번 더 호출해 얻은 total 과의 차이로 센다.
+  //    동일 모집단 두 번 세기라 카운트가 eligible 과 구조적으로 일치한다.
+  //    (종전 countUnsubExcluded 는 별도 buildQuery + .in() 경로라 모집단이 어긋날 수 있고,
+  //     수신거부 목록이 커지면 URL 414 로 조용히 0 이 됐다.)
   const eligibleParams = buildSearchRecipientsParams(
     group.filters,
     group.branch,
     true, // 미리보기 eligible/샘플은 학부모 번호 필수
+    true, // 수신거부 제외
   );
-  const [eligible, withdrawnCount, unsubExcludedCount] = await Promise.all([
+  const [eligible, eligibleInclUnsub, withdrawnCount] = await Promise.all([
     callSearchRecipients(supabase, eligibleParams, 0, SAMPLE_LIMIT),
+    // total 만 필요 — total_count 는 행에 실려 오므로 limit 1.
+    callSearchRecipients(
+      supabase,
+      { ...eligibleParams, p_exclude_unsubscribed: false },
+      0,
+      1,
+    ).catch((e) => {
+      console.warn(
+        `[preview] 수신거부 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
+      );
+      return { rows: [], total: 0 };
+    }),
     countWithdrawn(supabase, group, mapping).catch((e) => {
       console.warn(
         `[preview] 탈퇴 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
       );
       return 0;
     }),
-    countUnsubExcluded(supabase, group, mapping, safeUnsubPhones).catch((e) => {
-      console.warn(
-        `[preview] 수신거부 카운트 폴백(0): ${e instanceof Error ? e.message : String(e)}`,
-      );
-      return 0;
-    }),
   ]);
+  // 폴백(total=0)이면 음수가 되지 않도록 하한 0.
+  const unsubExcludedCount = Math.max(0, eligibleInclUnsub.total - eligible.total);
   const eligibleCount = eligible.total;
   const eligibleSample: PreviewSampleRecipient[] = eligible.rows
     .map((r) => ({
@@ -671,9 +683,9 @@ function buildQuery(
   // 강제 제외 (PostgREST not.in 문법). mapping.excludeStudentIds 는
   //   excludeStudentIds ∪ excludeClassIds(펼친 student_id) 병합 목록.
   //   uuid 만 들어와 메타문자 인젝션 위험 없음.
-  // 4개 쿼리(eligible/sample/withdrawn/unsub) 모두 buildQuery 를 거치므로
-  //   withdrawn/unsub 카운트도 exclude 차감된 모집단 위에서 계산된다 —
+  // withdrawn 카운트도 buildQuery 를 거쳐 exclude 차감된 모집단 위에서 계산된다 —
   //   제외된 학생은 "탈퇴 자동 제외" 안내에 잡히지 않는다.
+  //   (eligible/sample/unsub 은 search_recipients RPC 로 이전 — 0093/0106)
   if (mapping.excludeStudentIds.length > 0) {
     q = q.not("id", "in", `(${mapping.excludeStudentIds.join(",")})`);
   }
@@ -683,7 +695,7 @@ function buildQuery(
   return q;
 }
 
-// ─── 카운트 (탈퇴/수신거부 — eligible/샘플은 search_recipients RPC 로 이전) ─────
+// ─── 카운트 (탈퇴 — eligible/샘플/수신거부는 search_recipients RPC 로 이전) ─────
 
 async function countWithdrawn(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
@@ -708,28 +720,3 @@ async function countWithdrawn(
   return count ?? 0;
 }
 
-async function countUnsubExcluded(
-  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  group: PreviewGroupLike,
-  mapping: FilterMapping,
-  unsubPhones: string[],
-): Promise<number> {
-  if (unsubPhones.length === 0) return 0;
-  let q = buildQuery(
-    supabase,
-    "id",
-    { count: "exact", head: true },
-    group,
-    mapping,
-    { statusMode: "eligible" },
-  );
-  q = q.in("parent_phone", unsubPhones);
-  const { count, error } = (await q) as {
-    count: number | null;
-    error: { message: string } | null;
-  };
-  if (error) {
-    throw new Error(`수신거부 카운트 조회에 실패했습니다: ${error.message}`);
-  }
-  return count ?? 0;
-}

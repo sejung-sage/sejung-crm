@@ -19,7 +19,7 @@ function filter(overrides: Record<string, unknown> = {}) {
 
 describe("buildSearchRecipientsParams · filter 모드", () => {
   it("빈 필터 → 분원만 적용, 나머지 배열은 null", () => {
-    const p = buildSearchRecipientsParams(filter(), "반포", true);
+    const p = buildSearchRecipientsParams(filter(), "반포", true, false);
     expect(p.p_branch).toBe("반포");
     expect(p.p_grades).toBeNull();
     expect(p.p_schools).toBeNull();
@@ -41,6 +41,7 @@ describe("buildSearchRecipientsParams · filter 모드", () => {
       filter({ excludeStudentIds: ids }),
       "대치",
       true,
+      false,
     );
     expect(p.p_exclude_ids).toEqual(ids);
   });
@@ -52,6 +53,7 @@ describe("buildSearchRecipientsParams · filter 모드", () => {
       }),
       "대치",
       false,
+      false,
     );
     expect(p.p_subjects).toBeNull();
   });
@@ -61,19 +63,25 @@ describe("buildSearchRecipientsParams · filter 모드", () => {
       filter({ subjects: ["수학"] }),
       "대치",
       false,
+      false,
     );
     expect(p.p_subjects).toEqual(["수학"]);
   });
 
   it("학교 등록만/미등록만 토글 전달", () => {
     expect(
-      buildSearchRecipientsParams(filter({ mappedSchool: true }), "대치", false)
-        .p_mapped_school,
+      buildSearchRecipientsParams(
+        filter({ mappedSchool: true }),
+        "대치",
+        false,
+        false,
+      ).p_mapped_school,
     ).toBe(true);
     expect(
       buildSearchRecipientsParams(
         filter({ unmappedSchool: true }),
         "대치",
+        false,
         false,
       ).p_unmapped_school,
     ).toBe(true);
@@ -81,7 +89,19 @@ describe("buildSearchRecipientsParams · filter 모드", () => {
 
   it("require_parent_phone 플래그 반영", () => {
     expect(
-      buildSearchRecipientsParams(filter(), "대치", false).p_require_parent_phone,
+      buildSearchRecipientsParams(filter(), "대치", false, false)
+        .p_require_parent_phone,
+    ).toBe(false);
+  });
+
+  it("exclude_unsubscribed 플래그 반영 (리스트업 true / 발송 로더 false)", () => {
+    expect(
+      buildSearchRecipientsParams(filter(), "대치", true, true)
+        .p_exclude_unsubscribed,
+    ).toBe(true);
+    expect(
+      buildSearchRecipientsParams(filter(), "대치", false, false)
+        .p_exclude_unsubscribed,
     ).toBe(false);
   });
 });
@@ -102,6 +122,7 @@ describe("buildSearchRecipientsParams · custom 모드", () => {
         mappedSchool: true,
       }),
       "대치",
+      false,
       false,
     );
     expect(p.p_include_ids).toEqual([UUID_A, UUID_B]);

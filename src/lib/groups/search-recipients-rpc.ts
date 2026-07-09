@@ -41,6 +41,7 @@ export interface SearchRecipientsParams {
   p_exclude_schools: string[] | null;
   p_exclude_class_ids: string[] | null;
   p_require_parent_phone: boolean;
+  p_exclude_unsubscribed: boolean;
 }
 
 /** 빈 배열은 null 로 (RPC 측 "필터 미적용"). */
@@ -60,11 +61,15 @@ function nullIfEmpty(arr: readonly string[] | null | undefined): string[] | null
  *
  * @param requireParentPhone 미리보기 eligible/샘플은 학부모 번호 필수(true). 발송 로더는
  *   학생 레그도 있어 false (parent_phone NULL 행도 받아 호출자가 레그 확장).
+ * @param excludeUnsubscribed 수신거부 번호를 RPC 안에서 제외할지(0106). 리스트업(미리보기·
+ *   매칭 명단)은 true. **발송 로더는 false** — 수신거부 레그를 JS 까지 살려 보내
+ *   캠페인 상세에 '실패(수신거부)' 감사 행으로 남겨야 하기 때문(send-campaign).
  */
 export function buildSearchRecipientsParams(
   filters: GroupFilters,
   branch: string,
   requireParentPhone: boolean,
+  excludeUnsubscribed: boolean,
 ): SearchRecipientsParams {
   const custom = isCustomGroup(filters);
 
@@ -90,6 +95,7 @@ export function buildSearchRecipientsParams(
     p_exclude_schools: custom ? null : nullIfEmpty(filters.excludeSchools),
     p_exclude_class_ids: custom ? null : nullIfEmpty(filters.excludeClassIds),
     p_require_parent_phone: requireParentPhone,
+    p_exclude_unsubscribed: excludeUnsubscribed,
   };
 }
 
@@ -141,7 +147,7 @@ export async function callSearchRecipientsBulk(
   max: number,
 ): Promise<{ rows: SearchRecipientBulkRow[]; total: number }> {
   // bulk 는 offset/limit 대신 p_max. p_require_parent_phone 등 나머지는 동일.
-  const { p_require_parent_phone, ...rest } = params;
+  const { p_require_parent_phone, p_exclude_unsubscribed, ...rest } = params;
   const { data, error } = await (
     supabase.rpc as unknown as (
       fn: "search_recipients_bulk",
@@ -153,6 +159,7 @@ export async function callSearchRecipientsBulk(
   )("search_recipients_bulk", {
     ...rest,
     p_require_parent_phone,
+    p_exclude_unsubscribed,
     p_max: max,
   });
 
