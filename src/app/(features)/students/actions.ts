@@ -98,6 +98,15 @@ export async function createStudentAction(
     return { status: "failed", reason: "입력값 검증에 실패했습니다" };
   }
 
+  // ETL(normalize_phone)과 동일하게 숫자만 저장한다. 하이픈이 섞여 들어가면 번호
+  // 등가 비교가 조용히 어긋난다 — 실제로 수동 등록 4건의 하이픈 표기 때문에 수신거부
+  // 제외가 무력화됐다(0107 로 SQL 비교도 정규화, 0108 로 기존 행 정리).
+  const parentPhone = parsed.parent_phone.replace(/\D/g, "");
+  if (parentPhone.length === 0) {
+    // parent_phone 은 NOT NULL. 숫자가 없으면 DB 에러 대신 검증 실패로 끝낸다.
+    return { status: "failed", reason: "학부모 연락처를 확인해 주세요" };
+  }
+
   // 자체 등록 키. timestamp + 사용자 ID 끝 4자리로 충돌 방지.
   const aca2000_id = `MANUAL-${Date.now()}-${auth.userId.slice(-4)}`;
 
@@ -110,10 +119,7 @@ export async function createStudentAction(
   const insertPayload: Record<string, unknown> = {
     aca2000_id,
     name: parsed.name,
-    // ETL(normalize_phone)과 동일하게 숫자만 저장한다. 하이픈이 섞여 들어가면
-    // 번호 등가 비교(수신거부 제외 등)가 조용히 어긋난다 — 실제로 0106 배포 후
-    // 하이픈 표기 4건에서 수신거부가 무력화됐다(0107 로 SQL 도 정규화 비교로 수정).
-    parent_phone: parsed.parent_phone.replace(/\D/g, "") || null,
+    parent_phone: parentPhone,
     phone: null,
     school: parsed.school || null,
     grade: parsed.grade ?? null,
