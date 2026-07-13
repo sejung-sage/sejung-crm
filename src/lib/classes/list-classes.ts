@@ -179,18 +179,23 @@ async function listFromSupabase(
   const total = countResult.count ?? 0;
   const classRows = (pageResult.data ?? []) as ClassRow[];
 
-  // (3) 강좌별 수강생 수 집계 — 페이지의 aca_class_id 만 모아 한 번에 조회.
-  const enrolledCountByAcaId = await fetchEnrolledStudentCounts(
-    supabase,
-    classRows,
-  );
+  // (3) 강좌별 수강생 수 집계.
+  //   일반 강좌: aca_class_id 기준 crm_enrollments distinct student_id.
+  //   설명회   : 위 ACA 등록 + CRM 자체 신청(crm_class_signup_items status='signed')을
+  //              student_id 기준 합집합. 신청 페이지가 없는 일반 강좌는 signup 집합이
+  //              비어 결과가 종전과 동일하다. 상세 KPI(class-kpi-cards) 와 같은 정의.
+  const [enrolledSetsByAcaId, signupSetsByClassId] = await Promise.all([
+    fetchEnrolledStudentSets(supabase, classRows),
+    fetchSignupStudentSets(supabase, classRows),
+  ]);
 
   const rows: ClassListItem[] = classRows.map((c) => ({
     ...c,
-    enrolled_student_count:
-      c.aca_class_id !== null
-        ? (enrolledCountByAcaId.get(c.aca_class_id) ?? 0)
-        : 0,
+    enrolled_student_count: countEnrolledUnion(
+      c,
+      enrolledSetsByAcaId,
+      signupSetsByClassId,
+    ),
   }));
 
   // enrolled_count_* 정렬은 DB 측 집계 컬럼이 없어 페이지 fetch 후
@@ -579,19 +584,43 @@ async function fetchClassIdsInTicketDateRange(
 }
 
 /**
- * 페이지 강좌들의 수강생 수를 한 번의 쿼리로 집계.
+ * 강좌 1건의 수강생 수 = ACA 등록 ∪ CRM 신청 (student_id 기준 합집합).
+ *
+ * - 일반 강좌: signup 집합이 없어 ACA 등록 수와 동일(종전 동작 보존).
+ * - 설명회   : 두 소스 합집합. 두 명단에 모두 있는 학생은 1명으로만 센다.
+ */
+export function countEnrolledUnion(
+  c: Pick<ClassRow, "id" | "aca_class_id">,
+  enrolledSetsByAcaId: Map<string, Set<string>>,
+  signupSetsByClassId: Map<string, Set<string>>,
+): number {
+  const acaSet =
+    c.aca_class_id !== null
+      ? enrolledSetsByAcaId.get(c.aca_class_id)
+      : undefined;
+  const signupSet = signupSetsByClassId.get(c.id);
+  if (!signupSet || signupSet.size === 0) {
+    return acaSet ? acaSet.size : 0;
+  }
+  const union = new Set<string>(acaSet ?? []);
+  for (const sid of signupSet) union.add(sid);
+  return union.size;
+}
+
+/**
+ * 페이지 강좌들의 ACA 등록 학생 집합을 한 번의 쿼리로 집계.
  *
  * - 입력: 페이지의 ClassRow 들.
- * - 출력: Map<aca_class_id, distinct_student_count>.
+ * - 출력: Map<aca_class_id, Set<student_id>>.
  * - 빈 입력이면 빈 Map 즉시 반환 (PostgREST 빈 in 절 회피).
  *
  * 규모 가정: 페이지당 강좌 ≤ 200, 강좌당 평균 enrollment ≤ 100 정도 →
  * JS distinct 집계로 충분 (≤ 20k 행, 메모리 무시 가능).
  */
-async function fetchEnrolledStudentCounts(
+async function fetchEnrolledStudentSets(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   classRows: ClassRow[],
-): Promise<Map<string, number>> {
+): Promise<Map<string, Set<string>>> {
   const acaClassIds = classRows
     .map((c) => c.aca_class_id)
     .filter((v): v is string => typeof v === "string" && v.length > 0);
@@ -642,12 +671,79 @@ async function fetchEnrolledStudentCounts(
     if (rows.length < PAGE) break;
   }
 
-  // Set → count 로 변환.
-  const countByAcaId = new Map<string, number>();
-  for (const [acaId, set] of studentSetByAcaId) {
-    countByAcaId.set(acaId, set.size);
+  return studentSetByAcaId;
+}
+
+/**
+ * 페이지 강좌들의 CRM 신청 학생 집합을 집계 (설명회 자체 신청).
+ *
+ * - 입력: 페이지의 ClassRow 들.
+ * - 출력: Map<class_id(crm_classes.id), Set<student_id>> — status='signed' 만.
+ * - 신청 페이지(crm_class_signup_pages)는 설명회에만 존재하므로, 일반 강좌는
+ *   자연히 빈 집합이 된다. 반환 Map 에 없으면 신청생 0명.
+ *
+ * 경로: pages(class_id) → items(signup_page_id, status='signed')
+ *       → invitations(student_id). 상세 KPI(class-kpi-cards) 와 동일 소스.
+ */
+async function fetchSignupStudentSets(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  classRows: ClassRow[],
+): Promise<Map<string, Set<string>>> {
+  const result = new Map<string, Set<string>>();
+  const classIds = classRows.map((c) => c.id).filter((v) => v.length > 0);
+  if (classIds.length === 0) return result;
+
+  // 1) 강좌 → 신청 페이지. 신청 페이지가 있는 강좌(=설명회)만 잡힌다.
+  const { data: pageData, error: pageError } = await supabase
+    .from("crm_class_signup_pages")
+    .select("id, class_id")
+    .in("class_id", classIds);
+  if (pageError) {
+    throw new Error(`신청 페이지 조회에 실패했습니다: ${pageError.message}`);
   }
-  return countByAcaId;
+  const pages = (pageData ?? []) as Array<{ id: string; class_id: string }>;
+  if (pages.length === 0) return result;
+
+  const classIdByPageId = new Map<string, string>();
+  for (const p of pages) classIdByPageId.set(p.id, p.class_id);
+  const pageIds = pages.map((p) => p.id);
+
+  // 2) signed 신청 아이템 → 학생. invitation embed 로 student_id 확보.
+  //    신청 규모는 작지만(설명회당 수십), max_rows(1000) cap 을 넘겨 잘리지 않게
+  //    enrollments 와 동일하게 페이지네이션한다.
+  const PAGE = 1000;
+  for (let offset = 0; ; offset += PAGE) {
+    const { data, error } = await supabase
+      .from("crm_class_signup_items")
+      .select(
+        "signup_page_id, invitation:crm_class_signup_invitations!inner(student_id)",
+      )
+      .in("signup_page_id", pageIds)
+      .eq("status", "signed")
+      .order("id", { ascending: true })
+      .range(offset, offset + PAGE - 1);
+    if (error) {
+      throw new Error(`신청 명단 집계에 실패했습니다: ${error.message}`);
+    }
+    const rows = (data ?? []) as Array<{
+      signup_page_id: string;
+      invitation: { student_id: string } | null;
+    }>;
+    for (const row of rows) {
+      const classId = classIdByPageId.get(row.signup_page_id);
+      const studentId = row.invitation?.student_id;
+      if (!classId || !studentId) continue;
+      let set = result.get(classId);
+      if (!set) {
+        set = new Set<string>();
+        result.set(classId, set);
+      }
+      set.add(studentId);
+    }
+    if (rows.length < PAGE) break;
+  }
+
+  return result;
 }
 
 /**
