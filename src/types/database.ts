@@ -216,6 +216,8 @@ export interface ClassRow {
 export interface ClassListItem extends ClassRow {
   /** 이 강좌의 수강 등록 학생 수 (enrollments 행 카운트, 학생 단위 distinct). */
   enrolled_student_count: number;
+  /** 강의코드 (crm_class_codes, 예: 26-DC-MA-H3-S-010-01). 미부여 시 null. */
+  lecture_code: string | null;
 }
 
 /**

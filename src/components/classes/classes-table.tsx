@@ -58,6 +58,7 @@ export function ClassesTable({ rows, sendableBranches = null }: Props) {
         <thead>
           <tr className="border-b border-[color:var(--border)]">
             <Th>반명</Th>
+            <Th className="w-44">강의코드</Th>
             <Th className="w-20">분원</Th>
             <Th className="w-20 text-center">과목</Th>
             <Th className="w-28">강사</Th>
@@ -100,6 +101,15 @@ export function ClassesTable({ rows, sendableBranches = null }: Props) {
                     >
                       종강
                     </span>
+                  )}
+                </Td>
+                <Td>
+                  {r.lecture_code ? (
+                    <span className="font-mono text-[13px] text-[color:var(--text-muted)]">
+                      {r.lecture_code}
+                    </span>
+                  ) : (
+                    <span className="text-[color:var(--text-muted)]">—</span>
                   )}
                 </Td>
                 <Td>

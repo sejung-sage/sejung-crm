@@ -184,10 +184,12 @@ async function listFromSupabase(
   //   설명회   : 위 ACA 등록 + CRM 자체 신청(crm_class_signup_items status='signed')을
   //              student_id 기준 합집합. 신청 페이지가 없는 일반 강좌는 signup 집합이
   //              비어 결과가 종전과 동일하다. 상세 KPI(class-kpi-cards) 와 같은 정의.
-  const [enrolledSetsByAcaId, signupSetsByClassId] = await Promise.all([
-    fetchEnrolledStudentSets(supabase, classRows),
-    fetchSignupStudentSets(supabase, classRows),
-  ]);
+  const [enrolledSetsByAcaId, signupSetsByClassId, codeByClassId] =
+    await Promise.all([
+      fetchEnrolledStudentSets(supabase, classRows),
+      fetchSignupStudentSets(supabase, classRows),
+      fetchClassCodes(supabase, classRows),
+    ]);
 
   const rows: ClassListItem[] = classRows.map((c) => ({
     ...c,
@@ -196,6 +198,7 @@ async function listFromSupabase(
       enrolledSetsByAcaId,
       signupSetsByClassId,
     ),
+    lecture_code: codeByClassId.get(c.id) ?? null,
   }));
 
   // enrolled_count_* 정렬은 DB 측 집계 컬럼이 없어 페이지 fetch 후
@@ -581,6 +584,39 @@ async function fetchClassIdsInTicketDateRange(
   }
 
   return [...classIdSet];
+}
+
+/**
+ * 페이지 강좌들의 강의코드를 crm_class_codes 에서 조회.
+ *
+ * - 입력: 페이지의 ClassRow 들. 출력: Map<class_id, lecture_code>.
+ * - 코드 미부여(백필 전이거나 신규 강좌) 강좌는 Map 에 없음 → 호출부에서 null.
+ * - crm_class_codes 는 ETL 과 분리된 CRM 전용 테이블(0109). class_id = crm_classes.id.
+ */
+async function fetchClassCodes(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+  classRows: ClassRow[],
+): Promise<Map<string, string>> {
+  const ids = classRows.map((c) => c.id).filter((v) => v.length > 0);
+  if (ids.length === 0) return new Map();
+
+  const { data, error } = await supabase
+    .from("crm_class_codes")
+    .select("class_id, lecture_code")
+    .in("class_id", ids);
+  if (error) {
+    // 코드 열은 정보성 — 조회 실패(예: 백필 전/배포 순서)해도 목록 자체는 살린다.
+    console.warn(`[classes] 강의코드 조회 폴백(빈값): ${error.message}`);
+    return new Map();
+  }
+  const map = new Map<string, string>();
+  for (const row of (data ?? []) as Array<{
+    class_id: string;
+    lecture_code: string;
+  }>) {
+    map.set(row.class_id, row.lecture_code);
+  }
+  return map;
 }
 
 /**
