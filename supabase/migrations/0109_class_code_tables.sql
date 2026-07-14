@@ -4,7 +4,7 @@
 -- ------------------------------------------------------------
 -- 배경(2026-07-14 확정 규칙, Notion "강의 코드 정리"):
 --   강의코드 형식 [연도][분원][과목][학년][구분][강사][순번] 를 강의별로 부여한다.
---   예: 26#RY 국현식T 고3 수학 → 26-DC-MA-H3-S-010-01
+--   예: 26#RY 국현식T 고3 수학 → 26-MA-H3-R-010-DC1050
 --
 -- 왜 별도 테이블인가:
 --   crm_classes 는 apply_aca_to_crm() 이 'INSERT INTO crm_classes SELECT * FROM
@@ -281,7 +281,7 @@ CREATE TABLE public.crm_class_codes (
 COMMENT ON TABLE  public.crm_class_codes IS
   '강의별 강의코드(2026-07-14 규칙). 생성기가 강의명·분원·과목·강사에서 파생해 upsert. crm_classes.id 참조 — ETL(apply_aca_to_crm)과 분리돼 재동기화에 안 덮인다.';
 COMMENT ON COLUMN public.crm_class_codes.class_id IS 'crm_classes.id (FK). 강의 삭제 시 CASCADE.';
-COMMENT ON COLUMN public.crm_class_codes.lecture_code IS '강의코드 문자열 예: 26-DC-MA-H3-S-010-01. 없는 자리는 생략.';
+COMMENT ON COLUMN public.crm_class_codes.lecture_code IS '강의코드 문자열 예: 26-MA-H3-R-010-DC1050. 형식 [연도]-[과목]-[학년]-[구분]-[강사]-[분원][순번4]. 없는 자리 생략.';
 
 CREATE INDEX idx_crm_class_codes_code ON public.crm_class_codes (lecture_code);
 
