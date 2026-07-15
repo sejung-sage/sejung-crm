@@ -5,7 +5,8 @@
  *   - **광고/비광고 무관, 항상 본문 맨 위에 발신 브랜드명을 한 줄 붙인다**
  *     (운영자 요청 2026-06-17 — 수신자가 어느 분원에서 온 문자인지 알 수 있게).
  *   - 광고면 그 위에 `(광고)` 줄을 한 번 더 얹는다.
- *   - 브랜드명은 **분원별**(branchBrandName): 대치="세정학원", 그 외="{분원} 세정학원".
+ *   - 브랜드명은 **분원×division별**(branchBrandName): 대치="세정학원", 그 외="{분원} 세정학원".
+ *     division 이 비본원이면 접미 라벨을 덧붙인다(대치+수학관 → "세정학원 수학관").
  *   - 형식: 비광고 `{브랜드}\n\n\n{본문}` · 광고 `(광고)\n{브랜드}\n\n\n{본문}`.
  *     (브랜드 머리와 본문 사이에 빈 줄 2개 — 수신자가 머리말과 본문을 또렷이 구분.)
  *   - 이미 `(광고)`/`[광고]` 로 시작하면 머리가 박힌 것으로 보고 그대로(중복 방지).
@@ -33,10 +34,26 @@ const BRANCH_BRAND: Record<string, string> = {
   방배: `방배 ${BRAND_BASE}`,
 };
 
-/** 분원 → 발신 브랜드명. 미지정/마스터/알 수 없는 값은 기본(세정학원). */
-export function branchBrandName(branch?: string | null): string {
-  if (!branch) return BRAND_BASE;
-  return BRANCH_BRAND[branch] ?? BRAND_BASE;
+/**
+ * division → 브랜드명 접미 라벨. 본원은 접미 없음.
+ * 분원 브랜드명 뒤에 붙는다(대치 브랜드 "세정학원" + " 수학관" = "세정학원 수학관").
+ */
+const DIVISION_BRAND_SUFFIX: Record<string, string> = {
+  수학관: " 수학관",
+};
+
+/**
+ * (분원, division) → 발신 브랜드명.
+ * 분원 브랜드명(미지정/마스터/알 수 없으면 기본 "세정학원") 뒤에 division 접미를 붙인다.
+ * division 미지정/본원이면 기존과 100% 동일.
+ */
+export function branchBrandName(
+  branch?: string | null,
+  division?: string | null,
+): string {
+  const base = branch ? (BRANCH_BRAND[branch] ?? BRAND_BASE) : BRAND_BASE;
+  const suffix = division ? (DIVISION_BRAND_SUFFIX[division] ?? "") : "";
+  return `${base}${suffix}`;
 }
 
 const AD_PREFIX_REGEX = /^\s*[[(]광고[\])]/;

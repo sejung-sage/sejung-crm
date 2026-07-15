@@ -5,20 +5,26 @@
  * 주입하고, 이 파일이 "분원 → 환경변수 키" 매핑과 폴백 규칙을 통제한다.
  *
  * 환경변수 (값은 하이픈 없는 숫자만. sendon 사전 등록·검수 '정상' 번호여야 발송됨):
- *   SENDON_FROM_NUMBER          기본/폴백 (분원 키가 비어 있으면 이 값 사용)
- *   SENDON_FROM_NUMBER_DAECHI   대치  · 예) 025670606  (02-567-0606)
- *   SENDON_FROM_NUMBER_BANPO    반포  · 예) 0262420909 (02-6242-0909)
- *   SENDON_FROM_NUMBER_BANGBAE  방배  · 예) 025326552  (02-532-6552)
- *   SENDON_FROM_NUMBER_SONGDO   송도  · 예) 0328580005 (032-858-0005)
+ *   SENDON_FROM_NUMBER              기본/폴백 (분원 키가 비어 있으면 이 값 사용)
+ *   SENDON_FROM_NUMBER_DAECHI      대치(본원)  · 예) 025670606  (02-567-0606)
+ *   SENDON_FROM_NUMBER_DAECHI_MATH 대치 수학관 · 예) 0262651010 (02-6265-1010)
+ *   SENDON_FROM_NUMBER_BANPO       반포  · 예) 0262420909 (02-6242-0909)
+ *   SENDON_FROM_NUMBER_BANGBAE     방배  · 예) 025326552  (02-532-6552)
+ *   SENDON_FROM_NUMBER_SONGDO      송도  · 예) 0328580005 (032-858-0005)
  *
- * 폴백 정책: 분원 키가 비어 있으면 SENDON_FROM_NUMBER 로 폴백한다. 따라서 분원
- * 번호를 아직 안 넣었거나 검수 대기 중이면 기존 단일 번호로 나간다(발송이 막히지
- * 않음). 단 SENDON_FROM_NUMBER 도 비면 null → 호출부(drain/test 등)가 발송을 거부.
+ * division(발신 정체성) 축: 같은 분원·같은 계정이라도 division 이 다르면 발신번호가
+ * 다르다(대치 본원 vs 대치 수학관). 본원은 기존 키(SENDON_FROM_NUMBER_DAECHI) 그대로,
+ * 비본원 division 은 그 키 뒤에 접미(_MATH 등)를 붙인 키를 쓴다. divisions.ts 참조.
+ *
+ * 폴백 정책(순서): ① (branch,division) 전용 키 → ② 그 분원 본원 키 → ③ SENDON_FROM_NUMBER.
+ * 따라서 division 번호를 아직 안 넣었으면 본원 번호로, 본원 번호도 없으면 단일 번호로
+ * 나간다(발송이 막히지 않음). 셋 다 비면 null → 호출부(drain/test 등)가 발송을 거부.
  *
  * 주의: 환경변수 키는 ASCII 만 허용(Vercel). 그래서 분원 한글명을 로마자 키에 매핑한다.
  */
 
 import type { Branch } from "./branches";
+import type { Division } from "./divisions";
 
 /** 분원 한글명 → 환경변수 키(ASCII). 새 분원 추가 시 여기만 손대면 된다. */
 const BRANCH_FROM_NUMBER_ENV: Record<Branch, string> = {
@@ -26,6 +32,16 @@ const BRANCH_FROM_NUMBER_ENV: Record<Branch, string> = {
   반포: "SENDON_FROM_NUMBER_BANPO",
   방배: "SENDON_FROM_NUMBER_BANGBAE",
   송도: "SENDON_FROM_NUMBER_SONGDO",
+};
+
+/**
+ * division → 환경변수 키 접미(ASCII). 본원은 접미 없음(기존 키 그대로).
+ * 비본원 division 은 분원 본원 키 뒤에 이 접미를 붙인다(예: _DAECHI + _MATH).
+ * 새 division 추가 시 여기와 divisions.ts 만 손대면 된다.
+ */
+const DIVISION_ENV_SUFFIX: Record<Division, string> = {
+  본원: "",
+  수학관: "MATH",
 };
 
 /**
@@ -130,17 +146,34 @@ export function sendonApiKey(branch?: string | null): string | undefined {
 }
 
 /**
- * 분원의 sendon 발신번호를 환경변수에서 해석한다.
- *  - branch 의 전용 키(SENDON_FROM_NUMBER_*)가 있으면 그 값.
- *  - 없거나 비어 있으면 SENDON_FROM_NUMBER 로 폴백.
- *  - 둘 다 비면 null → 호출부가 발송을 거부한다.
+ * (branch, division)의 sendon 발신번호를 환경변수에서 해석한다.
+ * 폴백 순서:
+ *  ① (branch, division) 전용 키 (예: SENDON_FROM_NUMBER_DAECHI_MATH)
+ *  ② 그 분원 본원 키 (예: SENDON_FROM_NUMBER_DAECHI) — division 번호 미설정 시 본원 번호로
+ *  ③ SENDON_FROM_NUMBER 폴백
+ *  ④ 셋 다 비면 null → 호출부가 발송을 거부한다.
  *
+ * division 생략/본원이면 기존 동작과 동일(분원 본원 키 → 기본 폴백).
  * branch 가 없거나(전체/마스터) 알 수 없는 값이면 폴백(SENDON_FROM_NUMBER)을 쓴다.
  */
-export function sendonFromNumber(branch?: string | null): string | null {
+export function sendonFromNumber(
+  branch?: string | null,
+  division?: Division | null,
+): string | null {
   const fallback = digitsOnly(process.env.SENDON_FROM_NUMBER);
   if (!branch) return fallback;
-  const key = (BRANCH_FROM_NUMBER_ENV as Record<string, string>)[branch];
-  if (!key) return fallback;
-  return digitsOnly(process.env[key]) ?? fallback;
+
+  const branchKey = (BRANCH_FROM_NUMBER_ENV as Record<string, string>)[branch];
+  if (!branchKey) return fallback;
+
+  // ② 분원 본원 번호 (division 전용 키가 없을 때의 폴백 · 본원 division 의 값)
+  const branchBase = digitsOnly(process.env[branchKey]) ?? fallback;
+
+  // 본원/미지정이면 분원 본원 키만 해석하면 된다.
+  const suffix = division ? DIVISION_ENV_SUFFIX[division] : "";
+  if (!suffix) return branchBase;
+
+  // ① (branch, division) 전용 키 → 없으면 ② 분원 본원 번호로 폴백
+  const divisionKey = `${branchKey}_${suffix}`;
+  return digitsOnly(process.env[divisionKey]) ?? branchBase;
 }

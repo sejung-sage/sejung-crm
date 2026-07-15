@@ -2,6 +2,7 @@ import { z } from "zod";
 import { TemplateTypeSchema } from "./common";
 import { GroupFiltersSchema } from "./group";
 import { hasNameToken } from "@/lib/messaging/personalize";
+import { DIVISIONS } from "@/config/divisions";
 
 /**
  * F3 Part B · Compose 4단계 위저드 Zod 스키마
@@ -32,6 +33,13 @@ export const ComposeStep1Schema = z.object({
     .trim()
     .min(1, "분원을 선택하세요")
     .max(20, "분원명은 20자 이내로 입력하세요"),
+  /**
+   * 발신 division(발신 정체성). 미지정/생략 = 본원(NULL) — 기존 발송과 100% 동일.
+   * branch(=sendon 계정)와 독립. division 은 발신번호(sendonFromNumber)와 표시
+   * 브랜드명(branchBrandName)만 좌우한다. 예: 대치 "본원" vs "수학관".
+   * 선택지·검증은 config/divisions 의 branchDivisions(branch) 를 단일 소스로 한다.
+   */
+  senderDivision: z.enum(DIVISIONS).optional(),
 });
 export type ComposeStep1 = z.infer<typeof ComposeStep1Schema>;
 
@@ -149,6 +157,8 @@ export const TestSendInputSchema = z.object({
     .regex(/^01[016789][0-9]{7,8}$/, "휴대폰 번호 형식이 올바르지 않습니다"),
   /** 작성 화면에서 고른 발송 분원 — 발신번호·브랜드 분원 해석용. 미지정 시 본인 분원. */
   branch: z.string().trim().min(1).max(20).optional(),
+  /** 발신 division. 미지정/생략 = 본원. 발신번호·브랜드 해석용(compose step1 과 동일 의미). */
+  senderDivision: z.enum(DIVISIONS).optional(),
 });
 export type TestSendInput = z.infer<typeof TestSendInputSchema>;
 

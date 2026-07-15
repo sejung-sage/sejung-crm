@@ -18,6 +18,11 @@ import {
 } from "lucide-react";
 import type { Grade, StudentStatus, TemplateRow } from "@/types/database";
 import type { ClassOption } from "@/lib/classes/list-class-options";
+import {
+  branchDivisions,
+  DEFAULT_DIVISION,
+  type Division,
+} from "@/config/divisions";
 import type { GroupFilters } from "@/lib/schemas/group";
 import { isEmptyFilterCohort } from "@/lib/schemas/group";
 import type { PreviewResult } from "@/lib/messaging/preview-recipients";
@@ -87,6 +92,16 @@ const VARIABLE_TOKENS: Array<{ token: string; label: string }> = [
   { token: "{이름}", label: "{이름}" },
   { token: "{날짜}", label: "{날짜}" },
 ];
+
+/**
+ * 발신 division 옵션 표시 라벨. 값 그대로 + 이해를 돕는 부가 설명(표시명 수준).
+ * 발신번호는 하드코딩하지 않는다(서버가 division 으로 해석). 미등록 division 은
+ * 값 그대로 폴백해 division 확장 시 이 파일 수정 없이도 동작한다.
+ */
+const DIVISION_LABELS: Partial<Record<Division, string>> = {
+  본원: "본원 (세정학원)",
+  수학관: "수학관 (세정학원 수학관)",
+};
 
 const INPUT_CLASS = `
   w-full h-11 rounded-lg px-3
@@ -210,6 +225,19 @@ export function ComposeInline({
   });
   const [scheduleAt, setScheduleAt] = useState<string | null>(null);
   const [mode, setMode] = useState<"now" | "schedule">("now");
+
+  // 발신 division(발신 명의). 분원이 2개 이상 division 을 가질 때만 선택 노출
+  // (현재 대치=본원/수학관, 나머지 분원=본원 단일 → 컨트롤 숨김).
+  const availableDivisions = useMemo(() => branchDivisions(branch), [branch]);
+  const showDivisionSelect = availableDivisions.length > 1;
+  const [senderDivision, setSenderDivision] =
+    useState<Division>(DEFAULT_DIVISION);
+  // 분원이 바뀌어 현재 선택값이 그 분원에서 무효면 기본(본원)으로 리셋한다.
+  useEffect(() => {
+    if (!availableDivisions.includes(senderDivision)) {
+      setSenderDivision(DEFAULT_DIVISION);
+    }
+  }, [availableDivisions, senderDivision]);
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -402,8 +430,9 @@ export function ComposeInline({
       setPreviewError(null);
       startPreview(async () => {
         try {
+          const step1 = { filters, branch, senderDivision };
           const r = await previewAction({
-            step1: { filters, branch },
+            step1,
             step2: {
               templateId: step2.templateId,
               type: step2.type,
@@ -657,6 +686,7 @@ export function ComposeInline({
   const confirmSend = () => {
     setConfirmOpen(false);
     setSendError(null);
+    const step1Payload = { filters, branch, senderDivision };
     const step2Payload = {
       templateId: step2.templateId,
       type: step2.type,
@@ -670,7 +700,7 @@ export function ComposeInline({
     startSending(async () => {
       if (mode === "now") {
         const r = await sendNowAction({
-          step1: { filters, branch },
+          step1: step1Payload,
           step2: step2Payload,
           step3: { title: title.trim() },
         });
@@ -679,7 +709,7 @@ export function ComposeInline({
         if (!scheduleAt) return;
         const iso = new Date(scheduleAt).toISOString();
         const r = await scheduleAction({
-          step1: { filters, branch },
+          step1: step1Payload,
           step2: step2Payload,
           step3: { title: title.trim() },
           scheduleAt: iso,
@@ -703,6 +733,33 @@ export function ComposeInline({
           분원은 좌측 상단에서 변경합니다.
         </span>
       </div>
+
+      {/* 발신 명의(division) — division 이 2개 이상인 분원(현재 대치)만 노출 */}
+      {showDivisionSelect && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <label
+            htmlFor="compose-division"
+            className="text-[13px] font-medium text-[color:var(--text)]"
+          >
+            발신 명의
+          </label>
+          <select
+            id="compose-division"
+            value={senderDivision}
+            onChange={(e) => setSenderDivision(e.target.value as Division)}
+            className="h-10 rounded-md px-2.5 bg-bg-card border border-[color:var(--border)] text-[15px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer"
+          >
+            {availableDivisions.map((d) => (
+              <option key={d} value={d}>
+                {DIVISION_LABELS[d] ?? d}
+              </option>
+            ))}
+          </select>
+          <span className="text-[12px] text-[color:var(--text-dim)]">
+            선택한 명의로 발신번호·표시명이 정해집니다.
+          </span>
+        </div>
+      )}
 
       {/* ── 문자 작성 ── */}
       <section className="space-y-5">

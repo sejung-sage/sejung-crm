@@ -49,6 +49,7 @@ import {
 } from "@/lib/groups/search-recipients-rpc";
 import { isCustomGroup } from "@/lib/schemas/group";
 import type { GroupFilters } from "@/lib/schemas/group";
+import type { Division } from "@/config/divisions";
 import { isAllSubjects } from "@/lib/schemas/common";
 import {
   applySchoolExclusion,
@@ -106,6 +107,11 @@ export interface PreviewRecipientsInput {
   filters?: GroupFilters;
   /** 필터 기반 발송 분원. filters 와 함께 제출. */
   branch?: string;
+  /**
+   * 발신 division(발신 정체성). NULL/생략 = 본원 — 발신 브랜드 머리말 해석용.
+   * 그룹 기반 발송은 division 개념이 없어 항상 본원. 필터 기반(compose)만 전달한다.
+   */
+  senderDivision?: Division | null;
   body: string;
   isAd: boolean;
   type: "SMS" | "LMS" | "ALIMTALK";
@@ -149,6 +155,8 @@ const MAX_PREVIEW_DEDUPE_RECIPIENTS = 100_000;
 interface PreviewGroupLike {
   id: string | null;
   branch: string;
+  /** 발신 division. null = 본원(그룹 기반은 항상 null). 발신 브랜드 해석용. */
+  division: Division | null;
   filters: GroupFilters;
 }
 
@@ -161,14 +169,25 @@ async function resolvePreviewGroup(
   input: PreviewRecipientsInput,
 ): Promise<PreviewGroupLike> {
   if (input.filters && input.branch !== undefined) {
-    return { id: null, branch: input.branch, filters: input.filters };
+    return {
+      id: null,
+      branch: input.branch,
+      division: input.senderDivision ?? null,
+      filters: input.filters,
+    };
   }
   if (input.groupId) {
     const group = await getGroup(input.groupId);
     if (!group) {
       throw new Error("존재하지 않는 그룹입니다");
     }
-    return { id: group.id, branch: group.branch, filters: group.filters };
+    // 그룹 기반 발송은 division 개념이 없다 → 항상 본원(null).
+    return {
+      id: group.id,
+      branch: group.branch,
+      division: null,
+      filters: group.filters,
+    };
   }
   throw new Error("발송 대상(그룹 또는 필터)이 지정되지 않았습니다");
 }
@@ -220,7 +239,7 @@ function previewFromDevSeed(
   const guarded = applyAllGuards({
     body: input.body,
     isAd: input.isAd,
-    brand: branchBrandName(group.branch),
+    brand: branchBrandName(group.branch, group.division),
     scheduledAt: input.scheduledAt ?? new Date(),
     recipients: legs,
     unsubscribedPhones: [], // dev-seed 미보유
@@ -279,7 +298,7 @@ async function previewFromSupabase(
   const withHeader = insertSenderHeader(
     input.body,
     input.isAd,
-    branchBrandName(group.branch),
+    branchBrandName(group.branch, group.division),
   );
   const finalBody = insertUnsubscribeFooter(withHeader, input.isAd);
   const quiet = checkQuietHours(input.scheduledAt ?? new Date(), input.isAd);

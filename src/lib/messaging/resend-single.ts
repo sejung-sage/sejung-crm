@@ -55,6 +55,7 @@ import {
   extractFailedReason,
   updateMessage,
   incrementCampaignCost,
+  loadCampaignSenderDivision,
 } from "./message-update-helpers";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -170,6 +171,10 @@ export async function resendSingleMessage(
   const campaignBody = campaign.body;
   const campaignType = campaign.type;
 
+  // 발신 division — 캠페인 레코드 기준(NULL/미설정=본원). getCampaign 이 필드를
+  // 떨구므로 별도 정규화 조회. 발신번호·브랜드로 관통(무회귀).
+  const senderDivision = await loadCampaignSenderDivision(supabase, campaignId);
+
   // {이름} 치환용 학생 이름 — 단건 발송은 sendon batch(userParameters) 가 아니라
   // applyNameToken 으로 앱에서 직접 치환한다(test-send 와 동일). 학생 미연결·조회
   // 실패 시 applyNameToken 의 '학부모님' fallback 이 적용된다.
@@ -208,7 +213,7 @@ export async function resendSingleMessage(
   const guarded = applyAllGuards({
     body: campaignBody,
     isAd: campaign.is_ad,
-    brand: branchBrandName(campaign.branch),
+    brand: branchBrandName(campaign.branch, senderDivision),
     scheduledAt: new Date(),
     recipients,
     unsubscribedPhones,
@@ -264,8 +269,9 @@ export async function resendSingleMessage(
   }
 
   // 8) 어댑터 발송
-  const adapter = createSmsAdapter(campaign.branch);
-  const fromNumber = readFromNumber(adapter.name);
+  const adapter = createSmsAdapter(campaign.branch, senderDivision);
+  // 분원×division별 발신번호 — 캠페인 기준(종전엔 branch 미전달 버그, 이번에 교정).
+  const fromNumber = readFromNumber(adapter.name, campaign.branch, senderDivision);
   if (!fromNumber) {
     return {
       status: "failed",

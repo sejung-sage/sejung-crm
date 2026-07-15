@@ -19,8 +19,35 @@
 import type { SmsSendResult } from "./adapters/types";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { sendonFromNumber } from "@/config/sender-numbers";
+import { isDivision, type Division } from "@/config/divisions";
 
 type SupabaseSrv = Awaited<ReturnType<typeof createSupabaseServerClient>>;
+
+/**
+ * 캠페인 행의 sender_division(자유 TEXT · NULL=본원)을 Division|null 로 정규화.
+ * select("*") 결과 등 아무 행이나 받아 unknown 접근을 좁힌다. 유효하지 않은 값/NULL/
+ * 컬럼 부재(마이그 적용 전)는 모두 null → 호출부가 본원 기본으로 해석(무회귀).
+ */
+export function campaignSenderDivision(row: unknown): Division | null {
+  const raw = (row as { sender_division?: unknown } | null)?.sender_division;
+  return isDivision(raw) ? raw : null;
+}
+
+/**
+ * 캠페인의 sender_division 만 정규화해 반환. getCampaign 이 필드를 떨구는 재발송
+ * 경로에서 사용. select("*") 로 읽어 컬럼 부재(마이그 적용 전)에도 안전(null=본원).
+ */
+export async function loadCampaignSenderDivision(
+  supabase: SupabaseSrv,
+  campaignId: string,
+): Promise<Division | null> {
+  const { data } = await supabase
+    .from("crm_campaigns")
+    .select("*")
+    .eq("id", campaignId)
+    .maybeSingle();
+  return campaignSenderDivision(data);
+}
 
 /** 캠페인 상태 enum. crm_campaigns.status 가 허용하는 값. */
 export type CampaignStatus =
@@ -34,15 +61,17 @@ export type CampaignStatus =
 /**
  * 어댑터별 발신번호를 환경변수에서만 읽는다. 하드코딩 금지(CLAUDE.md 가드).
  * sendon 은 분원별 번호가 달라 branch 를 받아 분원 전용 번호를 해석한다(미설정 시
- * SENDON_FROM_NUMBER 폴백). 알 수 없는 어댑터면 null → 호출부가 발송을 거부한다.
+ * SENDON_FROM_NUMBER 폴백). division 은 같은 분원 내 발신 정체성(본원/수학관)별
+ * 번호를 가른다(미지정/본원이면 분원 본원 번호 — 무회귀). 알 수 없는 어댑터면 null.
  */
 export function readFromNumber(
   adapterName: string,
   branch?: string | null,
+  division?: Division | null,
 ): string | null {
   switch (adapterName) {
     case "sendon":
-      return sendonFromNumber(branch);
+      return sendonFromNumber(branch, division);
     default:
       return null;
   }

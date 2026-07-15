@@ -105,6 +105,7 @@ export async function previewAction(
     const data = await previewRecipients({
       filters: parsed.step1.filters,
       branch: parsed.step1.branch,
+      senderDivision: parsed.step1.senderDivision ?? null,
       body: parsed.step2.body,
       isAd: parsed.step2.isAd,
       type: parsed.step2.type,
@@ -159,6 +160,7 @@ export async function testSendAction(
     isAd: parsed.step2.isAd,
     toPhone: parsed.toPhone,
     branch: parsed.branch,
+    senderDivision: parsed.senderDivision,
   });
 }
 
@@ -199,6 +201,7 @@ export async function sendNowAction(
     title: parsed.step3.title,
     filters: parsed.step1.filters,
     branch: parsed.step1.branch,
+    senderDivision: parsed.step1.senderDivision,
     templateId: parsed.step2.templateId ?? null,
     body: parsed.step2.body,
     subject: parsed.step2.subject ?? null,
@@ -258,6 +261,7 @@ export async function scheduleAction(
     title: parsed.step3.title,
     filters: parsed.step1.filters,
     branch: parsed.step1.branch,
+    senderDivision: parsed.step1.senderDivision,
     templateId: parsed.step2.templateId ?? null,
     body: parsed.step2.body,
     subject: parsed.step2.subject ?? null,

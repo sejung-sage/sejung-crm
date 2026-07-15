@@ -26,6 +26,7 @@ import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { sendonFromNumber } from "@/config/sender-numbers";
+import type { Division } from "@/config/divisions";
 import type { SendCampaignResult } from "./send-campaign";
 import { isPhoneUnsubscribed } from "./unsubscribed-phones";
 
@@ -41,6 +42,8 @@ export interface TestSendInput {
   toPhone: string;
   /** 발송 분원 — 발신번호·브랜드 분원 해석용. 미지정 시 본인 분원(user.branch). */
   branch?: string;
+  /** 발신 division. 미지정/생략 = 본원. 발신번호·브랜드 해석용(무회귀). */
+  senderDivision?: Division;
 }
 
 type SupabaseSrv = Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -66,6 +69,8 @@ export async function testSend(
   // 발신번호·브랜드 분원 — 작성 화면에서 고른 분원(input.branch) 우선, 없으면 본인 분원.
   // 마스터가 반포를 작성 중이면 반포 번호로 테스트가 나가게 한다.
   const sendBranch = input.branch ?? user.branch;
+  // 발신 division — 작성 화면에서 고른 값(미지정=본원). 발신번호·브랜드 해석용.
+  const sendDivision = input.senderDivision ?? null;
 
   const phone = input.toPhone.replace(/\D/g, "");
   if (!/^01[016789][0-9]{7,8}$/.test(phone)) {
@@ -81,7 +86,7 @@ export async function testSend(
   const guarded = applyAllGuards({
     body: input.body,
     isAd: input.isAd,
-    brand: branchBrandName(sendBranch),
+    brand: branchBrandName(sendBranch, sendDivision),
     scheduledAt: new Date(),
     recipients: [
       {
@@ -151,10 +156,10 @@ export async function testSend(
   }
 
   // 6) 어댑터 1회 호출
-  const adapter = createSmsAdapter(sendBranch);
-  // 분원별 발신번호 — sendBranch(작성 분원, 없으면 본인) 기준.
-  // 마스터 등 매핑 없는 분원은 SENDON_FROM_NUMBER 로 폴백.
-  const fromNumber = readFromNumber(adapter.name, sendBranch);
+  const adapter = createSmsAdapter(sendBranch, sendDivision);
+  // 분원×division별 발신번호 — sendBranch(작성 분원, 없으면 본인) 기준.
+  // 마스터 등 매핑 없는 분원/division 은 본원 번호 → SENDON_FROM_NUMBER 로 폴백.
+  const fromNumber = readFromNumber(adapter.name, sendBranch, sendDivision);
   if (!fromNumber) {
     await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
     return {
@@ -242,10 +247,11 @@ function shortenForTitle(body: string): string {
 function readFromNumber(
   adapterName: string,
   branch?: string | null,
+  division?: Division | null,
 ): string | null {
   switch (adapterName) {
     case "sendon":
-      return sendonFromNumber(branch);
+      return sendonFromNumber(branch, division);
     default:
       return null;
   }
