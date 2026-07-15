@@ -479,7 +479,10 @@ export function ComposeInline({
   }, [step2.subject, step2.isAd]);
   const subjectOverflow = subjectBytes > SUBJECT_BYTE_LIMIT;
 
-  const brandName = useMemo(() => branchBrandName(branch), [branch]);
+  const brandName = useMemo(
+    () => branchBrandName(branch, senderDivision),
+    [branch, senderDivision],
+  );
   const clientFinalBody = useMemo(() => {
     const withHeader = insertSenderHeader(step2.body, step2.isAd, brandName);
     return insertUnsubscribeFooter(withHeader, step2.isAd, optOutNumber);
@@ -835,6 +838,7 @@ export function ComposeInline({
             body={step2.body}
             isAd={step2.isAd}
             branch={branch}
+            senderDivision={senderDivision}
             disabled={!step2.body.trim()}
           />
         </div>
