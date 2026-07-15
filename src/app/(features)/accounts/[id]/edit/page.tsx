@@ -64,6 +64,7 @@ export default async function EditAccountPage({
           role: target.role,
           branch: target.branch,
           active: target.active,
+          sender_division: target.sender_division,
         }}
       />
     </div>

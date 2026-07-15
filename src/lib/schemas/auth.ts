@@ -12,6 +12,7 @@
 
 import { z } from "zod";
 import { UserRoleSchema } from "@/lib/schemas/common";
+import { DIVISIONS } from "@/config/divisions";
 
 // ─── 로그인 ──────────────────────────────────────────────────
 
@@ -40,6 +41,9 @@ export const CreateAccountInputSchema = z.object({
     .regex(/[0-9]/, "숫자를 포함해야 합니다"),
   role: UserRoleSchema,
   branch: z.string().trim().min(1, "분원은 필수입니다").max(20, "분원은 20자 이하입니다"),
+  // 발신 명의(division). 대치처럼 division 이 2개 이상인 분원의 계정에만 의미가 있다.
+  // 미지정/단일 division 분원은 서버가 본원으로 해석한다.
+  senderDivision: z.enum(DIVISIONS).optional(),
 });
 
 export type CreateAccountInput = z.infer<typeof CreateAccountInputSchema>;
@@ -52,6 +56,8 @@ export const UpdateAccountInputSchema = z.object({
   role: UserRoleSchema.optional(),
   branch: z.string().trim().min(1).max(20).optional(),
   active: z.boolean().optional(),
+  // 발신 명의(division) 변경분. 대치처럼 division 2개 이상인 분원의 계정에만 의미.
+  senderDivision: z.enum(DIVISIONS).optional(),
 });
 
 export type UpdateAccountInput = z.infer<typeof UpdateAccountInputSchema>;

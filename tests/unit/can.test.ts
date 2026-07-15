@@ -36,6 +36,7 @@ function makeUser(partial: Partial<CurrentUser>): CurrentUser {
     branch: "대치",
     active: true,
     must_change_password: false,
+    sender_division: null,
     ...partial,
   };
 }

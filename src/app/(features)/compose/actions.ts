@@ -33,6 +33,7 @@ import {
   type SendCampaignResult,
 } from "@/lib/messaging/send-campaign";
 import { testSend } from "@/lib/messaging/test-send";
+import { resolveSenderDivision } from "@/lib/messaging/resolve-sender-division";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
@@ -153,6 +154,14 @@ export async function testSendAction(
     return { status: "failed", reason: "캠페인 발송 권한이 없습니다" };
   }
 
+  // 발신 명의 서버 강제: 비마스터는 클라이언트 입력을 무시하고 계정 고정 명의로.
+  const sendBranch = parsed.branch ?? user.branch;
+  const senderDivision = resolveSenderDivision(
+    user,
+    sendBranch,
+    parsed.senderDivision,
+  );
+
   return await testSend({
     body: parsed.step2.body,
     subject: parsed.step2.subject ?? null,
@@ -160,7 +169,7 @@ export async function testSendAction(
     isAd: parsed.step2.isAd,
     toPhone: parsed.toPhone,
     branch: parsed.branch,
-    senderDivision: parsed.senderDivision,
+    senderDivision,
   });
 }
 
@@ -197,11 +206,20 @@ export async function sendNowAction(
   const guard = await assertSendPermission(parsed.step1.branch);
   if (!guard.ok) return { status: "failed", reason: guard.reason };
 
+  // 발신 명의 서버 강제(getCurrentUser 는 요청 캐시라 추가 왕복 없음).
+  const user = await getCurrentUser();
+  if (!user) return { status: "failed", reason: "로그인 후 이용 가능합니다" };
+  const senderDivision = resolveSenderDivision(
+    user,
+    parsed.step1.branch,
+    parsed.step1.senderDivision,
+  );
+
   return await sendCampaign({
     title: parsed.step3.title,
     filters: parsed.step1.filters,
     branch: parsed.step1.branch,
-    senderDivision: parsed.step1.senderDivision,
+    senderDivision,
     templateId: parsed.step2.templateId ?? null,
     body: parsed.step2.body,
     subject: parsed.step2.subject ?? null,
@@ -257,11 +275,20 @@ export async function scheduleAction(
   const guard = await assertSendPermission(parsed.step1.branch);
   if (!guard.ok) return { status: "failed", reason: guard.reason };
 
+  // 발신 명의 서버 강제(getCurrentUser 는 요청 캐시라 추가 왕복 없음).
+  const user = await getCurrentUser();
+  if (!user) return { status: "failed", reason: "로그인 후 이용 가능합니다" };
+  const senderDivision = resolveSenderDivision(
+    user,
+    parsed.step1.branch,
+    parsed.step1.senderDivision,
+  );
+
   return await sendCampaign({
     title: parsed.step3.title,
     filters: parsed.step1.filters,
     branch: parsed.step1.branch,
-    senderDivision: parsed.step1.senderDivision,
+    senderDivision,
     templateId: parsed.step2.templateId ?? null,
     body: parsed.step2.body,
     subject: parsed.step2.subject ?? null,

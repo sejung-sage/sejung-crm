@@ -140,6 +140,12 @@ interface Props {
    */
   canPickBranch?: boolean;
   /**
+   * 비마스터 계정의 고정 발신 명의(division). 값이 있으면 발신 명의 셀렉트를
+   * 이 값으로 고정하고 비활성화한다(못 바꿈). 마스터는 null/undefined 로 넘겨
+   * 종전처럼 자유 선택. 서버가 최종 강제하므로 UI 잠금은 UX 표시용.
+   */
+  lockedDivision?: Division | null;
+  /**
    * 진입 prefill 초기 필터(서버에서 학생/강좌/회차를 학생 id 로 해석한 결과).
    * kind='custom' + includeStudentIds 면 그 학생들로 시작(우측 명단·체크가 채워짐).
    * 미지정/kind='filter' 면 빈 조건으로 시작(기존 동작).
@@ -178,6 +184,7 @@ function emptyChipValue(): FilterChipValue {
 
 export function ComposeInline({
   branch: initialBranch,
+  lockedDivision = null,
   initialFilters,
   schoolOptions,
   classOptions,
@@ -230,14 +237,23 @@ export function ComposeInline({
   // (현재 대치=본원/수학관, 나머지 분원=본원 단일 → 컨트롤 숨김).
   const availableDivisions = useMemo(() => branchDivisions(branch), [branch]);
   const showDivisionSelect = availableDivisions.length > 1;
-  const [senderDivision, setSenderDivision] =
-    useState<Division>(DEFAULT_DIVISION);
-  // 분원이 바뀌어 현재 선택값이 그 분원에서 무효면 기본(본원)으로 리셋한다.
+  // 비마스터(lockedDivision 존재)면 셀렉트를 이 값으로 고정·비활성화한다.
+  const divisionLocked = lockedDivision != null;
+  // 초기값: 잠금이면 계정 명의, 아니면 기본(본원).
+  const [senderDivision, setSenderDivision] = useState<Division>(
+    lockedDivision ?? DEFAULT_DIVISION,
+  );
+  // 분원이 바뀌어 현재 선택값이 그 분원에서 무효면 리셋한다. 잠금이면 계정
+  // 명의(그 분원에서 유효할 때)를, 아니면 기본(본원)을 우선한다.
   useEffect(() => {
     if (!availableDivisions.includes(senderDivision)) {
-      setSenderDivision(DEFAULT_DIVISION);
+      const next =
+        lockedDivision && availableDivisions.includes(lockedDivision)
+          ? lockedDivision
+          : DEFAULT_DIVISION;
+      setSenderDivision(next);
     }
-  }, [availableDivisions, senderDivision]);
+  }, [availableDivisions, senderDivision, lockedDivision]);
 
   const bodyRef = useRef<HTMLTextAreaElement>(null);
 
@@ -749,8 +765,14 @@ export function ComposeInline({
           <select
             id="compose-division"
             value={senderDivision}
+            disabled={divisionLocked}
+            title={
+              divisionLocked
+                ? "발신 명의는 계정에 지정된 값으로 고정됩니다"
+                : undefined
+            }
             onChange={(e) => setSenderDivision(e.target.value as Division)}
-            className="h-10 rounded-md px-2.5 bg-bg-card border border-[color:var(--border)] text-[15px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer"
+            className="h-10 rounded-md px-2.5 bg-bg-card border border-[color:var(--border)] text-[15px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-muted)] disabled:cursor-not-allowed"
           >
             {availableDivisions.map((d) => (
               <option key={d} value={d}>
@@ -759,7 +781,9 @@ export function ComposeInline({
             ))}
           </select>
           <span className="text-[12px] text-[color:var(--text-dim)]">
-            선택한 명의로 발신번호·표시명이 정해집니다.
+            {divisionLocked
+              ? "계정에 지정된 발신 명의로 고정됩니다."
+              : "선택한 명의로 발신번호·표시명이 정해집니다."}
           </span>
         </div>
       )}

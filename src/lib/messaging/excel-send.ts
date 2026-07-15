@@ -37,6 +37,7 @@ import {
   safeUpdateCampaignStatus,
   incrementCampaignCost,
 } from "./message-update-helpers";
+import { resolveSenderDivision } from "./resolve-sender-division";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
@@ -98,6 +99,10 @@ export async function excelSend(
       { skippedInvalid: 0, skippedUnsub: 0, deduped: 0 },
     );
   }
+
+  // 발신 명의 서버 강제 — 엑셀 발송은 명의 입력이 없으므로 requested=undefined.
+  // 비마스터는 계정 고정 명의, 마스터는 본원으로 귀결.
+  const sendDivision = resolveSenderDivision(user, user.branch, undefined);
 
   // 2) 서버 재검증 (클라 검증과 별개로 신뢰 경계에서 한 번 더)
   const parsed = ExcelSendInputSchema.safeParse(input);
@@ -167,7 +172,7 @@ export async function excelSend(
   const guarded = applyAllGuards({
     body: data.body,
     isAd: data.isAd,
-    brand: branchBrandName(user.branch),
+    brand: branchBrandName(user.branch, sendDivision),
     scheduledAt: new Date(),
     recipients,
     unsubscribedPhones,
@@ -215,6 +220,7 @@ export async function excelSend(
     total_cost: 0,
     created_by: user.user_id,
     branch: user.branch,
+    sender_division: sendDivision,
     is_test: false,
     body: data.body,
     subject,
@@ -297,8 +303,8 @@ export async function excelSend(
   }
 
   // 8) 발송 — 어댑터/발신번호 준비. 분원별 발신번호(엑셀발송은 본인 분원 기준).
-  const adapter = createSmsAdapter(user.branch);
-  const fromNumber = readFromNumber(adapter.name, user.branch);
+  const adapter = createSmsAdapter(user.branch, sendDivision);
+  const fromNumber = readFromNumber(adapter.name, user.branch, sendDivision);
   if (!fromNumber) {
     await safeUpdateCampaignStatus(supabase, campaignId, "실패");
     return withSkips(
