@@ -2,13 +2,18 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { KeyRound, Loader2 } from "lucide-react";
 import type { UserRole } from "@/types/database";
 import { CreateAccountInputSchema } from "@/lib/schemas/auth";
 import { createAccountAction } from "@/app/(features)/accounts/actions";
 import { useToast } from "@/components/ui/toast";
 import { BRANCHES as BRANCH_OPTIONS, MASTER_BRANCH } from "@/config/branches";
+import {
+  branchDivisions,
+  DEFAULT_DIVISION,
+  type Division,
+} from "@/config/divisions";
 
 interface Props {
   currentUserRole: UserRole;
@@ -64,6 +69,19 @@ export function AccountCreateForm({
   // 마스터 계정은 분원에 속하지 않으므로 "마스터" 분원으로 고정.
   const effectiveBranch = role === "master" ? MASTER_BRANCH : branch;
 
+  // 발신 명의(division) — 분원에 division 이 2개 이상일 때(현재 대치)만 노출.
+  // 마스터 계정은 발송 시 명의를 고르므로 필드 불필요.
+  const divisionOptions = branchDivisions(effectiveBranch);
+  const showDivisionField = role !== "master" && divisionOptions.length > 1;
+  const [senderDivision, setSenderDivision] =
+    useState<Division>(DEFAULT_DIVISION);
+  // 분원이 바뀌어 현재 명의가 그 분원에서 무효면 기본(본원)으로 리셋.
+  useEffect(() => {
+    if (!divisionOptions.includes(senderDivision)) {
+      setSenderDivision(DEFAULT_DIVISION);
+    }
+  }, [divisionOptions, senderDivision]);
+
   const [notice, setNotice] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -101,6 +119,7 @@ export function AccountCreateForm({
         password,
         role,
         branch: effectiveBranch,
+        senderDivision: showDivisionField ? senderDivision : undefined,
       });
 
       if (result.status === "success") {
@@ -284,6 +303,28 @@ export function AccountCreateForm({
           )}
         </select>
       </Field>
+
+      {/* 발신 명의 (division 이 2개 이상인 분원만) */}
+      {showDivisionField && (
+        <Field
+          id="acc-division"
+          label="발신 명의"
+          hint="이 계정이 문자 발송 시 사용할 발신 명의입니다. 발신번호·표시명이 이 값으로 정해집니다."
+        >
+          <select
+            id="acc-division"
+            value={senderDivision}
+            onChange={(e) => setSenderDivision(e.target.value as Division)}
+            className={selectClass}
+          >
+            {divisionOptions.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
 
       {/* 액션 */}
       <div className="flex items-center justify-end gap-2 pt-4 border-t border-[color:var(--border)]">

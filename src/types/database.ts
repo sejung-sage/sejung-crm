@@ -229,6 +229,7 @@ export interface ClassListItem extends ClassRow {
  */
 export type { GroupFilters } from "@/lib/schemas/group";
 import type { GroupFilters } from "@/lib/schemas/group";
+import type { Division } from "@/config/divisions";
 
 export interface GroupRow {
   id: string;
@@ -426,6 +427,11 @@ export interface UserProfileRow {
   active: boolean;
   /** 첫 로그인 시 비밀번호 변경 강제 플래그. 초대 직후 TRUE. */
   must_change_password: boolean;
+  /**
+   * 계정 발신 명의(본원/수학관 등). NULL=본원. 0111 추가.
+   * 대치 분원 계정만 의미 — 이 값으로 문자 발송 명의가 고정된다(마스터는 예외).
+   */
+  sender_division: Division | null;
   created_at: string;
   updated_at: string;
 }
@@ -450,6 +456,11 @@ export type CurrentUser = {
   branch: string;
   active: boolean;
   must_change_password: boolean;
+  /**
+   * 계정 발신 명의(본원/수학관). NULL=본원 기본. 0111 추가.
+   * 대치 스태프 계정은 이 값으로 발송 명의가 고정, 마스터만 발송 시 선택 가능.
+   */
+  sender_division: Division | null;
 };
 
 // ─── 뷰 타입 ────────────────────────────────────────────────

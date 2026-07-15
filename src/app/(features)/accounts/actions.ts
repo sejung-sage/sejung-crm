@@ -32,6 +32,11 @@ import {
 } from "@/lib/supabase/server";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
+import {
+  DEFAULT_DIVISION,
+  branchDivisions,
+  type Division,
+} from "@/config/divisions";
 import type { CurrentUser, UserProfileRow } from "@/types/database";
 
 // ─── 결과 타입 ──────────────────────────────────────────────
@@ -72,6 +77,24 @@ function zodErrorToReason(err: ZodError): string {
   const first = err.issues[0];
   if (!first) return "입력 값이 올바르지 않습니다";
   return first.message || "입력 값이 올바르지 않습니다";
+}
+
+/**
+ * 저장할 발신 명의(sender_division) 정규화.
+ * 대치처럼 division 이 2개 이상인 분원의 계정에만 의미가 있다. 그 분원에서 유효한
+ * 비-본원 division 이면 그대로, 그 외(미지정·본원·비대치 분원·미허용 값)는 NULL(=본원).
+ * 폼이 비대치 분원에 division 을 실어 보내도 여기서 NULL 로 강제된다.
+ */
+function normalizeSenderDivision(
+  branch: string,
+  requested: Division | undefined,
+): Division | null {
+  if (!requested) return null;
+  const allowed = branchDivisions(branch);
+  if (requested !== DEFAULT_DIVISION && allowed.includes(requested)) {
+    return requested;
+  }
+  return null;
 }
 
 async function requireCurrentUser(): Promise<
@@ -186,6 +209,11 @@ export async function createAccountAction(
     branch: payload.branch,
     active: true,
     must_change_password: false,
+    // 비대치 분원이면 폼 값과 무관하게 NULL(본원)로 강제.
+    sender_division: normalizeSenderDivision(
+      payload.branch,
+      payload.senderDivision,
+    ),
   };
 
   const { error: insertErr } = await (
@@ -263,12 +291,22 @@ export async function updateAccountAction(
     role?: string;
     branch?: string;
     active?: boolean;
+    sender_division?: Division | null;
   };
   const patch: ProfilePatch = {};
   if (payload.name !== undefined) patch.name = payload.name;
   if (payload.role !== undefined) patch.role = payload.role;
   if (payload.branch !== undefined) patch.branch = payload.branch;
   if (payload.active !== undefined) patch.active = payload.active;
+  // 발신 명의 — 변경 후 분원(미변경이면 기존 분원) 기준으로 정규화.
+  // 비대치 분원이면 폼 값과 무관하게 NULL(본원)로 강제.
+  if (payload.senderDivision !== undefined) {
+    const effectiveBranch = payload.branch ?? target.profile.branch;
+    patch.sender_division = normalizeSenderDivision(
+      effectiveBranch,
+      payload.senderDivision,
+    );
+  }
 
   if (Object.keys(patch).length === 0) {
     return { status: "success" };

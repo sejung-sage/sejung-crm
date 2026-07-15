@@ -21,6 +21,7 @@ import {
   type GroupFilters,
 } from "@/lib/schemas/group";
 import { ComposeInline } from "@/components/compose/compose-inline";
+import { DEFAULT_DIVISION, type Division } from "@/config/divisions";
 import type { TemplateRow } from "@/types/database";
 
 /**
@@ -198,6 +199,14 @@ export default async function ComposePage({
       : currentUser.branch);
   const canPickBranch = currentUser.role === "master";
 
+  // 발신 명의 잠금: 마스터는 발송 시 명의를 직접 고를 수 있으므로 잠금 없음(null).
+  // 비마스터는 자기 계정의 명의로 고정(미지정이면 본원). compose 에서 셀렉트가
+  // 비활성으로 표시된다. 서버가 최종 강제하므로 이 값은 UX 표시용.
+  const lockedDivision: Division | null =
+    currentUser.role === "master"
+      ? null
+      : (currentUser.sender_division ?? DEFAULT_DIVISION);
+
   // 스키마 기본값 위에 prefill 만 덮는다. prefill 진입은 학생을 직접 골라 담는
   // 흐름이므로 kind='custom'(고정 명단). prefill 없으면 기본 'filter'(조건).
   const initialFilters: GroupFilters = {
@@ -248,6 +257,7 @@ export default async function ComposePage({
       <ComposeInline
         branch={branch}
         canPickBranch={canPickBranch}
+        lockedDivision={lockedDivision}
         initialFilters={initialFilters}
         schoolOptions={schoolOptions}
         classOptions={classOptions}

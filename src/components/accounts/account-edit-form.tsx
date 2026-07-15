@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import {
   Loader2,
   Lock,
@@ -23,6 +23,11 @@ import {
   adminResetPasswordAction,
 } from "@/app/(features)/accounts/actions";
 import { BRANCHES as BRANCH_OPTIONS, MASTER_BRANCH } from "@/config/branches";
+import {
+  branchDivisions,
+  DEFAULT_DIVISION,
+  type Division,
+} from "@/config/divisions";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { useToast } from "@/components/ui/toast";
 import { generateTempPassword } from "@/lib/auth/generate-password";
@@ -34,6 +39,7 @@ interface TargetAccount {
   role: UserRole;
   branch: string;
   active: boolean;
+  sender_division: Division | null;
 }
 
 interface Props {
@@ -87,6 +93,20 @@ export function AccountEditForm({
   // 마스터 계정은 분원에 속하지 않으므로 "마스터" 분원으로 고정.
   const effectiveBranch = role === "master" ? MASTER_BRANCH : branch;
 
+  // 발신 명의(division) — 분원에 division 이 2개 이상일 때(현재 대치)만 노출.
+  // 마스터 계정은 발송 시 명의를 고르므로 필드 불필요.
+  const divisionOptions = branchDivisions(effectiveBranch);
+  const showDivisionField = role !== "master" && divisionOptions.length > 1;
+  const initialDivision = target.sender_division ?? DEFAULT_DIVISION;
+  const [senderDivision, setSenderDivision] =
+    useState<Division>(initialDivision);
+  // 분원이 바뀌어 현재 명의가 그 분원에서 무효면 기본(본원)으로 리셋.
+  useEffect(() => {
+    if (!divisionOptions.includes(senderDivision)) {
+      setSenderDivision(DEFAULT_DIVISION);
+    }
+  }, [divisionOptions, senderDivision]);
+
   const [pendingToggle, setPendingToggle] = useState<
     null | "deactivate" | "reactivate"
   >(null);
@@ -102,6 +122,7 @@ export function AccountEditForm({
     role?: UserRole;
     branch?: string;
     active?: boolean;
+    senderDivision?: Division;
   };
   const [pendingSave, setPendingSave] = useState<PendingPatch | null>(null);
 
@@ -139,13 +160,16 @@ export function AccountEditForm({
     if (canEditRoleBranch && effectiveBranch !== target.branch)
       patch.branch = effectiveBranch;
     if (active !== target.active) patch.active = active;
+    if (showDivisionField && senderDivision !== initialDivision)
+      patch.senderDivision = senderDivision;
 
     // 변경 사항이 없으면 빠르게 안내
     const hasChange =
       patch.name !== undefined ||
       patch.role !== undefined ||
       patch.branch !== undefined ||
-      patch.active !== undefined;
+      patch.active !== undefined ||
+      patch.senderDivision !== undefined;
     if (!hasChange) {
       setNotice("변경된 내용이 없습니다.");
       return;
@@ -399,6 +423,28 @@ export function AccountEditForm({
             )}
           </select>
         </Field>
+
+        {/* 발신 명의 (division 이 2개 이상인 분원만) */}
+        {showDivisionField && (
+          <Field
+            id="acc-division"
+            label="발신 명의"
+            hint="이 계정이 문자 발송 시 사용할 발신 명의입니다. 발신번호·표시명이 이 값으로 정해집니다."
+          >
+            <select
+              id="acc-division"
+              value={senderDivision}
+              onChange={(e) => setSenderDivision(e.target.value as Division)}
+              className={selectClass}
+            >
+              {divisionOptions.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </Field>
+        )}
 
         {/* 활성 여부 */}
         <Field
@@ -813,6 +859,11 @@ export function AccountEditForm({
                     활성 상태:{" "}
                     {target.active ? "활성" : "비활성"} →{" "}
                     {pendingSave.active ? "활성" : "비활성"}
+                  </li>
+                )}
+                {pendingSave.senderDivision !== undefined && (
+                  <li>
+                    발신 명의: {initialDivision} → {pendingSave.senderDivision}
                   </li>
                 )}
               </ul>

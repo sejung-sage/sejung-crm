@@ -55,7 +55,7 @@ export const getCurrentUser = cache(
   const { data, error } = await supabase
     .from("crm_users_profile")
     .select(
-      "user_id, name, email, role, branch, active, must_change_password",
+      "user_id, name, email, role, branch, active, must_change_password, sender_division",
     )
     .eq("user_id", user.id)
     .maybeSingle();
@@ -73,6 +73,7 @@ export const getCurrentUser = cache(
     | "branch"
     | "active"
     | "must_change_password"
+    | "sender_division"
   >;
 
   // 4) 비활성 계정 → 로그아웃 효과
@@ -95,6 +96,7 @@ export const getCurrentUser = cache(
     branch: profile.branch,
     active: profile.active,
     must_change_password: profile.must_change_password,
+    sender_division: profile.sender_division,
   };
   },
 );
