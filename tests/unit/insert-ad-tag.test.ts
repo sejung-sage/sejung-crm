@@ -35,6 +35,37 @@ describe("branchBrandName · 분원별 발신 브랜드명", () => {
   });
 });
 
+describe("branchBrandName · 발신 division 축 (대치 본원/수학관)", () => {
+  describe("수학관 division 접미", () => {
+    it("(대치, 수학관) → '세정학원 수학관'", () => {
+      expect(branchBrandName("대치", "수학관")).toBe("세정학원 수학관");
+    });
+  });
+
+  describe("무회귀 · division 본원/미지정 == 분원 단독", () => {
+    it("(대치, 본원) / (대치) / (대치, null) 모두 기존 '세정학원'", () => {
+      expect(branchBrandName("대치", "본원")).toBe("세정학원");
+      expect(branchBrandName("대치")).toBe("세정학원");
+      expect(branchBrandName("대치", null)).toBe("세정학원");
+      expect(branchBrandName("대치", "본원")).toBe(branchBrandName("대치"));
+    });
+
+    it("알 수 없는 division → 접미 없이 분원 브랜드만(합리적 폴백)", () => {
+      expect(branchBrandName("대치", "없는division")).toBe("세정학원");
+    });
+  });
+
+  describe("경계값 · 비대치 분원 + 수학관 (UI 미노출이나 계약상 합리적)", () => {
+    it("(송도, 수학관) → '송도 세정학원 수학관'", () => {
+      expect(branchBrandName("송도", "수학관")).toBe("송도 세정학원 수학관");
+    });
+
+    it("(미지정, 수학관) → 기본 브랜드 + 접미", () => {
+      expect(branchBrandName(null, "수학관")).toBe("세정학원 수학관");
+    });
+  });
+});
+
 describe("insertSenderHeader · 비광고(isAd=false)", () => {
   it("브랜드 머리를 맨 위에 붙임 (광고 표기 없음, 본문과 빈 줄 2개 분리)", () => {
     expect(insertSenderHeader("안녕하세요", false, "세정학원")).toBe(

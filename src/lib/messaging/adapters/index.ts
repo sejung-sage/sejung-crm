@@ -23,6 +23,7 @@ import {
   sendonUserId,
   sendonApiKey,
 } from "@/config/sender-numbers";
+import type { Division } from "@/config/divisions";
 
 type ProviderName = "sendon";
 
@@ -45,18 +46,25 @@ function readMode(): AdapterMode {
  *
  * 호출자는 반환값을 계속 재사용해도 되고, 매 요청마다 새로 만들어도 된다
  * (어댑터 자체는 상태를 보유하지 않음). 단 분원이 다르면 분원별로 새로 만들어야 한다.
+ *
+ * division(발신 정체성)은 계정(userId/apiKey)과 무관하고 발신번호만 좌우한다.
+ * 미지정/본원이면 분원 본원 번호 — 기존 동작과 100% 동일(무회귀).
  */
-export function createSmsAdapter(branch?: string | null): SmsAdapter {
+export function createSmsAdapter(
+  branch?: string | null,
+  division?: Division | null,
+): SmsAdapter {
   const provider = readProvider();
   const mode = readMode();
 
   const userId = sendonUserId(branch);
   const apiKey = sendonApiKey(branch);
-  const fromNumber = sendonFromNumber(branch) ?? undefined;
+  const fromNumber = sendonFromNumber(branch, division) ?? undefined;
 
-  // 진단 로그 — Vercel 함수 로그에서 mode/provider/분원 확인용. 키 값은 노출 X.
+  // 진단 로그 — Vercel 함수 로그에서 mode/provider/분원/division 확인용. 키 값은 노출 X.
   console.log(
     `[sms-adapter] provider=${provider} mode=${mode} branch=${branch ?? "-"} ` +
+      `division=${division ?? "-"} ` +
       `userId=${userId ? "set" : "MISSING"} ` +
       `apiKey=${apiKey ? "set" : "MISSING"} ` +
       `fromNumber=${fromNumber ? "set" : "MISSING"} ` +

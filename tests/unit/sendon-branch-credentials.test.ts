@@ -107,3 +107,66 @@ describe("sendonFromNumber · 분원별 발신번호 (계정과 동일 폴백)",
     expect(sendonFromNumber("반포")).toBe("0212340000");
   });
 });
+
+describe("sendonFromNumber · 발신 division 축 (대치 본원/수학관)", () => {
+  describe("division 전용 번호 해석", () => {
+    it("(대치, 수학관) → SENDON_FROM_NUMBER_DAECHI_MATH 값(숫자만)", () => {
+      vi.stubEnv("SENDON_FROM_NUMBER", "0212340000");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI", "02-567-0606");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI_MATH", "02-6265-1010");
+      expect(sendonFromNumber("대치", "수학관")).toBe("0262651010");
+    });
+
+    it("본원 번호와 수학관 번호는 서로 다른 값으로 해석", () => {
+      vi.stubEnv("SENDON_FROM_NUMBER", "0212340000");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI", "025670606");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI_MATH", "0262651010");
+      expect(sendonFromNumber("대치", "수학관")).toBe("0262651010");
+      expect(sendonFromNumber("대치", "본원")).toBe("025670606");
+      expect(sendonFromNumber("대치", "수학관")).not.toBe(
+        sendonFromNumber("대치", "본원"),
+      );
+    });
+  });
+
+  describe("무회귀 · division 본원 == division 생략", () => {
+    it("(대치, 본원) 과 (대치) 는 동일한 본원 번호", () => {
+      vi.stubEnv("SENDON_FROM_NUMBER", "0212340000");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI", "025670606");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI_MATH", "0262651010");
+      expect(sendonFromNumber("대치", "본원")).toBe("025670606");
+      expect(sendonFromNumber("대치")).toBe("025670606");
+      expect(sendonFromNumber("대치", "본원")).toBe(sendonFromNumber("대치"));
+    });
+
+    it("(대치, null) 도 division 생략과 동일(본원 번호)", () => {
+      vi.stubEnv("SENDON_FROM_NUMBER", "0212340000");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI", "025670606");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI_MATH", "0262651010");
+      expect(sendonFromNumber("대치", null)).toBe(sendonFromNumber("대치"));
+    });
+  });
+
+  describe("폴백 · division 번호 미설정 시 발송이 막히지 않음", () => {
+    it("수학관 전용 키가 없으면 대치 본원 번호로 폴백", () => {
+      vi.stubEnv("SENDON_FROM_NUMBER", "0212340000");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI", "025670606");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI_MATH", "");
+      expect(sendonFromNumber("대치", "수학관")).toBe("025670606");
+    });
+
+    it("수학관·대치 본원 둘 다 없으면 기본 SENDON_FROM_NUMBER 폴백", () => {
+      vi.stubEnv("SENDON_FROM_NUMBER", "0212340000");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI", "");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI_MATH", "");
+      expect(sendonFromNumber("대치", "수학관")).toBe("0212340000");
+    });
+
+    it("셋 다 비면 null → 호출부가 발송을 거부", () => {
+      vi.stubEnv("SENDON_FROM_NUMBER", "");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI", "");
+      vi.stubEnv("SENDON_FROM_NUMBER_DAECHI_MATH", "");
+      expect(sendonFromNumber("대치", "수학관")).toBeNull();
+    });
+  });
+});

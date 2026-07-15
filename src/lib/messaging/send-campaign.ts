@@ -37,6 +37,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { SENDON_MIN_RESERVATION_MS } from "./schedule-window";
+import type { Division } from "@/config/divisions";
 
 export interface SendCampaignInput {
   title: string;
@@ -49,6 +50,12 @@ export interface SendCampaignInput {
   filters?: GroupFilters;
   /** 필터 기반 발송 분원. filters 와 함께. */
   branch?: string;
+  /**
+   * 발신 division(발신 정체성). NULL/생략 = 본원 — 기존 발송과 100% 동일(무회귀).
+   * branch(sendon 계정)와 독립이며 발신번호·표시 브랜드명만 좌우한다.
+   * campaigns.sender_division 에 저장되고 drain 이 발송 시 다시 읽어 관통한다.
+   */
+  senderDivision?: Division;
   /** null 이면 inline 본문 (템플릿 미사용). */
   templateId: string | null;
   body: string;
@@ -191,6 +198,7 @@ export async function sendCampaign(
     preview = await previewRecipients({
       filters: target.filters,
       branch: target.branch,
+      senderDivision: input.senderDivision ?? null,
       body: input.body,
       isAd: input.isAd,
       type: input.type,
@@ -284,6 +292,7 @@ async function runImmediateSend(args: {
   const { eligible, unsubscribed } = await reloadEligibleRecipients({
     filters: target.filters,
     branch: target.branch,
+    senderDivision: input.senderDivision ?? null,
     body: input.body,
     isAd: input.isAd,
     dedupeByPhone: input.dedupeByPhone,
@@ -325,6 +334,8 @@ async function runImmediateSend(args: {
     dedupe_by_phone: input.dedupeByPhone,
     send_to_parent: targets.sendToParent,
     send_to_student: targets.sendToStudent,
+    // NULL = 본원 기본. drain 이 발송 시 다시 읽어 발신번호·브랜드로 관통한다.
+    sender_division: input.senderDivision ?? null,
   };
 
   const insertedCampaign = await insertCampaign(supabase, campaignInsert);
@@ -491,6 +502,8 @@ interface ReloadResult {
 async function reloadEligibleRecipients(args: {
   filters: GroupFilters;
   branch: string;
+  /** 발신 division. null/생략 = 본원(발신 브랜드 해석). */
+  senderDivision: Division | null;
   body: string;
   isAd: boolean;
   dedupeByPhone: boolean;
@@ -543,7 +556,7 @@ async function reloadEligibleRecipients(args: {
   const guarded = applyAllGuards({
     body: args.body,
     isAd: args.isAd,
-    brand: branchBrandName(args.branch),
+    brand: branchBrandName(args.branch, args.senderDivision),
     scheduledAt: args.scheduledAt,
     recipients: eligibleLegs,
     unsubscribedPhones: [],

@@ -54,6 +54,8 @@ import {
   SENDON_INVITE_PLACEHOLDER,
 } from "@/lib/seminars/dispatch-broadcast";
 import { sendonFromNumber } from "@/config/sender-numbers";
+import type { Division } from "@/config/divisions";
+import { campaignSenderDivision } from "./message-update-helpers";
 import { isSlackEnabled } from "@/lib/notify/slack";
 import type {
   CampaignRow,
@@ -146,10 +148,13 @@ export async function drainCampaignChunk(
     ? await loadInviteUrlMap(supabase, campaignId)
     : null;
 
+  // 발신 division — 캠페인 레코드 기준(NULL/미설정=본원, 무회귀). 발신번호·브랜드 관통.
+  const senderDivision = campaignSenderDivision(campaign);
+
   let hasName: boolean;
   let sendBody: string;
-  // 발신 브랜드명 — 캠페인 분원 기준(대치="세정학원", 그 외="{분원} 세정학원").
-  const brand = branchBrandName(campaign.branch);
+  // 발신 브랜드명 — 캠페인 분원×division 기준(대치 본원="세정학원", 수학관="세정학원 수학관").
+  const brand = branchBrandName(campaign.branch, senderDivision);
   if (inviteMode) {
     // {초대링크} → #{이름}(sendon name 슬롯). 없으면 "신청: #{이름}" 부착 —
     // createSeminarBroadcastAction 의 finalBody 합성과 동일 규칙.
@@ -174,9 +179,9 @@ export async function drainCampaignChunk(
     // 본문은 hasName 일 때만 sendon 치환 문법으로 변환 — 외 경우 그대로 송출.
     sendBody = hasName ? toSendonNameSyntax(guardedBody) : guardedBody;
   }
-  const adapter = createSmsAdapter(campaign.branch);
-  // 분원별 발신번호 — 캠페인 분원 기준(미설정 분원은 SENDON_FROM_NUMBER 폴백).
-  const fromNumber = readFromNumber(adapter.name, campaign.branch);
+  const adapter = createSmsAdapter(campaign.branch, senderDivision);
+  // 분원×division별 발신번호 — 캠페인 기준(미설정 분원/division 은 본원 번호로 폴백).
+  const fromNumber = readFromNumber(adapter.name, campaign.branch, senderDivision);
   if (!fromNumber) {
     await updateCampaignStatus(supabase, campaignId, "실패");
     throw new Error("발신번호 환경변수가 설정되어 있지 않습니다");
@@ -727,10 +732,11 @@ async function incrementCampaignCost(
 function readFromNumber(
   adapterName: string,
   branch?: string | null,
+  division?: Division | null,
 ): string | null {
   switch (adapterName) {
     case "sendon":
-      return sendonFromNumber(branch);
+      return sendonFromNumber(branch, division);
     default:
       return null;
   }
