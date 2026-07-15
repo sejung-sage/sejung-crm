@@ -6,6 +6,7 @@ import { testSendAction } from "@/app/(features)/compose/actions";
 import { seminarTestSendAction } from "@/app/(features)/seminars/actions";
 import { useToast } from "@/components/ui/toast";
 import type { TemplateTypeLiteral } from "@/lib/schemas/template";
+import type { Division } from "@/config/divisions";
 
 /**
  * 본인 또는 임의 휴대폰 번호 1건으로 즉시 테스트 발송 — 인라인 카드.
@@ -48,6 +49,12 @@ interface Props {
    */
   branch?: string;
   /**
+   * 발신 division(본원/수학관 등) — 일반 테스트 발송의 발신번호·브랜드 해석용.
+   * 미지정 시 본원. compose 의 발신 명의 선택값을 그대로 넘긴다.
+   * (설명회 모드는 사용하지 않는다.)
+   */
+  senderDivision?: Division;
+  /**
    * 설명회 모드 — 선택된 설명회(강좌) ID 목록. length>0 이면 설명회 테스트
    * 경로(seminarTestSendAction)를 사용하고 실제 초대 링크를 받아 노출한다.
    * 이 경우 `body` 는 `{초대링크}` 가 든 raw 본문이어야 한다.
@@ -68,6 +75,7 @@ export function TestSendCard({
   isAd,
   disabled = false,
   branch,
+  senderDivision,
   seminarClassIds,
   seminarAllowMultiple,
 }: Props) {
@@ -163,6 +171,7 @@ export function TestSendCard({
         },
         toPhone: normalized,
         branch,
+        senderDivision,
       });
       if (result.status === "success") {
         showToast(
