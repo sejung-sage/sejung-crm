@@ -18,6 +18,7 @@
 
 import { z } from "zod";
 import { GroupFiltersSchema } from "./group";
+import { DIVISIONS } from "@/config/divisions";
 
 // ─── 설명회 enum (DB CHECK 와 1:1) ─────────────────────────────
 
@@ -169,6 +170,14 @@ export const CreateBroadcastInputSchema = z
       })
       .pipe(z.string().nullable())
       .optional(),
+    /**
+     * 발신 명의(division). 발신번호·표시 브랜드명 해석용.
+     *  - 마스터: 이 값을 신뢰(발송 분원에서 유효한 값일 때). 아니면 본원.
+     *  - 비마스터: 이 값은 무시되고 계정 명의(user.sender_division)로 강제.
+     * 미지정/생략이면 서버가 본원으로 귀결(무회귀).
+     * 최종 결정은 서버의 resolveSenderDivision 이 수행 — 클라 입력은 힌트일 뿐.
+     */
+    senderDivision: z.enum(DIVISIONS).optional(),
   })
   .refine(
     (v) => {

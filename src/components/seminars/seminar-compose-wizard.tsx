@@ -3,6 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClassSignupOption, Grade } from "@/types/database";
 import type { ClassOption } from "@/lib/classes/list-class-options";
+import {
+  branchDivisions,
+  DEFAULT_DIVISION,
+  type Division,
+} from "@/config/divisions";
 import type { GroupFilters } from "@/lib/schemas/group";
 import { isEmptyFilterCohort } from "@/lib/schemas/group";
 import {
@@ -59,6 +64,12 @@ interface Props {
   classes: ClassSignupOption[];
   /** 분원 — 발송 액션·필터 조회에 전달. */
   branch: string;
+  /**
+   * 비마스터 계정의 고정 발신 명의(division). 값이 있으면 발신 명의 셀렉트를
+   * 이 값으로 고정하고 비활성화한다. 마스터는 null/undefined 로 넘겨 자유 선택.
+   * 서버가 최종 강제하므로 UI 잠금은 UX 표시용.
+   */
+  lockedDivision?: Division | null;
   /** 필터 칩 — 학교 토글 후보(서버 prefetch). */
   schoolOptions: string[];
   /** 필터 칩 — 강좌별 제외 드롭다운 후보(서버 prefetch). */
@@ -74,6 +85,15 @@ interface Props {
 }
 
 const DEBOUNCE_MS = 300;
+
+/**
+ * 발신 division 표시 라벨(일반 compose 와 동일). 발신번호는 하드코딩하지 않는다
+ * (서버가 division 으로 해석). 미등록 division 은 값 그대로 폴백.
+ */
+const DIVISION_LABELS: Partial<Record<Division, string>> = {
+  본원: "본원 (세정학원)",
+  수학관: "수학관 (세정학원 수학관)",
+};
 
 function emptyChipValue(): FilterChipValue {
   return {
@@ -93,6 +113,7 @@ export function SeminarComposeWizard({
   initialClassId,
   classes,
   branch,
+  lockedDivision = null,
   schoolOptions,
   classOptions,
   availableGrades,
@@ -108,6 +129,27 @@ export function SeminarComposeWizard({
     isAd: false,
     allowMultiple: true,
   }));
+
+  // ── 발신 명의(division) ──
+  // 분원이 2개 이상 division 을 가질 때만 선택 노출(현재 대치=본원/수학관).
+  const availableDivisions = useMemo(() => branchDivisions(branch), [branch]);
+  const showDivisionSelect = availableDivisions.length > 1;
+  // 비마스터(lockedDivision 존재)면 셀렉트를 이 값으로 고정·비활성화한다.
+  const divisionLocked = lockedDivision != null;
+  const [senderDivision, setSenderDivision] = useState<Division>(
+    lockedDivision ?? DEFAULT_DIVISION,
+  );
+  // 분원이 바뀌어 현재 선택값이 그 분원에서 무효면 리셋한다. 잠금이면 계정
+  // 명의(그 분원에서 유효할 때)를, 아니면 기본(본원)을 우선한다.
+  useEffect(() => {
+    if (!availableDivisions.includes(senderDivision)) {
+      const next =
+        lockedDivision && availableDivisions.includes(lockedDivision)
+          ? lockedDivision
+          : DEFAULT_DIVISION;
+      setSenderDivision(next);
+    }
+  }, [availableDivisions, senderDivision, lockedDivision]);
 
   // ── 대상(필터) 상태 ──
   const [chip, setChip] = useState<FilterChipValue>(emptyChipValue);
@@ -278,6 +320,41 @@ export function SeminarComposeWizard({
         />
       </section>
 
+      {/* ── 발신 명의(division) — division 이 2개 이상인 분원(현재 대치)만 노출 ── */}
+      {showDivisionSelect && (
+        <div className="flex items-center gap-3 flex-wrap">
+          <label
+            htmlFor="seminar-compose-division"
+            className="text-[13px] font-medium text-[color:var(--text)]"
+          >
+            발신 명의
+          </label>
+          <select
+            id="seminar-compose-division"
+            value={senderDivision}
+            disabled={divisionLocked}
+            title={
+              divisionLocked
+                ? "발신 명의는 계정에 지정된 값으로 고정됩니다"
+                : undefined
+            }
+            onChange={(e) => setSenderDivision(e.target.value as Division)}
+            className="h-10 rounded-md px-2.5 bg-bg-card border border-[color:var(--border)] text-[15px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer disabled:bg-[color:var(--bg-muted)] disabled:text-[color:var(--text-muted)] disabled:cursor-not-allowed"
+          >
+            {availableDivisions.map((d) => (
+              <option key={d} value={d}>
+                {DIVISION_LABELS[d] ?? d}
+              </option>
+            ))}
+          </select>
+          <span className="text-[12px] text-[color:var(--text-dim)]">
+            {divisionLocked
+              ? "계정에 지정된 발신 명의로 고정됩니다."
+              : "선택한 명의로 발신번호·표시명이 정해집니다."}
+          </span>
+        </div>
+      )}
+
       {/* ── 문자 작성 (작성 박스 | 미리보기 박스 좌우, 전체폭) ── */}
       <SeminarComposeStep3Body
         state={state}
@@ -286,6 +363,7 @@ export function SeminarComposeWizard({
         recipientCount={checkedCount}
         optOutNumber={optOutNumber}
         branch={branch}
+        senderDivision={senderDivision}
       />
 
       {/* ── 발송 대상 (필터 + 학생 체크, 전체폭) ── */}
@@ -314,6 +392,7 @@ export function SeminarComposeWizard({
         filters={filters}
         recipientCount={checkedCount}
         branch={branch}
+        senderDivision={senderDivision}
         readyToSend={readyToSend}
         missing={missing}
       />

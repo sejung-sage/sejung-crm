@@ -7,6 +7,7 @@ import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { listClassOptions } from "@/lib/classes/list-class-options";
 import { SeminarComposeWizard } from "@/components/seminars/seminar-compose-wizard";
 import type { Branch } from "@/config/branches";
+import { DEFAULT_DIVISION, type Division } from "@/config/divisions";
 import type { ClassSignupOption } from "@/types/database";
 
 /**
@@ -84,6 +85,14 @@ export default async function SeminarsHubPage({
     ]);
   const classes: ClassSignupOption[] = classOptions;
 
+  // 발신 명의 잠금: 마스터는 발송 시 명의를 직접 고를 수 있어 잠금 없음(null).
+  // 비마스터는 자기 계정의 명의로 고정(미지정이면 본원). 위저드에서 셀렉트가
+  // 비활성으로 표시된다. 서버가 최종 강제하므로 이 값은 UX 표시용.
+  const lockedDivision: Division | null =
+    currentUser.role === "master"
+      ? null
+      : (currentUser.sender_division ?? DEFAULT_DIVISION);
+
   return (
     <Shell>
       <PageHeader />
@@ -102,6 +111,7 @@ export default async function SeminarsHubPage({
         initialClassId={initialClassId}
         classes={classes}
         branch={branchFilter}
+        lockedDivision={lockedDivision}
         schoolOptions={schoolOptions}
         classOptions={studentClassOptions}
         availableGrades={filterOptions.availableGrades}
