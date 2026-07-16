@@ -23,6 +23,8 @@ import { waitUntil } from "@vercel/functions";
 import { ZodError } from "zod";
 import { loadRecipientsByFilters } from "@/lib/groups/load-all-group-recipients";
 import { sendonFromNumber } from "@/config/sender-numbers";
+import { resolveSenderDivision } from "@/lib/messaging/resolve-sender-division";
+import type { Division } from "@/config/divisions";
 
 import {
   CancelSignupInputSchema,
@@ -796,6 +798,15 @@ export async function createSeminarBroadcastAction(
   const auth = await assertSeminarWrite(parsed.branch);
   if (!auth.ok) return { status: "failed", reason: auth.reason };
 
+  // 발신 명의(division) 최종 결정 — 서버 잠금. 마스터만 클라 입력을 신뢰하고,
+  // 비마스터는 계정 명의(user.sender_division)로 강제한다. 캠페인에 기록해
+  // drain/resend 예약·재발송도 동일한 명의로 정합.
+  const division = resolveSenderDivision(
+    auth.user,
+    parsed.branch,
+    parsed.senderDivision,
+  );
+
   // 예약 발송 시각 검증 — 최소 리드타임(5분) 이후만 허용.
   // 5~30분은 자체 지연발송(cron 이 시각 도래 시 drain 킥), 30분 이상은 sendon 네이티브.
   let scheduledAtDate: Date | null = null;
@@ -991,7 +1002,7 @@ export async function createSeminarBroadcastAction(
   finalBody = insertSenderHeader(
     finalBody,
     parsed.is_ad,
-    branchBrandName(parsed.branch),
+    branchBrandName(parsed.branch, division),
   );
   // optout 우선순위: 입력 > env (`SMS_OPT_OUT_NUMBER`) > 헬퍼 기본값.
   //   parsed.optout_phone 는 null 일 수 있어 undefined 로 정규화 (헬퍼가 env 폴백).
@@ -1029,6 +1040,7 @@ export async function createSeminarBroadcastAction(
     total_cost: 0,
     created_by: auth.user.user_id,
     branch: parsed.branch,
+    sender_division: division, // drain/resend 가 이 값으로 발신번호·브랜드 재해석.
     is_test: false,
     body: parsed.body, // 운영 본문 원형 보존 — 학생별 URL 합성 전.
     subject: parsed.subject,
@@ -1072,7 +1084,7 @@ export async function createSeminarBroadcastAction(
   //    link_token UNIQUE(23505) 충돌은 해당 청크를 새 토큰으로 재시도.
   // 분원별 발신번호 사전 검증 — 실제 발송(drain-campaign)도 같은 분원 기준으로
   // 발신번호를 다시 해석한다. 여기서 막아 적재 전에 실패를 알린다.
-  const fromNumber = sendonFromNumber(parsed.branch);
+  const fromNumber = sendonFromNumber(parsed.branch, division);
   if (!fromNumber || fromNumber.length === 0) {
     await safeMarkCampaignFailed(supabase, campaignId);
     return {
@@ -1335,6 +1347,11 @@ export type SeminarTestSendInput = {
    * 중복신청 동작(false 시 2번째 카드 'limit_reached')을 재현. 미지정 시 true.
    */
   allowMultiple?: boolean;
+  /**
+   * 발신 명의(division). 발신번호·브랜드명 해석용. 미지정/생략이면 본원.
+   * 비마스터는 서버(resolveSenderDivision)가 계정 명의로 강제 — 클라 입력은 힌트.
+   */
+  senderDivision?: Division;
 };
 
 export async function seminarTestSendAction(
@@ -1454,6 +1471,14 @@ export async function seminarTestSendAction(
   }
   const classBranch = foundClasses[0].branch;
 
+  // 발신 명의(division) 최종 결정 — 설명회 강좌 분원 기준. 비마스터는 계정 명의로
+  // 강제(클라 입력 무시), 마스터만 요청값 신뢰. 일반 test-send 경로와 동일.
+  const division = resolveSenderDivision(
+    user,
+    classBranch,
+    input.senderDivision,
+  );
+
   // 5) class_ids find-or-create → signup_page_ids (공유 helper). 페이지는 설명회
   //    강좌 분원으로 생성/조회한다.
   const pagesResult = await findOrCreateSignupPages(
@@ -1556,6 +1581,8 @@ export async function seminarTestSendAction(
     toPhone: phone,
     // 설명회 테스트도 해당 설명회(강좌)의 분원 번호·브랜드로 나가게.
     branch: classBranch,
+    // 발신 명의 — 서버가 최종 결정한 division(비마스터는 계정 명의로 강제됨).
+    senderDivision: division,
   });
 
   // 10) 발송 실패/차단이어도 invitation 은 이미 생성됨 → inviteUrl 항상 반환.

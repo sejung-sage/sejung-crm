@@ -117,6 +117,7 @@ export function TestSendCard({
           type,
           isAd,
           toPhone: normalized,
+          senderDivision,
           // 중복 신청 허용 (0087) — 미지정 시 서버가 true 처리.
           allowMultiple: seminarAllowMultiple,
         });

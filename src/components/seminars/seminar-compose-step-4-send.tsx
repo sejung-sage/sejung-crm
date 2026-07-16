@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import type { ClassSignupOption } from "@/types/database";
 import type { GroupFilters } from "@/lib/schemas/group";
+import type { Division } from "@/config/divisions";
 import {
   SCHEDULE_MIN_LEAD_MS,
   SCHEDULE_MIN_LEAD_LABEL,
@@ -42,6 +43,8 @@ interface Props {
   /** 체크된 대상 학생 수(대상 표시·확인 다이얼로그용). */
   recipientCount: number;
   branch: string;
+  /** 발신 명의(division) — 발송 payload 로 전달(서버가 발신번호·표시명 해석). */
+  senderDivision: Division;
   /** 발송 활성 여부 — 부모(wizard)가 계산. false 면 버튼 비활성 + 체크리스트 노출. */
   readyToSend: boolean;
   /** 미충족 항목 목록(체크리스트). readyToSend=false 일 때만 의미. */
@@ -71,6 +74,7 @@ export function SeminarComposeStep4Send({
   filters,
   recipientCount,
   branch,
+  senderDivision,
   readyToSend,
   missing,
 }: Props) {
@@ -106,6 +110,7 @@ export function SeminarComposeStep4Send({
         subject: state.type === "LMS" ? state.subject : null,
         type: state.type,
         branch,
+        senderDivision,
         is_ad: state.isAd,
         allow_multiple: state.allowMultiple,
         scheduled_at: scheduledIso,

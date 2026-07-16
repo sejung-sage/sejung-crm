@@ -14,6 +14,7 @@ import {
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
 import { formatKstDateTime } from "@/lib/datetime";
+import type { Division } from "@/config/divisions";
 import type { SeminarComposeState, SmsType } from "./seminar-compose-wizard";
 
 /**
@@ -46,6 +47,8 @@ interface Props {
   optOutNumber: string;
   /** 발송 분원 — 발신 브랜드명(분원별) 해석에 사용. */
   branch: string;
+  /** 발신 명의(division) — 브랜드명(수학관 반영)·테스트 발송에 사용. */
+  senderDivision: Division;
 }
 
 /** `{초대링크}` 가 발송 시점에 치환되는 URL 의 예상 바이트 (sendon 단축 URL 미사용). */
@@ -90,9 +93,13 @@ export function SeminarComposeStep3Body({
   recipientCount,
   optOutNumber,
   branch,
+  senderDivision,
 }: Props) {
   const bodyRef = useRef<HTMLTextAreaElement>(null);
-  const brandName = useMemo(() => branchBrandName(branch), [branch]);
+  const brandName = useMemo(
+    () => branchBrandName(branch, senderDivision),
+    [branch, senderDivision],
+  );
 
   // 브랜드 머리(+광고)·footer 가드 적용한 최종 본문 — 바이트 측정·오버플로 기준.
   const clientFinalBody = useMemo(() => {
@@ -271,6 +278,7 @@ export function SeminarComposeStep3Body({
           subject={state.subject}
           body={state.body.trim().length === 0 ? "" : state.body}
           isAd={state.isAd}
+          senderDivision={senderDivision}
           seminarClassIds={selectedClasses.map((c) => c.class_id)}
           seminarAllowMultiple={state.allowMultiple}
           disabled={
