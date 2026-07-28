@@ -38,6 +38,7 @@
  *   - 빈 배열 + total=0 으로 단순 반환.
  */
 
+import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { ClassFilters, ClassSort } from "@/lib/schemas/class";
 import type { ClassListItem, ClassRow } from "@/types/database";
@@ -503,87 +504,84 @@ function applyEnrolledCountSortInPage(
 }
 
 /**
+ * RPC 반환값 — `RETURNS text[]` (0113).
+ *
+ * 0112 는 `RETURNS TABLE(class_id text)` 집합 반환이었는데, PostgREST 의
+ * max_rows(1000) 가 RPC 결과에도 걸려 1년 범위(실제 2,648건)가 1,000건으로
+ * 조용히 잘렸다. 스칼라 배열은 1행이라 그 캡과 무관하다.
+ */
+const ticketClassIdsSchema = z.array(z.string().min(1));
+
+/**
+ * `crm_ticket_class_ids_in_date_range` RPC 호출용 최소 인터페이스.
+ * Supabase 생성 타입에 아직 없는 함수라, any 없이 필요한 시그니처만 좁혀 쓴다
+ * (send-dashboard.ts 의 RpcCaller 와 동일 패턴).
+ */
+interface TicketClassIdsRpcCaller {
+  rpc(
+    fn: "crm_ticket_class_ids_in_date_range",
+    args: {
+      p_start_date: string | null;
+      p_end_date: string | null;
+      p_branch: string | null;
+    },
+  ): PromiseLike<{
+    data: unknown;
+    error: { message: string } | null;
+  }>;
+}
+
+
+/**
  * 기간 필터(startDate/endDate) 가 켜진 경우 aca_tickets 에서 그 기간 안에
  * class_date(=수업 회차 예정일) 가 1건이라도 있는 distinct aca_class_id 셋을 모은다.
  *
- * 핵심:
+ * 핵심 (WHERE 절은 RPC 안에 있음 — 0112):
  *  - aca_tickets.class_date >= startDate AND class_date <= endDate
  *  - 한쪽만 있으면 그쪽만 (반대편 무한대)
  *  - aca_class_id IS NOT NULL (NULL 은 매칭 불가)
  *  - 분원 좁힘이 있으면 aca_tickets.branch 에도 동일 적용 (RLS 와 별도로 명시 필터)
  *
- * 규모 가정:
- *  - 분원 1개 ticket ≈ 1만~22만행. 기간 좁히면 보통 수천~수만행으로 줄어듦.
- *  - distinct aca_class_id 는 보통 수십~수백건 — IN 절 URL 한도(약 16KB) 안에 충분.
- *  - PostgREST `.select('col', { distinct: true })` 는 미지원이라 페이지네이션 +
- *    JS Set dedup 으로 처리. 안전상한 10,000 distinct id 까지.
+ * 2026-07-28 — 앱 레이어 페이지네이션 → 단일 RPC 로 교체 (0112 → 0113).
+ *   이전 구현은 PostgREST max_rows(1000) 때문에 1000행씩 최대 50회 **순차** 왕복했다.
+ *   2026-07 한 달이 티켓 60,192행이라 왕복 50회 · 실측 7.7초가 걸렸고, 정작
+ *   필요한 값은 강좌 id 771개뿐이었다. 게다가 MAX_PAGES=50(5만 행) 상한에 걸려
+ *   1만 행 이상이 경고 없이 절단돼 일부 강좌가 목록에서 사라졌다.
+ *   RPC 는 crm_classes(3.5천행) 베이스 + aca_tickets EXISTS 세미조인이라
+ *   왕복 1회 · 실측 81ms 로 끝나고 절단 버그도 사라진다.
+ *
+ * RPC 는 SECURITY INVOKER — crm_classes / aca_tickets 양쪽 RLS 가 그대로 적용된다.
+ *
+ * ⚠️ 잔여 한계 (0113 에서도 미해결): 반환된 id 는 호출부에서
+ *   `.in('aca_class_id', ids)` 로 URL 에 실린다. 게이트웨이 한도가 실측 ~12KB
+ *   (≈1,100 id) 라 넓은 기간은 요청 자체가 실패한다 —
+ *   전체분원 3개월(1,012 id) OK / 6개월(1,544 id) 실패,
+ *   단일분원 6개월(747 id) OK / 1년(1,337 id) 실패.
+ *   이 구조 자체의 한계로 0112 이전에도 동일하게 깨졌다 (회귀 아님).
+ *   근본 해결은 강좌 목록 쿼리 전체를 RPC 로 내리는 것 — 별도 작업.
+ *
+ * `filters` 는 이 함수가 실제로 읽는 3개 키만 받는다 — 옵션 prefetch 쪽에서도
+ * 같은 함수를 재사용하기 위함.
  */
-async function fetchClassIdsInTicketDateRange(
+export async function fetchClassIdsInTicketDateRange(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
-  filters: ClassFilters,
+  filters: Pick<ClassFilters, "startDate" | "endDate" | "branch">,
 ): Promise<string[]> {
-  const PAGE_SIZE = 1000;
-  const MAX_PAGES = 50; // 5만 행 안전상한. distinct class_id 셋은 보통 훨씬 작음.
-  const MAX_DISTINCT = 10_000;
+  const rpc = supabase as unknown as TicketClassIdsRpcCaller;
 
-  const classIdSet = new Set<string>();
+  const { data, error } = await rpc.rpc("crm_ticket_class_ids_in_date_range", {
+    p_start_date: filters.startDate ?? null,
+    p_end_date: filters.endDate ?? null,
+    // 빈 문자열은 "전체 분원" 의미 — RPC 에 그대로 넘기면 안 되므로 null 로.
+    p_branch:
+      filters.branch && filters.branch !== "" ? filters.branch : null,
+  });
 
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
-
-    let q = supabase
-      .from("aca_tickets")
-      .select("aca_class_id")
-      .not("aca_class_id", "is", null)
-      .range(from, to);
-
-    if (filters.startDate) {
-      q = q.gte("class_date", filters.startDate);
-    }
-    if (filters.endDate) {
-      q = q.lte("class_date", filters.endDate);
-    }
-    // 분원 좁힘은 ticket 측에도 적용 — RLS 가 분원별 가시성을 가르더라도
-    // 명시 필터를 함께 둬 RLS 비활성 환경/디버그에서도 일관성을 유지.
-    if (filters.branch && filters.branch !== "") {
-      q = q.eq("branch", filters.branch);
-    }
-
-    const { data, error } = await q;
-    if (error) {
-      throw new Error(
-        `기간 필터(티켓 매칭)에 실패했습니다: ${error.message}`,
-      );
-    }
-
-    const rows = (data ?? []) as Array<{ aca_class_id: string | null }>;
-    if (rows.length === 0) break;
-
-    for (const row of rows) {
-      if (
-        typeof row.aca_class_id === "string" &&
-        row.aca_class_id.length > 0
-      ) {
-        classIdSet.add(row.aca_class_id);
-        if (classIdSet.size >= MAX_DISTINCT) {
-          // 안전상한 — distinct class_id 가 1만건을 넘으면 PostgREST URL 한도
-          // 위험 + 사실상 필터 의미 약화. 운영적으로 도달 어려운 경계.
-          // 콘솔에 경고만 남기고 현 셋을 반환.
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[list-classes] ticket date-range distinct class_id 셋이 ${MAX_DISTINCT}건을 초과해 절단됩니다. startDate=${filters.startDate ?? "-"} endDate=${filters.endDate ?? "-"} branch=${filters.branch ?? "-"}`,
-          );
-          return [...classIdSet];
-        }
-      }
-    }
-
-    // 마지막 페이지 (rows < PAGE_SIZE) 면 조기 종료.
-    if (rows.length < PAGE_SIZE) break;
+  if (error) {
+    throw new Error(`기간 필터(티켓 매칭)에 실패했습니다: ${error.message}`);
   }
 
-  return [...classIdSet];
+  return ticketClassIdsSchema.parse(data ?? []);
 }
 
 /**

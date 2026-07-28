@@ -1,5 +1,6 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
+import { fetchClassIdsInTicketDateRange } from "@/lib/classes/list-classes";
 import type { ClassFilters } from "@/lib/schemas/class";
 
 /**
@@ -71,49 +72,24 @@ interface OptionRow {
 
 /**
  * 기간 필터가 있으면 aca_tickets 에서 distinct aca_class_id 셋을 먼저 모은다.
- * list-classes.ts 의 `fetchClassIdsInTicketDateRange` 와 동일 로직 — 옵션 prefetch
- * 에도 같은 좁힘을 일관 적용하기 위해 별도 구현(중복 작지만 책임 명확).
+ *
+ * 2026-07-28 — 종전에는 list-classes.ts 의 같은 로직을 여기에 복붙해 뒀고,
+ * 그 결과 /classes 한 번 로드에 6만 행짜리 순차 왕복 스캔이 **두 벌** 돌았다.
+ * 0112 RPC 도입과 함께 list-classes.ts 의 구현을 그대로 재사용해 중복을 없앤다.
+ *
+ * 실패 정책만 다르다: 옵션 prefetch 실패는 페이지 자체를 깨면 안 되므로
+ * throw 를 삼키고 빈 셋으로 fallback 한다 (아래 collectFromSupabase 가
+ * 빈 셋을 "옵션 0건" 으로 처리).
  */
 async function fetchTicketClassIdsForOptions(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   filters: ClassFilters,
 ): Promise<string[]> {
-  const TPAGE_SIZE = 1000;
-  const TMAX_PAGES = 50;
-  const TMAX_DISTINCT = 10_000;
-  const set = new Set<string>();
-
-  for (let page = 0; page < TMAX_PAGES; page++) {
-    const from = page * TPAGE_SIZE;
-    const to = from + TPAGE_SIZE - 1;
-
-    let q = supabase
-      .from("aca_tickets")
-      .select("aca_class_id")
-      .not("aca_class_id", "is", null)
-      .range(from, to);
-    if (filters.startDate) q = q.gte("class_date", filters.startDate);
-    if (filters.endDate) q = q.lte("class_date", filters.endDate);
-    if (filters.branch && filters.branch !== "") {
-      q = q.eq("branch", filters.branch);
-    }
-
-    const { data, error } = await q;
-    if (error) {
-      // 옵션 prefetch 실패는 페이지를 깨지 않는다 — 빈 셋으로 fallback.
-      return [];
-    }
-    const rows = (data ?? []) as Array<{ aca_class_id: string | null }>;
-    if (rows.length === 0) break;
-    for (const row of rows) {
-      if (typeof row.aca_class_id === "string" && row.aca_class_id.length > 0) {
-        set.add(row.aca_class_id);
-        if (set.size >= TMAX_DISTINCT) return [...set];
-      }
-    }
-    if (rows.length < TPAGE_SIZE) break;
+  try {
+    return await fetchClassIdsInTicketDateRange(supabase, filters);
+  } catch {
+    return [];
   }
-  return [...set];
 }
 
 async function collectFromSupabase(
