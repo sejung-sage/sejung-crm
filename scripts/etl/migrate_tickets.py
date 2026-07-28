@@ -80,6 +80,16 @@ DRY_RUN = os.getenv("DRY_RUN", "1") == "1"
 ONLY_BRANCH = os.getenv("ONLY_BRANCH", "").strip() or None
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "500"))
 
+# 이번 run 의 시작 시각. 이 run 에서 원본에 존재한 모든 티켓 행에 last_seen_at 으로
+# 찍고, upsert 를 무오류로 마친 뒤 last_seen_at 이 이 값보다 오래된 행을 삭제한다
+# (= 원본에서 사라진 행). 0114 참조.
+RUN_STARTED = datetime.now().astimezone().isoformat()
+
+# sweep 안전 상한(%). 한 분원에서 이 비율을 넘게 지워야 하면 원본 추출이 부분
+# 실패했을 가능성이 높다고 보고 삭제를 건너뛴다. 정상 운영 실측은 run 당 ≈10행
+# (분원 최대 27만행 기준 0.004%) 이라 5% 는 매우 넉넉한 경계다.
+SWEEP_MAX_DELETE_PCT = float(os.getenv("SWEEP_MAX_DELETE_PCT", "5.0"))
+
 if not PASSWORD:
     print("❌ ACA_MSSQL_PASSWORD 누락")
     sys.exit(1)
@@ -300,6 +310,8 @@ def transform(row: dict, branch_id: str, branch_name: str) -> dict | None:
         "created_on": to_iso_date(row.get("티켓생성일")),
         "teacher_names": clean_text(row.get("담당강사_목록"), max_len=200),
         "teacher_codes": clean_text(row.get("담당강사_코드목록"), max_len=200),
+        # 이번 run 에서 원본에 존재함을 표시. sweep 이 이 값으로 잔존 행을 가른다.
+        "last_seen_at": RUN_STARTED,
     }
 
 
@@ -314,6 +326,42 @@ def upsert_batch(supabase, batch: list[dict]) -> tuple[int, str | None]:
         return len(res.data or []), None
     except Exception as e:
         return 0, _mask_error(str(e))
+
+
+def sweep_deleted(supabase, branch_name: str) -> None:
+    """원본에서 사라진 티켓을 삭제한다 (삭제 전파 · 0114).
+
+    aca_ticket_id UPSERT 만으로는 원본에서 지워진 행이 CRM 에 영구히 남는다.
+    2026-07-28 실측으로 512,731행 중 56,805행(11.1%)이 그런 잔존 행이었고,
+    그중 미래 회차가 29,997행이라 회차별 발송 명단에 취소 학생이 섞였다.
+
+    호출 조건은 main() 쪽에서 강제한다 — 이 분원의 upsert 가 **오류 0건**이고
+    실제로 1건 이상 적재된 경우에만 부른다. 부분 실패 상태에서 부르면 upsert 되지
+    못한 살아있는 행이 잔존 행으로 오인돼 지워진다.
+
+    2차 방어로 RPC 자체가 삭제 비율 상한(SWEEP_MAX_DELETE_PCT)을 검사해, 넘으면
+    지우지 않고 사유만 돌려준다.
+    """
+    try:
+        res = supabase.rpc(
+            "aca_tickets_sweep_stale",
+            {
+                "p_branch": branch_name,
+                "p_run_started": RUN_STARTED,
+                "p_max_delete_pct": SWEEP_MAX_DELETE_PCT,
+            },
+        ).execute()
+    except Exception as e:
+        print(f"   ⚠️  삭제 전파 실패(무시): {_mask_error(str(e))}")
+        return
+
+    rows = res.data or []
+    row = rows[0] if isinstance(rows, list) and rows else {}
+    reason = row.get("skipped_reason")
+    if reason:
+        print(f"   ⚠️  삭제 전파 건너뜀: {reason}")
+    else:
+        print(f"   🗑  원본에서 사라진 티켓 {row.get('deleted_count', 0):,}건 삭제")
 
 
 # ─── main ─────────────────────────────────────────────────
@@ -391,6 +439,16 @@ def main() -> None:
                     print(f"   ✓ batch {i}: {n}건 upsert (누적 {upserted:,})")
         grand["upserted"] += upserted
         grand["errors"] += errors
+
+        # 삭제 전파 — 이 분원 upsert 가 완전히 성공했을 때만.
+        # 부분 실패(errors>0)면 upsert 못 한 살아있는 행이 잔존 행으로 오인되고,
+        # 0건 적재면 원본 추출 자체가 비어 판단 근거가 없다.
+        if errors == 0 and upserted > 0:
+            sweep_deleted(supabase, db["branch_name"])
+        else:
+            print(
+                f"   ⏭  삭제 전파 생략 (upsert 오류 {errors}건 / 적재 {upserted}건)"
+            )
 
     print("\n" + "=" * 60)
     print("📊 합계")
