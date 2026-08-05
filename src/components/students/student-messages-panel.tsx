@@ -2,6 +2,7 @@ import type { MessageStatus, StudentMessageRow } from "@/types/database";
 import { formatPhone, maskPhone } from "@/lib/phone";
 import { formatKstDateTime } from "@/lib/datetime";
 import { ResendSingleButton } from "@/components/campaigns/resend-single-button";
+import { CopyBodyButton } from "@/components/campaigns/copy-body-button";
 
 interface Props {
   messages: StudentMessageRow[];
@@ -134,9 +135,14 @@ function MessageAccordion({
           </Dd>
         </dl>
 
-        {/* 재발송 — 같은 본문을 이 학부모에게 한 번 더 발송. 서버에서 수신거부·
+        {/* 본문 복사 — 드래그 복사는 text/html 이 함께 담겨 HWP 에서 줄바꿈이
+            뭉갠다. 이 버튼은 text/plain 만 써서 줄바꿈·서식 문제를 같이 없앤다.
+            재발송 — 같은 본문을 이 학부모에게 한 번 더 발송. 서버에서 수신거부·
             야간 광고 차단·{이름}/{날짜} 치환을 재적용한 뒤 1건만 즉시 발송한다. */}
-        <div className="mt-4 flex justify-end border-t border-[color:var(--border)] pt-4">
+        <div className="mt-4 flex justify-end gap-2 border-t border-[color:var(--border)] pt-4">
+          {message.campaign_body && (
+            <CopyBodyButton body={message.campaign_body} />
+          )}
           <ResendSingleButton
             messageId={message.id}
             status={message.status}

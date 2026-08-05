@@ -13,6 +13,7 @@ import { InspectSendonButton } from "@/components/campaigns/inspect-sendon-butto
 import { ResendScheduledButton } from "@/components/campaigns/resend-scheduled-button";
 import { ResendSendonFailedButton } from "@/components/campaigns/resend-sendon-failed-button";
 import { CampaignProgressPoller } from "@/components/campaigns/campaign-progress-poller";
+import { CopyBodyButton } from "@/components/campaigns/copy-body-button";
 import { formatKstDateTime } from "@/lib/datetime";
 
 /**
@@ -218,9 +219,14 @@ export function CampaignDetailView({
         className="rounded-xl border border-[color:var(--border)] bg-bg-card p-6 space-y-4"
         aria-label="발송 내용"
       >
-        <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
-          발송 내용
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-[16px] font-semibold text-[color:var(--text)]">
+            발송 내용
+          </h2>
+          {/* 드래그 복사는 text/html 이 함께 담겨 HWP 에서 줄바꿈이 뭉갠다.
+              이 버튼은 text/plain 만 써서 줄바꿈·서식 문제를 동시에 없앤다. */}
+          {campaign.body && <CopyBodyButton body={campaign.body} />}
+        </div>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-3 text-[14px]">
           <dt className="text-[13px] text-[color:var(--text-muted)] pt-0.5 whitespace-nowrap">
             유형
