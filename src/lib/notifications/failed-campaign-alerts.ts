@@ -9,11 +9,11 @@
  *   값 있음 = 확인됨 → 배너에서 제외
  *
  * 읽기(getFailedCampaignAlerts):
- *   - 세션 클라이언트 → RLS(0075)로 본인(created_by) 발송분 or 마스터=전체 자동 스코프.
+ *   - 세션 클라이언트 → RLS(0116)로 본인 분원 or 마스터=전체 자동 스코프.
  * 확인(acknowledgeFailedCampaigns):
  *   - 세션 RLS 에 crm_campaigns UPDATE 정책이 없을 수 있어(취소도 서비스 클라이언트
- *     사용) 서비스 클라이언트로 UPDATE. 대신 role != master 는 created_by 스코프
- *     가드로 남의 실패건을 확인하지 못하도록 앱 단에서 강제한다.
+ *     사용) 서비스 클라이언트로 UPDATE. 대신 role != master 는 branch 스코프
+ *     가드로 타 분원 실패건을 확인하지 못하도록 앱 단에서 강제한다.
  *
  * failure_acknowledged_at 은 gen types 에 아직 없을 수 있어, 취소 로직과 동일한
  * 좁은 캐스트 관례(chainable 인터페이스)로 접근한다. any 는 사용하지 않는다.
@@ -97,7 +97,7 @@ export async function getFailedCampaignAlerts(): Promise<FailedCampaignAlert[]> 
  */
 export async function acknowledgeFailedCampaigns(
   campaignIds: string[] | "all",
-  viewer: Pick<CurrentUser, "role" | "user_id"> | null,
+  viewer: Pick<CurrentUser, "role" | "branch"> | null,
 ): Promise<{ acknowledged: number }> {
   if (!viewer) {
     return { acknowledged: 0 };
@@ -134,9 +134,11 @@ export async function acknowledgeFailedCampaigns(
     query = query.in("id", campaignIds);
   }
 
-  // 스코프 가드: 마스터가 아니면 본인 발송분만 확인 가능.
+  // 스코프 가드: 마스터가 아니면 본인 분원 발송분만 확인 가능.
+  // 읽기(RLS 0116)와 같은 분원 스코프 — 어긋나면 배너에 보이는데 확인이 안 되는
+  // 실패건이 생긴다(서비스 클라이언트라 RLS 가 안 걸리므로 여기서 직접 맞춘다).
   if (viewer.role !== "master") {
-    query = query.eq("created_by", viewer.user_id);
+    query = query.eq("branch", viewer.branch);
   }
 
   const { data, error } = await query.select("id");

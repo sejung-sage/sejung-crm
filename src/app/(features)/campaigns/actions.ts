@@ -157,7 +157,7 @@ export async function resendSendonFailedAction(
 /**
  * 발송 실패 알림 확인(dismiss).
  * campaignIds 미지정이면 미확인 전체("all")를 확인 처리한다.
- * 스코프(본인/마스터)는 acknowledgeFailedCampaigns 내부 가드에서 강제.
+ * 스코프(본인 분원/마스터)는 acknowledgeFailedCampaigns 내부 가드에서 강제.
  * 배너가 셸 전역이라 레이아웃까지 재검증한다.
  */
 export async function acknowledgeFailedCampaignsAction(

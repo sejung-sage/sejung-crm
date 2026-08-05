@@ -45,10 +45,10 @@ export async function getCampaign(
   const row = data as Record<string, unknown>;
   const createdBy = (row.created_by ?? null) as string | null;
 
-  // 발송내역 가시성 1차 가드(앱): master 는 전체, 그 외는 본인 발송분만.
-  // RLS(0075)가 2차로 막지만, 명시적 가드로 비-소유자 직딥 접근 시 not-found 처리.
+  // 발송내역 가시성 1차 가드(앱): master 는 전체, 그 외는 본인 분원 전체.
+  // RLS(0116)가 2차로 막지만, 명시적 가드로 타 분원 직딥 접근 시 not-found 처리.
   const viewer = await getCurrentUser();
-  if (viewer && viewer.role !== "master" && createdBy !== viewer.user_id) {
+  if (viewer && viewer.role !== "master" && row.branch !== viewer.branch) {
     return null;
   }
 

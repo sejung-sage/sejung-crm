@@ -11,8 +11,8 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
  * 인자를 캡처해 다음을 방어한다:
  *   1) 읽기 3종 필터(status='실패' / failure_acknowledged_at IS NULL / is_test=false)
  *      + order(created_at desc) + limit(20) + camelCase 매핑
- *   2) 확인 UPDATE 의 **스코프 가드** — 비마스터는 created_by=본인 강제,
- *      마스터는 미첨부. (남의 실패건 확인 차단 = 보안 핵심)
+ *   2) 확인 UPDATE 의 **스코프 가드** — 비마스터는 branch=본인 분원 강제,
+ *      마스터는 미첨부. (타 분원 실패건 확인 차단 = 보안 핵심)
  *
  * supabase 모킹은 send-dashboard / cancel-scheduled-campaign 관례를 따르되,
  * 이 모듈은 체이닝 쿼리빌더(.select().eq().is()...limit / .update()...select)
@@ -262,12 +262,12 @@ describe("getFailedCampaignAlerts", () => {
 
 // ─── 2. acknowledgeFailedCampaigns · 스코프 가드(보안 핵심) ─────
 
-const MASTER = { role: "master" as const, user_id: "u-master" };
-const MANAGER = { role: "manager" as const, user_id: "u-mgr" };
+const MASTER = { role: "master" as const, branch: "대치" };
+const MANAGER = { role: "manager" as const, branch: "대치" };
 
 describe("acknowledgeFailedCampaigns", () => {
-  describe("스코프 가드(created_by)", () => {
-    it("master + 'all' → 서비스 클라이언트 UPDATE, created_by 필터 없음, 필터 3종만", async () => {
+  describe("스코프 가드(branch)", () => {
+    it("master + 'all' → 서비스 클라이언트 UPDATE, branch 필터 없음, 필터 2종만", async () => {
       h.state.updateResult = { data: [{ id: "c-1" }], error: null };
 
       const r = await acknowledgeFailedCampaigns("all", MASTER);
@@ -284,7 +284,7 @@ describe("acknowledgeFailedCampaigns", () => {
         typeof h.state.updateValue?.failure_acknowledged_at,
       ).toBe("string");
 
-      // 필터 3종: status='실패', is_test=false + is NULL. created_by 없음.
+      // 필터 2종: status='실패', is_test=false + is NULL. branch 없음(전 분원).
       expect(argsOf(h.state.updateCalls, "eq")).toEqual([
         ["status", "실패"],
         ["is_test", false],
@@ -298,27 +298,40 @@ describe("acknowledgeFailedCampaigns", () => {
       expect(h.state.updateSelectCols).toBe("id");
     });
 
-    it("manager(비마스터) + 'all' → created_by=본인 user_id 필터가 추가된다", async () => {
+    it("manager(비마스터) + 'all' → branch=본인 분원 필터가 추가된다", async () => {
       h.state.updateResult = { data: [{ id: "c-1" }], error: null };
 
       await acknowledgeFailedCampaigns("all", MANAGER);
 
-      // created_by 가드가 마지막 eq 로 붙는다
+      // branch 가드가 마지막 eq 로 붙는다
       expect(argsOf(h.state.updateCalls, "eq")).toEqual([
         ["status", "실패"],
         ["is_test", false],
-        ["created_by", "u-mgr"],
+        ["branch", "대치"],
       ]);
     });
 
-    it("비마스터는 created_by 로 남의 실패건을 확인하지 못하도록 항상 스코프된다", async () => {
+    it("비마스터는 branch 로 타 분원 실패건을 확인하지 못하도록 항상 스코프된다", async () => {
       h.state.updateResult = { data: [], error: null };
       await acknowledgeFailedCampaigns(["c-1", "c-2"], MANAGER);
 
-      const createdByFilters = argsOf(h.state.updateCalls, "eq").filter(
-        (a) => a[0] === "created_by",
+      const branchFilters = argsOf(h.state.updateCalls, "eq").filter(
+        (a) => a[0] === "branch",
       );
-      expect(createdByFilters).toEqual([["created_by", "u-mgr"]]);
+      expect(branchFilters).toEqual([["branch", "대치"]]);
+    });
+
+    it("같은 분원 동료의 실패건도 확인 처리된다(0116 분원 공유)", async () => {
+      // MANAGER 는 본인이 보내지 않은 캠페인 id 를 확인 대상으로 넘긴다.
+      h.state.updateResult = { data: [{ id: "c-peer" }], error: null };
+
+      const r = await acknowledgeFailedCampaigns(["c-peer"], MANAGER);
+
+      expect(r).toEqual({ acknowledged: 1 });
+      // created_by 스코프는 더 이상 걸리지 않는다.
+      expect(
+        argsOf(h.state.updateCalls, "eq").filter((a) => a[0] === "created_by"),
+      ).toEqual([]);
     });
   });
 

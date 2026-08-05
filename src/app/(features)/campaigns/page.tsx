@@ -38,14 +38,16 @@ export default async function CampaignsPage({
     page: pick(raw.page) ?? 1,
   });
 
-  // 발송자 필터는 master 만 — 그 외 역할은 본인 발송분만 보이므로 의미 없음.
+  // 발송자 필터는 전 역할 공통(0116). 옵션 목록은 RLS 로 자동 스코프되어
+  // 비-master 에게는 본인 분원 발송자만 뜬다.
   // senders 가 빈 배열이면 툴바가 발송자 드롭다운을 자동으로 숨긴다.
+  // 삭제는 여전히 master 전용(canDelete).
   const viewer = await getCurrentUser();
   const isMaster = viewer?.role === "master";
 
   const [result, senders] = await Promise.all([
     listCampaigns(parsed),
-    isMaster ? listCampaignSenders() : Promise.resolve([]),
+    listCampaignSenders(),
   ]);
   const devMode = isDevSeedMode();
 
