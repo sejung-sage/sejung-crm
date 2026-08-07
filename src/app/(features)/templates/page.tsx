@@ -43,10 +43,11 @@ export default async function TemplatesPage({
       {/* 페이지 헤더 */}
       <header>
         <h1 className="text-[20px] font-semibold text-[color:var(--text)]">
-          문자 템플릿
+          상용문구
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
-          자주 쓰는 문자 본문을 저장해 두고, 발송 시 바로 불러오세요.
+          자주 쓰는 문자 본문을 저장해 두고, 발송 시 바로 불러오세요. 저장한
+          문구는 같은 분원 계정에게만 보입니다.
         </p>
       </header>
 
@@ -69,7 +70,7 @@ export default async function TemplatesPage({
         <strong className="text-[color:var(--text)]">
           {result.total.toLocaleString()}
         </strong>
-        개 템플릿
+        개
       </p>
 
       {/* 테이블 */}

@@ -28,12 +28,12 @@ export default async function EditTemplatePage({
         className="inline-flex items-center gap-1 text-[13px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
       >
         <ChevronLeft className="size-4" strokeWidth={1.75} aria-hidden />
-        문자 템플릿
+        상용문구
       </Link>
 
       <header>
         <h1 className="text-[20px] font-semibold text-[color:var(--text)]">
-          템플릿 수정
+          상용문구 수정
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
           마지막 수정: {formatDateTime(template.updated_at)}

@@ -6,7 +6,8 @@
  * 공통 정책:
  *   - dev-seed 모드에서는 모든 쓰기 액션이 `{ status: 'dev_seed_mode' }` 반환.
  *     UI 에서는 "시드라 저장되지 않습니다" 회색 안내 박스.
- *   - 인증/권한: users_profile.role ∈ {master, admin} 만 생성/수정/삭제.
+ *   - 인증/권한: users_profile.role ∈ {master, admin, manager} 만 생성/수정/삭제.
+ *     (0117 — 부원장 계정이 manager 라 상용문구 저장이 막혀 있던 문제 해소)
  *   - 입력 검증: CreateTemplateInputSchema / UpdateTemplateInputSchema 재검증.
  *
  * NOTE (frontend-dev 작성 stub): backend-dev 가 실제 Supabase 쓰기 로직으로
@@ -45,7 +46,9 @@ export type DeleteTemplateActionResult =
 
 // ─── 내부 유틸 ─────────────────────────────────────────────
 
-const WRITE_ROLES = new Set<string>(["master", "admin"]);
+// 0117: manager(부원장) 도 본인 분원 상용문구를 직접 관리한다.
+// DB 측 2차 방어는 crm_templates 의 can_write_template_branch() RLS.
+const WRITE_ROLES = new Set<string>(["master", "admin", "manager"]);
 
 type AuthOk = { ok: true; userId: string; role: string; branch: string };
 type AuthFail = { ok: false; reason: string };
@@ -82,7 +85,7 @@ async function assertWriteRole(): Promise<AuthOk | AuthFail> {
     return { ok: false, reason: "비활성 계정은 사용할 수 없습니다" };
   }
   if (!profile.role || !WRITE_ROLES.has(profile.role)) {
-    return { ok: false, reason: "권한이 없습니다 (master / admin 만 가능)" };
+    return { ok: false, reason: "상용문구를 저장할 권한이 없습니다" };
   }
   if (!profile.branch) {
     return { ok: false, reason: "계정 분원 정보가 없습니다" };

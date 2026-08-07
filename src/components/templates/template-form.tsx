@@ -15,6 +15,7 @@ import { useToast } from "@/components/ui/toast";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
+import { LegacyTokenWarning } from "@/components/messaging/legacy-token-warning";
 
 /**
  * F3-01 · 템플릿 생성/수정 공용 폼.
@@ -123,8 +124,8 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
 
   const validate = (): boolean => {
     const errs: Record<string, string> = {};
-    if (!name.trim()) errs.name = "템플릿명은 필수입니다";
-    if (name.trim().length > 40) errs.name = "템플릿명은 40자 이내";
+    if (!name.trim()) errs.name = "문구 이름은 필수입니다";
+    if (name.trim().length > 40) errs.name = "문구 이름은 40자 이내";
     if (subjectRequired && !subject.trim()) {
       errs.subject = "LMS 는 제목이 필수입니다";
     }
@@ -167,7 +168,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
       if (mode === "create") {
         const result = await createTemplateAction(payload);
         if (result.status === "success") {
-          showToast("success", `'${payload.name}' 템플릿을 만들었어요`);
+          showToast("success", `'${payload.name}' 문구를 저장했어요`);
           router.push("/templates");
           router.refresh();
         } else if (result.status === "dev_seed_mode") {
@@ -176,11 +177,11 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           );
         } else {
           setErrorMsg(result.reason);
-          showToast("error", `템플릿 생성 실패: ${result.reason}`);
+          showToast("error", `상용문구 저장 실패: ${result.reason}`);
         }
       } else {
         if (!templateId) {
-          setErrorMsg("템플릿 ID 가 없습니다");
+          setErrorMsg("상용문구 ID 가 없습니다");
           setConfirmingSave(false);
           return;
         }
@@ -231,13 +232,13 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
           </div>
         )}
 
-        {/* 템플릿명 */}
+        {/* 문구 이름 */}
         <div className="space-y-1.5">
           <label
             htmlFor="tpl-name"
             className="text-[14px] font-medium text-[color:var(--text)]"
           >
-            템플릿명
+            문구 이름
           </label>
           <input
             id="tpl-name"
@@ -429,6 +430,8 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
               줄이거나 LMS 로 유형을 변경하세요.
             </p>
           )}
+          {/* Aca2000 문구를 붙여넣는 경우가 잦아 저장 전에 잡아준다. */}
+          <LegacyTokenWarning body={body} onConvert={setBody} />
         </div>
 
         {/* 광고 여부 */}
@@ -612,7 +615,7 @@ export function TemplateForm({ mode, templateId, initial }: Props) {
       {confirmingSave && (
         <ConfirmDialog
           title="변경사항을 저장할까요?"
-          description="저장하면 템플릿의 본문·유형이 즉시 갱신되며, 이후 발송부터 새 내용이 사용됩니다."
+          description="저장하면 상용문구의 본문·유형이 즉시 갱신되며, 이후 발송부터 새 내용이 사용됩니다."
           confirmLabel="저장"
           busy={isPending}
           onCancel={() => setConfirmingSave(false)}

@@ -79,7 +79,7 @@ export function TemplatesToolbar(_props: Props) {
     >
       <form onSubmit={onSearchSubmit} className="flex-1">
         <label className="relative block">
-          <span className="sr-only">템플릿 검색</span>
+          <span className="sr-only">상용문구 검색</span>
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-[color:var(--text-dim)]"
             strokeWidth={1.75}
@@ -89,7 +89,7 @@ export function TemplatesToolbar(_props: Props) {
             name="q"
             type="search"
             defaultValue={q}
-            placeholder="템플릿명 또는 본문 검색"
+            placeholder="문구 이름 또는 본문 검색"
             className="
               w-full h-10 rounded-lg
               pl-9 pr-3
@@ -135,7 +135,7 @@ export function TemplatesToolbar(_props: Props) {
         "
       >
         <Plus className="size-4" strokeWidth={2} aria-hidden />
-        새 템플릿
+        새 상용문구
       </Link>
     </div>
   );

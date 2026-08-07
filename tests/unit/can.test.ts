@@ -120,11 +120,23 @@ describe("can() · manager (대치)", () => {
     expect(can(manager, "send", "campaign", "대치")).toBe(true);
   });
 
-  it("write/delete → false (모든 리소스)", () => {
+  // 0117: 상용문구(template)는 부원장이 직접 관리하므로 예외적으로 쓰기 허용.
+  it("template write/delete → true (본인 분원)", () => {
+    expect(can(manager, "write", "template", "대치")).toBe(true);
+    expect(can(manager, "delete", "template", "대치")).toBe(true);
+  });
+
+  it("template 외 write/delete → false", () => {
     for (const r of ALL_RESOURCES) {
+      if (r === "template") continue;
       expect(can(manager, "write", r, "대치")).toBe(false);
       expect(can(manager, "delete", r, "대치")).toBe(false);
     }
+  });
+
+  it("다른 분원(송도) template 쓰기 → false", () => {
+    expect(can(manager, "write", "template", "송도")).toBe(false);
+    expect(can(manager, "delete", "template", "송도")).toBe(false);
   });
 
   it("account / import → 모든 액션 false", () => {

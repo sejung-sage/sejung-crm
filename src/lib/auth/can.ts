@@ -6,7 +6,8 @@
  * 정책 매트릭스 (PRD 섹션 "계정 권한 정책"):
  *   master  : 모든 리소스×모든 액션 허용. branch 인자 무시.
  *   admin   : 본인 분원 한정 모든 리소스×모든 액션. (branch 인자 == user.branch 일 때만 true)
- *   manager : 본인 분원 한정 read · send 만. write/delete/import/account 불가.
+ *   manager : 본인 분원 한정 read · send. 예외로 template 은 write/delete 까지 허용
+ *             (0117 — 부원장이 상용문구를 직접 관리). import/account 불가.
  *   viewer  : 본인 분원 한정 read 만. 그 외 전부 불가. account 불가.
  *   null / active=false → false (예외 없이 거부)
  *
@@ -59,7 +60,8 @@ const MATRIX: RoleMatrix = {
   manager: {
     student: new Set(READ_ONLY),
     group: new Set(READ_ONLY),
-    template: new Set(READ_ONLY),
+    // 0117: 상용문구는 부원장(manager)이 직접 관리 — 본인 분원 한정 전권.
+    template: new Set(ALL),
     // manager 는 발송 트리거(send) 만 추가 허용, write/delete 불가
     campaign: new Set<Action>(["read", "send"]),
     // account/import 는 정의하지 않음 → false

@@ -340,7 +340,9 @@ function Metric({
 
 function formatMeta(c: CampaignListItem): string {
   const parts: string[] = [];
-  parts.push(c.template_name ? `템플릿: ${c.template_name}` : "템플릿 없음");
+  parts.push(
+    c.template_name ? `상용문구: ${c.template_name}` : "상용문구 없음",
+  );
   parts.push(c.group_name ? `그룹: ${c.group_name}` : "그룹 없음");
   return parts.join(" · ");
 }

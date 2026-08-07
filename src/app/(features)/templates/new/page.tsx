@@ -18,12 +18,12 @@ export default function NewTemplatePage() {
         className="inline-flex items-center gap-1 text-[13px] text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
       >
         <ChevronLeft className="size-4" strokeWidth={1.75} aria-hidden />
-        문자 템플릿
+        상용문구
       </Link>
 
       <header>
         <h1 className="text-[20px] font-semibold text-[color:var(--text)]">
-          새 템플릿
+          새 상용문구
         </h1>
         <p className="mt-1 text-[13px] text-[color:var(--text-muted)]">
           자주 쓰는 문자 본문을 저장해 두면 발송 시 바로 불러올 수 있습니다.

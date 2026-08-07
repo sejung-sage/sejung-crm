@@ -44,10 +44,10 @@ export function TemplatesTable({ rows }: Props) {
     return (
       <div className="rounded-xl border border-[color:var(--border)] bg-bg-card py-16 text-center">
         <p className="text-[15px] text-[color:var(--text-muted)]">
-          아직 템플릿이 없습니다.
+          아직 저장된 상용문구가 없습니다.
         </p>
         <p className="mt-2 text-[13px] text-[color:var(--text-dim)]">
-          우측 상단 &lsquo;새 템플릿&rsquo; 으로 첫 템플릿을 만들어 보세요.
+          우측 상단 &lsquo;새 상용문구&rsquo; 로 첫 문구를 만들어 보세요.
         </p>
       </div>
     );
@@ -60,7 +60,7 @@ export function TemplatesTable({ rows }: Props) {
     startTransition(async () => {
       const result = await deleteTemplateAction(target.id);
       if (result.status === "success") {
-        showToast("success", `'${target.name}' 템플릿을 삭제했어요`);
+        showToast("success", `'${target.name}' 문구를 삭제했어요`);
         router.refresh();
       } else if (result.status === "dev_seed_mode") {
         setNotice(
@@ -175,7 +175,7 @@ export function TemplatesTable({ rows }: Props) {
                       onDuplicate={() => {
                         setOpenMenuId(null);
                         setNotice(
-                          "템플릿 복제는 Phase 1 에서 제공됩니다. 동일한 본문으로 새 템플릿을 만들어 주세요.",
+                          "문구 복제는 Phase 1 에서 제공됩니다. 동일한 본문으로 새 상용문구를 만들어 주세요.",
                         );
                       }}
                       onDelete={() => {
@@ -193,8 +193,8 @@ export function TemplatesTable({ rows }: Props) {
 
       {pendingDelete && (
         <ConfirmDialog
-          title="템플릿을 삭제할까요?"
-          description={`'${pendingDelete.name}' 템플릿을 삭제합니다. 이미 발송된 캠페인 기록은 보존됩니다.`}
+          title="상용문구를 삭제할까요?"
+          description={`'${pendingDelete.name}' 문구를 삭제합니다. 이미 발송된 캠페인 기록은 보존됩니다.`}
           confirmLabel="삭제"
           confirmTone="danger"
           busy={isPending}
@@ -266,7 +266,7 @@ function RowMenu({
         type="button"
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="템플릿 메뉴 열기"
+        aria-label="상용문구 메뉴 열기"
         onClick={(e) => {
           e.stopPropagation();
           onOpenChange(!open);

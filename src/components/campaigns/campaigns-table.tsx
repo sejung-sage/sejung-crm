@@ -136,7 +136,7 @@ export function CampaignsTable({ rows, canDelete = false }: Props) {
                     </Link>
                     {c.template_name && (
                       <p className="mt-0.5 text-[12px] text-[color:var(--text-muted)]">
-                        템플릿: {c.template_name}
+                        상용문구: {c.template_name}
                       </p>
                     )}
                   </Td>
