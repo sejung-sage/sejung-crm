@@ -54,6 +54,15 @@ export const CreateTemplateInputSchema = z
       .min(1, "본문은 필수입니다")
       .max(4000, "본문이 너무 깁니다"),
     is_ad: z.boolean().default(false),
+    /**
+     * 저장할 분원. **master 만 유효**하며 그 외 역할은 서버가 무시하고 본인
+     * 분원으로 강제한다(권한 우회 방지 — actions.ts 참조).
+     *
+     * 마스터는 사이드바에서 분원을 바꿔가며 발송하므로, 발송 화면에서 바로
+     * 문구를 저장할 때 "지금 보고 있는 분원" 에 들어가야 한다. 이 값이 없으면
+     * 마스터 계정 소속 분원(대개 대치)에 저장돼 반포 문구가 대치에 쌓인다.
+     */
+    branch: z.string().trim().min(1).max(20).optional(),
   })
   .refine(
     (v) =>

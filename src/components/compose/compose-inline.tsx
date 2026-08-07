@@ -10,6 +10,7 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  BookmarkPlus,
   CalendarClock,
   Loader2,
   Phone,
@@ -40,6 +41,7 @@ import {
   type FilterChipValue,
   type FilterSubject,
 } from "@/components/groups/filter-chip-panel";
+import { createTemplateAction } from "@/app/(features)/templates/actions";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { VirtualRecipientList } from "@/components/messaging/virtual-recipient-list";
 import { TestSendCard } from "@/components/messaging/test-send-card";
@@ -169,6 +171,26 @@ type SendUiResult =
   | { kind: "failed"; reason: string }
   | { kind: "dev_seed_mode"; reason: string };
 
+/**
+ * 셀렉트·불러오기에 필요한 최소 필드만. TemplateRow 전체를 로컬에서 만들려면
+ * created_at 같은 서버 값을 지어내야 해서, 실제로 쓰는 필드만 남긴다.
+ */
+type ComposeTemplate = Pick<
+  TemplateRow,
+  "id" | "name" | "type" | "subject" | "body" | "is_ad"
+>;
+
+function toComposeTemplate(t: TemplateRow): ComposeTemplate {
+  return {
+    id: t.id,
+    name: t.name,
+    type: t.type,
+    subject: t.subject,
+    body: t.body,
+    is_ad: t.is_ad,
+  };
+}
+
 function emptyChipValue(): FilterChipValue {
   return {
     grades: [],
@@ -198,6 +220,16 @@ export function ComposeInline({
   devMode,
 }: Props) {
   const branch = initialBranch;
+  // 상용문구 목록은 서버가 내려주지만, 이 화면에서 바로 저장할 수 있으므로
+  // 로컬 state 로 들고 새로 만든 문구를 즉시 셀렉트에 반영한다(새로고침 없이).
+  const [templateList, setTemplateList] = useState<ComposeTemplate[]>(() =>
+    templates.map(toComposeTemplate),
+  );
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, startSaving] = useTransition();
   const [chip, setChip] = useState<FilterChipValue>(emptyChipValue);
   // 선택 모드 — 매칭 명단 체크박스의 두 가지 의미.
   //  - "exclude"(기본): 전원 선택 상태에서 일부를 빼는 방식. deselected = 뺀 학생.
@@ -608,7 +640,7 @@ export function ComposeInline({
       setStep2((s) => ({ ...s, templateId: undefined }));
       return;
     }
-    const t = templates.find((x) => x.id === id);
+    const t = templateList.find((x) => x.id === id);
     if (!t) return;
     setStep2((s) => ({
       ...s,
@@ -619,6 +651,68 @@ export function ComposeInline({
       isAd: t.is_ad,
       dedupeByPhone: false,
     }));
+  };
+
+  /**
+   * 지금 작성 중인 내용을 상용문구로 저장.
+   *
+   * /templates 로 이동하지 않고 발송 화면에서 바로 저장한다 — 문구는 대개
+   * "보내다 보니 또 쓸 것 같다" 는 순간에 생기는데, 그때 탭을 옮기게 하면
+   * 본문을 다시 옮겨 붙여야 한다.
+   *
+   * 저장 분원은 발송 분원(branch)으로 보낸다. 서버는 master 일 때만 이 값을
+   * 쓰고 그 외 역할은 본인 분원으로 강제한다.
+   */
+  const handleSaveTemplate = () => {
+    const name = saveName.trim();
+    const body = step2.body.trim();
+    const subject = step2.subject?.trim() ?? "";
+    setSaveError(null);
+    setSaveNotice(null);
+
+    if (!name) {
+      setSaveError("문구 이름을 입력하세요.");
+      return;
+    }
+    if (!body) {
+      setSaveError("본문을 먼저 입력하세요.");
+      return;
+    }
+    if (step2.type === "LMS" && !subject) {
+      setSaveError("LMS 는 제목이 있어야 저장할 수 있습니다.");
+      return;
+    }
+
+    startSaving(async () => {
+      const result = await createTemplateAction({
+        name,
+        type: step2.type,
+        subject: step2.type === "SMS" ? null : subject,
+        body,
+        is_ad: step2.isAd,
+        branch,
+      });
+      if (result.status === "success") {
+        const saved: ComposeTemplate = {
+          id: result.id,
+          name,
+          type: step2.type,
+          subject: step2.type === "SMS" ? null : subject,
+          body,
+          is_ad: step2.isAd,
+        };
+        setTemplateList((prev) => [...prev, saved]);
+        // 방금 저장한 문구를 선택 상태로 — 발송 캠페인에 template_id 가 남는다.
+        setStep2((s) => ({ ...s, templateId: saved.id }));
+        setSaveOpen(false);
+        setSaveName("");
+        setSaveNotice(`'${name}' 문구를 저장했어요.`);
+      } else if (result.status === "dev_seed_mode") {
+        setSaveError("개발용 시드 모드라 저장되지 않습니다.");
+      } else {
+        setSaveError(result.reason);
+      }
+    });
   };
 
   const insertToken = (token: string) => {
@@ -851,30 +945,87 @@ export function ComposeInline({
               </div>
             </fieldset>
 
-            {/* 상용문구 불러오기 */}
-            {templates.length > 0 && (
-              <div className="space-y-1">
+            {/* 상용문구 — 불러오기 + 이 화면에서 바로 저장 */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
                 <label
                   htmlFor="compose-template"
                   className="text-[12px] text-[color:var(--text-muted)]"
                 >
-                  저장된 상용문구 불러오기 (선택)
+                  상용문구
                 </label>
-                <select
-                  id="compose-template"
-                  value={step2.templateId ?? ""}
-                  onChange={(e) => onPickTemplate(e.target.value)}
-                  className="w-full h-10 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSaveOpen((v) => !v);
+                    setSaveError(null);
+                    setSaveNotice(null);
+                  }}
+                  className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-[color:var(--border)] bg-bg-card text-[12px] text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] transition-colors"
                 >
-                  <option value="">— 새로 작성 —</option>
-                  {templates.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      [{t.type}] {t.name}
-                    </option>
-                  ))}
-                </select>
+                  <BookmarkPlus className="size-3.5" strokeWidth={1.75} aria-hidden />
+                  현재 내용 저장
+                </button>
               </div>
-            )}
+
+              <select
+                id="compose-template"
+                value={step2.templateId ?? ""}
+                onChange={(e) => onPickTemplate(e.target.value)}
+                disabled={templateList.length === 0}
+                className="w-full h-10 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer disabled:cursor-not-allowed disabled:text-[color:var(--text-dim)]"
+              >
+                <option value="">
+                  {templateList.length === 0
+                    ? "저장된 상용문구가 없습니다"
+                    : "— 새로 작성 —"}
+                </option>
+                {templateList.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    [{t.type}] {t.name}
+                  </option>
+                ))}
+              </select>
+
+              {saveOpen && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSaveTemplate();
+                      }
+                    }}
+                    placeholder="문구 이름 (예: 수강신청 결제안내)"
+                    maxLength={40}
+                    autoFocus
+                    className="flex-1 h-10 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveTemplate}
+                    disabled={isSaving}
+                    className="inline-flex items-center h-10 px-3 rounded-md bg-[color:var(--action)] text-[color:var(--action-text)] text-[13px] font-medium hover:bg-[color:var(--action-hover)] disabled:opacity-50 transition-colors"
+                  >
+                    {isSaving ? "저장 중..." : "저장"}
+                  </button>
+                </div>
+              )}
+
+              {saveError && (
+                <p role="alert" className="text-[12px] text-[color:var(--danger)]">
+                  {saveError}
+                </p>
+              )}
+              {saveNotice && (
+                <p role="status" className="text-[12px] text-[color:var(--text-muted)]">
+                  {saveNotice}
+                </p>
+              )}
+            </div>
           </div>
 
           {/* 테스트 발송 — 유형·템플릿과 한 줄 오른쪽 */}

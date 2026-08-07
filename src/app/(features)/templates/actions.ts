@@ -128,6 +128,12 @@ export async function createTemplateAction(
     return { status: "failed", reason: auth.reason };
   }
 
+  // 저장 분원: master 만 입력값을 쓸 수 있다. 그 외 역할은 무시하고 본인 분원으로
+  // 강제 — 안 그러면 admin/manager 가 타 분원에 문구를 심을 수 있다.
+  // (DB 측 can_write_template_branch RLS 가 2차로 같은 규칙을 강제한다.)
+  const targetBranch =
+    auth.role === "master" && parsed.branch ? parsed.branch : auth.branch;
+
   const supabase = await createSupabaseServerClient();
   // 0059: teacher_name 컬럼 DROP — payload 에서 제외.
   const insertPayload: Record<string, unknown> = {
@@ -138,7 +144,7 @@ export async function createTemplateAction(
     auto_captured: false,
     is_ad: parsed.is_ad,
     byte_count: countEucKrBytes(parsed.body),
-    branch: auth.branch,
+    branch: targetBranch,
     created_by: auth.userId,
   };
 
