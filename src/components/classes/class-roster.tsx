@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { CalendarDays, Send } from "lucide-react";
-import type { ClassStudentRow } from "@/types/database";
+import type { ClassStudentRow, TemplateRow } from "@/types/database";
 import type { ClassSessionsResult } from "@/lib/classes/get-class-sessions";
 import { formatPhone, maskPhone } from "@/lib/phone";
 import { ClassSendModal } from "@/components/classes/class-send-modal";
@@ -17,6 +17,8 @@ interface Props {
   canSend: boolean;
   /** 학부모 연락처 풀 노출 권한(master). false 면 마스킹. */
   canRevealPhone: boolean;
+  /** 이 분원의 상용문구 — 발송 패널의 "불러오기" 셀렉트용. */
+  templates?: TemplateRow[];
 }
 
 /** 통합 명단 한 사람(전체·회차 공통 표시 필드). */
@@ -48,6 +50,7 @@ export function ClassRoster({
   sessions,
   canSend,
   canRevealPhone,
+  templates = [],
 }: Props) {
   const sessionList = sessions.sessions;
 
@@ -210,6 +213,7 @@ export function ClassRoster({
         <ClassSendModal
           recipients={selectedRecipients}
           contextLabel={contextLabel}
+          templates={templates}
           onClose={() => setSendOpen(false)}
         />
       )}

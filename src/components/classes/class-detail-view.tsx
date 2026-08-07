@@ -11,6 +11,7 @@ import { SeminarRosterPanels } from "@/components/seminars/seminar-roster-panels
 import { SeminarRosterExportButton } from "@/components/seminars/seminar-roster-export-button";
 import type { ClassSignupPageDetail } from "@/lib/seminars/get-class-signup-page";
 import type { ClassSessionsResult } from "@/lib/classes/get-class-sessions";
+import type { TemplateRow } from "@/types/database";
 
 interface Props {
   detail: ClassDetail;
@@ -32,6 +33,8 @@ interface Props {
    * 섹션 자체 미렌더. 설명회는 빈 결과로 전달된다.
    */
   sessions?: ClassSessionsResult;
+  /** 이 분원의 상용문구 — 명단에서 바로 보내는 발송 패널이 불러다 쓴다. */
+  templates?: TemplateRow[];
 }
 
 /**
@@ -50,6 +53,7 @@ export function ClassDetailView({
   canSendToClass = false,
   signupPageDetail = null,
   sessions,
+  templates = [],
 }: Props) {
   // 다음 시즌 미등록(이탈) 학생 — 추가 fetch 없이 detail.students 를
   // status 술어(isLapsedStudent: status !== '재원생')로 거른다.
@@ -133,6 +137,7 @@ export function ClassDetailView({
             sessions={sessions ?? { sessions: [], totalSessions: 0 }}
             canSend={canSendToClass}
             canRevealPhone={canRevealPhone}
+            templates={templates}
           />
         </section>
       )}

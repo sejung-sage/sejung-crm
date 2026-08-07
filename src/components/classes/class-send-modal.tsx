@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { Send, AlertTriangle, CheckCircle2, X, Loader2 } from "lucide-react";
 import { excelSendAction } from "@/app/(features)/excel-send/actions";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
-import { BYTE_LIMITS } from "@/lib/schemas/template";
+import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
+import type { TemplateRow } from "@/types/database";
+import { LegacyTokenWarning } from "@/components/messaging/legacy-token-warning";
 
 interface Recipient {
   name: string;
@@ -17,6 +19,8 @@ interface Props {
   recipients: Recipient[];
   /** 헤더 맥락 (예: "5회차 · 6월 13일" / "전체 수강생"). */
   contextLabel: string;
+  /** 이 분원의 저장된 상용문구. 빈 배열이면 불러오기 셀렉트 미노출. */
+  templates?: TemplateRow[];
   onClose: () => void;
 }
 
@@ -26,27 +30,92 @@ type Result =
   | { kind: "failed"; reason: string }
   | { kind: "dev_seed"; reason: string };
 
+const TYPE_OPTIONS: Array<{ value: TemplateTypeLiteral; label: string }> = [
+  { value: "SMS", label: "SMS · 단문" },
+  { value: "LMS", label: "LMS · 장문" },
+];
+
 /**
- * 강좌/회차 명단에서 선택한 학생에게 같은 화면 팝업으로 바로 문자 발송.
+ * 강좌/회차 명단에서 선택한 학생에게 바로 문자 발송 — 우측 슬라이드 패널.
  *
  * 그룹 생성·페이지 이동 없이 ad-hoc 발송(excelSendAction) 재사용 — group_id=null
  * 캠페인 + 드레인 워커가 백그라운드 발송, 진행률은 캠페인 상세에서 확인.
  * 발송 안전 가드(광고 prefix/080 footer/야간 차단/수신거부 제외)는 서버에서 적용.
+ *
+ * 중앙 팝업이 아니라 우측 슬라이드인 이유: 뒤의 명단(누구에게 보내는지)이 가려지지
+ * 않아야 운영자가 대상을 확인하면서 본문을 쓸 수 있다.
  */
-export function ClassSendModal({ recipients, contextLabel, onClose }: Props) {
+export function ClassSendModal({
+  recipients,
+  contextLabel,
+  templates = [],
+  onClose,
+}: Props) {
+  const [type, setType] = useState<TemplateTypeLiteral>("SMS");
   const [body, setBody] = useState("");
   const [subject, setSubject] = useState("");
   const [isAd, setIsAd] = useState(false);
+  const [templateId, setTemplateId] = useState("");
+  // SMS 한도를 넘겨 자동 전환된 직후인지 — 비용이 3배로 뛰므로 반드시 알린다.
+  const [autoSwitched, setAutoSwitched] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
   const [isPending, startTransition] = useTransition();
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
   const bytes = countEucKrBytes(body);
-  // SMS 한도 초과면 자동 LMS. 광고 가드(prefix/footer)로 실제 바이트는 더 늘 수 있어
-  // 서버가 발송 직전 한도를 한 번 더 검증한다.
-  const type: "SMS" | "LMS" = bytes <= BYTE_LIMITS.SMS ? "SMS" : "LMS";
+  const limit = BYTE_LIMITS[type];
+  const overflow = bytes > limit;
+
+  // SMS 한도(90B) 초과 시 LMS 로 자동 전환. 예전 동작(무조건 자동)과 달리 전환
+  // 사실을 배너로 알린다 — SMS 7.4원 → LMS 24원이라 조용히 바뀌면 안 된다.
+  useEffect(() => {
+    if (type === "SMS" && bytes > BYTE_LIMITS.SMS) {
+      setType("LMS");
+      setAutoSwitched(true);
+    }
+  }, [type, bytes]);
+
+  // ESC 로 닫기 (발송 중에는 무시).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !isPending) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isPending, onClose]);
+
+  const pickTemplate = (id: string) => {
+    setTemplateId(id);
+    if (!id) return;
+    const t = templates.find((x) => x.id === id);
+    if (!t) return;
+    setType(t.type === "SMS" ? "SMS" : "LMS");
+    setBody(t.body);
+    setSubject(t.subject ?? "");
+    setIsAd(t.is_ad);
+    setAutoSwitched(false);
+  };
+
+  /** `{이름}` 을 커서 위치에 삽입. 발송 시 수신자 이름으로 치환된다. */
+  const insertNameToken = () => {
+    const el = bodyRef.current;
+    if (!el) {
+      setBody((b) => b + "{이름}");
+      return;
+    }
+    const start = el.selectionStart ?? body.length;
+    const end = el.selectionEnd ?? body.length;
+    const next = body.slice(0, start) + "{이름}" + body.slice(end);
+    setBody(next);
+    requestAnimationFrame(() => {
+      el.focus();
+      const pos = start + "{이름}".length;
+      el.setSelectionRange(pos, pos);
+    });
+  };
 
   const handleSend = () => {
-    if (body.trim().length === 0) return;
+    if (body.trim().length === 0 || overflow) return;
     setResult(null);
     startTransition(async () => {
       const res = await excelSendAction({
@@ -82,21 +151,30 @@ export function ClassSendModal({ recipients, contextLabel, onClose }: Props) {
   };
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="class-send-title"
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isPending) onClose();
-      }}
-      onKeyDown={(e) => {
-        if (e.key === "Escape" && !isPending) onClose();
-      }}
-    >
-      <div className="w-full max-w-lg rounded-xl bg-bg-card border border-[color:var(--border-strong)] shadow-lg p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex justify-end">
+      {/* 배경 — 클릭하면 닫힘. 뒤 명단이 비치도록 옅게. */}
+      <div
+        className="absolute inset-0 bg-black/30"
+        onClick={() => {
+          if (!isPending) onClose();
+        }}
+        aria-hidden
+      />
+
+      {/* 슬라이드 패널 */}
+      <aside
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="class-send-title"
+        className="
+          relative h-full w-full max-w-md
+          bg-bg-card border-l border-[color:var(--border-strong)] shadow-xl
+          flex flex-col
+          motion-safe:animate-[slideInRight_180ms_ease-out]
+        "
+      >
         {/* 헤더 */}
-        <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-[color:var(--border)]">
           <div>
             <h2
               id="class-send-title"
@@ -124,77 +202,190 @@ export function ClassSendModal({ recipients, contextLabel, onClose }: Props) {
         </div>
 
         {result?.kind === "success" ? (
-          <SuccessBox
-            campaignId={result.campaignId}
-            recipientCount={recipients.length}
-            onClose={onClose}
-          />
+          <div className="flex-1 overflow-y-auto px-5 py-4">
+            <SuccessBox
+              campaignId={result.campaignId}
+              recipientCount={recipients.length}
+              onClose={onClose}
+            />
+          </div>
         ) : (
           <>
-            {/* LMS 제목 (장문일 때만) */}
-            {type === "LMS" && (
-              <label className="block space-y-1.5">
-                <span className="text-[14px] font-medium text-[color:var(--text)]">
-                  제목{" "}
-                  <span className="text-[12px] font-normal text-[color:var(--text-dim)]">
-                    (선택)
+            {/* 본문 영역 (스크롤) */}
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              {/* 상용문구 불러오기 */}
+              {templates.length > 0 && (
+                <label className="block space-y-1.5">
+                  <span className="text-[13px] text-[color:var(--text-muted)]">
+                    저장된 상용문구 불러오기 (선택)
                   </span>
-                </span>
-                <input
-                  type="text"
-                  value={subject}
-                  onChange={(e) => setSubject(e.target.value)}
-                  placeholder="장문(LMS) 제목 — 비우면 본문 앞부분 사용"
-                  maxLength={120}
-                  className="w-full h-11 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[15px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)]"
+                  <select
+                    value={templateId}
+                    onChange={(e) => pickTemplate(e.target.value)}
+                    className="w-full h-11 rounded-lg px-2 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer"
+                  >
+                    <option value="">직접 입력</option>
+                    {templates.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} · {t.type}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+
+              {/* 유형 (SMS / LMS) */}
+              <fieldset className="space-y-1.5">
+                <legend className="text-[14px] font-medium text-[color:var(--text)]">
+                  유형
+                </legend>
+                <div className="flex gap-1.5">
+                  {TYPE_OPTIONS.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => {
+                        setType(o.value);
+                        setAutoSwitched(false);
+                      }}
+                      aria-pressed={type === o.value}
+                      className={`
+                        h-10 px-4 rounded-full border text-[14px] transition-colors
+                        ${
+                          type === o.value
+                            ? "border-[color:var(--border-strong)] bg-[color:var(--bg-hover)] font-medium text-[color:var(--text)]"
+                            : "border-[color:var(--border)] bg-bg-card text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)]"
+                        }
+                      `}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </fieldset>
+
+              {autoSwitched && (
+                <p
+                  role="status"
+                  className="flex items-start gap-1.5 rounded-lg border border-[color:var(--warning)] bg-[color:var(--warning-bg)] px-3 py-2 text-[12px] leading-relaxed text-[color:var(--text)]"
+                >
+                  <AlertTriangle
+                    className="size-3.5 mt-0.5 shrink-0 text-[color:var(--warning)]"
+                    strokeWidth={1.75}
+                    aria-hidden
+                  />
+                  본문이 SMS 한도({BYTE_LIMITS.SMS}바이트)를 넘어 LMS(장문)로
+                  바꿨습니다. 건당 요금이 올라갑니다.
+                </p>
+              )}
+
+              {/* LMS 제목 */}
+              {type === "LMS" && (
+                <label className="block space-y-1.5">
+                  <span className="text-[14px] font-medium text-[color:var(--text)]">
+                    제목{" "}
+                    <span className="text-[12px] font-normal text-[color:var(--text-dim)]">
+                      (선택)
+                    </span>
+                  </span>
+                  <input
+                    type="text"
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    placeholder="장문(LMS) 제목 — 비우면 본문 앞부분 사용"
+                    maxLength={120}
+                    className="w-full h-11 rounded-lg px-3 bg-bg-card border border-[color:var(--border)] text-[15px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)]"
+                  />
+                </label>
+              )}
+
+              {/* 본문 */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <label
+                    htmlFor="class-send-body"
+                    className="text-[14px] font-medium text-[color:var(--text)]"
+                  >
+                    본문
+                  </label>
+                  <button
+                    type="button"
+                    onClick={insertNameToken}
+                    className="inline-flex items-center h-8 px-3 rounded-full border border-[color:var(--border)] bg-bg-card text-[12px] text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] transition-colors"
+                  >
+                    {"{이름}"} 넣기
+                  </button>
+                </div>
+                <textarea
+                  id="class-send-body"
+                  ref={bodyRef}
+                  value={body}
+                  onChange={(e) => setBody(e.target.value)}
+                  rows={9}
+                  placeholder="보낼 내용을 입력하세요"
+                  className="w-full rounded-lg px-3 py-2.5 bg-bg-card border border-[color:var(--border)] text-[15px] leading-relaxed text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)] resize-y"
                 />
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[12px] text-[color:var(--text-muted)]">
+                    {"{이름}"} 은 받는 학생 이름으로 바뀝니다.
+                  </span>
+                  <span
+                    className={`text-[12px] tabular-nums ${
+                      overflow
+                        ? "text-[color:var(--danger)] font-medium"
+                        : "text-[color:var(--text-muted)]"
+                    }`}
+                    aria-live="polite"
+                  >
+                    {type} · {bytes.toLocaleString()} /{" "}
+                    {limit.toLocaleString()}바이트
+                  </span>
+                </div>
+                {overflow && (
+                  <p
+                    role="alert"
+                    className="flex items-center gap-1.5 text-[12px] text-[color:var(--danger)]"
+                  >
+                    <AlertTriangle
+                      className="size-3.5"
+                      strokeWidth={1.75}
+                      aria-hidden
+                    />
+                    {type} 한도({limit.toLocaleString()}바이트)를 초과했습니다.
+                  </p>
+                )}
+                {/* Aca2000 문구(%%학생) 를 붙여넣는 경우가 잦아 발송 전에 잡아준다. */}
+                <LegacyTokenWarning body={body} onConvert={setBody} />
+              </div>
+
+              {/* 광고 토글 */}
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={isAd}
+                  onChange={(e) => setIsAd(e.target.checked)}
+                  className="mt-0.5 size-4 cursor-pointer accent-[color:var(--action)]"
+                />
+                <span className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
+                  광고성 문자로 발송 — (광고) 표기·무료수신거부 안내가 자동
+                  삽입됩니다.
+                </span>
               </label>
-            )}
 
-            {/* 본문 */}
-            <label className="block space-y-1.5">
-              <span className="text-[14px] font-medium text-[color:var(--text)]">
-                본문
-              </span>
-              <textarea
-                value={body}
-                onChange={(e) => setBody(e.target.value)}
-                rows={6}
-                placeholder="보낼 내용을 입력하세요"
-                className="w-full rounded-lg px-3 py-2.5 bg-bg-card border border-[color:var(--border)] text-[15px] leading-relaxed text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)] resize-y"
-              />
-              <span className="text-[12px] text-[color:var(--text-muted)] tabular-nums">
-                {type} · {bytes}바이트
-              </span>
-            </label>
+              {/* 결과(차단/실패/시드) */}
+              {result?.kind === "blocked" && (
+                <ResultNote tone="warning" reason={result.reason} />
+              )}
+              {result?.kind === "failed" && (
+                <ResultNote tone="danger" reason={result.reason} />
+              )}
+              {result?.kind === "dev_seed" && (
+                <ResultNote tone="muted" reason={result.reason} />
+              )}
+            </div>
 
-            {/* 광고 토글 */}
-            <label className="flex items-start gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={isAd}
-                onChange={(e) => setIsAd(e.target.checked)}
-                className="mt-0.5 size-4 cursor-pointer accent-[color:var(--action)]"
-              />
-              <span className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
-                광고성 문자로 발송 — (광고) 표기·무료수신거부 안내가 자동
-                삽입됩니다.
-              </span>
-            </label>
-
-            {/* 결과(차단/실패/시드) */}
-            {result?.kind === "blocked" && (
-              <ResultNote tone="warning" reason={result.reason} />
-            )}
-            {result?.kind === "failed" && (
-              <ResultNote tone="danger" reason={result.reason} />
-            )}
-            {result?.kind === "dev_seed" && (
-              <ResultNote tone="muted" reason={result.reason} />
-            )}
-
-            {/* 액션 */}
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-[color:var(--border)]">
+            {/* 액션 (하단 고정) */}
+            <div className="flex items-center justify-end gap-2 px-5 py-4 border-t border-[color:var(--border)]">
               <button
                 type="button"
                 onClick={onClose}
@@ -206,20 +397,33 @@ export function ClassSendModal({ recipients, contextLabel, onClose }: Props) {
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={isPending || body.trim().length === 0}
+                disabled={isPending || body.trim().length === 0 || overflow}
+                title={
+                  body.trim().length === 0
+                    ? "보낼 내용을 입력하세요."
+                    : overflow
+                      ? "본문이 바이트 한도를 넘었습니다."
+                      : undefined
+                }
                 className="inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-lg bg-[color:var(--action)] text-[color:var(--action-text)] text-[14px] font-medium hover:bg-[color:var(--action-hover)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {isPending ? (
-                  <Loader2 className="size-4 animate-spin" strokeWidth={2} aria-hidden />
+                  <Loader2
+                    className="size-4 animate-spin"
+                    strokeWidth={2}
+                    aria-hidden
+                  />
                 ) : (
                   <Send className="size-4" strokeWidth={1.75} aria-hidden />
                 )}
-                {isPending ? "발송 중..." : `${recipients.length}명에게 발송`}
+                {isPending
+                  ? "발송 중..."
+                  : `${recipients.length}명에게 발송`}
               </button>
             </div>
           </>
         )}
-      </div>
+      </aside>
     </div>
   );
 }

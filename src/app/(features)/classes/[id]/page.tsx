@@ -5,6 +5,7 @@ import { getClassSignupPage } from "@/lib/seminars/get-class-signup-page";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
 import { ClassDetailView } from "@/components/classes/class-detail-view";
+import { listTemplates } from "@/lib/templates/list-templates";
 
 /**
  * F0 · 강좌 상세 페이지 (/classes/[id])
@@ -40,11 +41,16 @@ export default async function ClassDetailPage({
   // 일반 강좌면 회차(날짜)별 수강 명단(aca_tickets 기준)도 로드. 설명회는 회차 티켓이
   // 없어 빈 결과라 호출 생략.
   const isSeminar = detail.class.subject === "설명회";
-  const [signupPageDetail, sessions] = await Promise.all([
+  // 명단에서 바로 문자 보낼 때 쓸 상용문구 — 이 강좌 분원 것만.
+  // 발송 권한이 없으면 패널 자체가 안 뜨므로 조회도 생략.
+  const [signupPageDetail, sessions, templatesResult] = await Promise.all([
     isSeminar ? getClassSignupPage(detail.class.id) : Promise.resolve(null),
     isSeminar
       ? Promise.resolve({ sessions: [], totalSessions: 0 })
       : getClassSessions(detail.class.aca_class_id),
+    canSendToClass
+      ? listTemplates({ q: "", branch: detail.class.branch, page: 1 })
+      : Promise.resolve({ items: [], total: 0 }),
   ]);
 
   return (
@@ -54,6 +60,7 @@ export default async function ClassDetailPage({
       canSendToClass={canSendToClass}
       signupPageDetail={signupPageDetail}
       sessions={sessions}
+      templates={templatesResult.items}
     />
   );
 }
