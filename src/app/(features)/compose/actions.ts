@@ -44,6 +44,10 @@ import {
 } from "@/lib/groups/search-recipients-rpc";
 import { GroupFiltersSchema } from "@/lib/schemas/group";
 import {
+  listClassSessionDates,
+  type ClassSessionDatesResult,
+} from "@/lib/classes/list-class-session-dates";
+import {
   SCHEDULE_MIN_LEAD_MS,
   SCHEDULE_MIN_LEAD_LABEL,
 } from "@/lib/messaging/schedule-window";
@@ -398,6 +402,49 @@ export async function listMatchedRecipientsAction(
   } catch (e) {
     const reason =
       e instanceof Error ? e.message : "수신자 명단 조회에 실패했습니다";
+    return { status: "failed", reason };
+  }
+}
+
+// ─── listClassSessionDatesAction ───────────────────────────
+
+export type ListClassSessionDatesResult =
+  | ({ status: "success" } & ClassSessionDatesResult)
+  | { status: "failed"; reason: string };
+
+const ListClassSessionDatesInputSchema = z.object({
+  classId: z.string().uuid("강좌 ID 가 유효하지 않습니다"),
+  branch: z.string().trim().min(1, "분원은 필수입니다"),
+});
+
+/**
+ * 강좌 1개의 회차(수업일) 목록 — "강좌 클릭 → 회차 클릭" 드롭다운용 (0118).
+ *
+ * 권한: 발송 권한과 동일 기준(branch). 회차 명단 인원수까지 노출되므로
+ * 조회 권한을 따로 열지 않고 발송 경로와 같은 가드를 쓴다.
+ */
+export async function listClassSessionDatesAction(
+  input: z.infer<typeof ListClassSessionDatesInputSchema>,
+): Promise<ListClassSessionDatesResult> {
+  let parsed: z.infer<typeof ListClassSessionDatesInputSchema>;
+  try {
+    parsed = ListClassSessionDatesInputSchema.parse(input);
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return { status: "failed", reason: zodErrorToReason(e) };
+    }
+    return { status: "failed", reason: "입력 값이 올바르지 않습니다" };
+  }
+
+  const guard = await assertSendPermission(parsed.branch);
+  if (!guard.ok) return { status: "failed", reason: guard.reason };
+
+  try {
+    const result = await listClassSessionDates(parsed.classId);
+    return { status: "success", ...result };
+  } catch (e) {
+    const reason =
+      e instanceof Error ? e.message : "강좌 회차 조회에 실패했습니다";
     return { status: "failed", reason };
   }
 }

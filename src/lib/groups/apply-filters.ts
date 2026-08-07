@@ -91,7 +91,16 @@ export function applyGroupFiltersDev(
       ? buildDevExcludeClassStudentSet(filters.excludeClassIds)
       : null;
 
+  // 강좌 + 회차 포함 (0118) — dev-seed 엔 aca_tickets 시드가 없어 매칭이 불가능하다.
+  //   조건을 무시하면 "강좌를 골랐는데 분원 전원이 잡히는" 상태가 되므로,
+  //   조건이 걸린 순간 0명으로 확정한다. (실 매칭은 Supabase 경로의 RPC 담당.)
+  const includeClassFilterOn =
+    (filters.includeClassIds?.length ?? 0) > 0;
+
   return profiles.filter((p) => {
+    // 0) 강좌 포함 조건이 걸리면 dev-seed 에선 매칭 0명.
+    if (includeClassFilterOn) return false;
+
     // 1) 분원
     if (branchTrim && p.branch !== branchTrim) return false;
 

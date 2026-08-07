@@ -56,6 +56,10 @@ import {
   loadExcludedClassStudentIds,
   mergeExcludedStudentIds,
 } from "@/lib/groups/resolve-exclusions";
+import {
+  loadIncludedClassStudentIds,
+  intersectAllowedIds,
+} from "@/lib/groups/resolve-class-tickets";
 
 export type PreviewExclusionReason = "탈퇴학생" | "수신거부";
 
@@ -606,6 +610,24 @@ async function resolveFilterMapping(
       return zero();
     }
     allowedStudentIds = Array.from(set);
+  }
+
+  // 강좌 + 회차 포함 필터(0118) 사전 매핑.
+  //   eligible/샘플/명단은 RPC 가 aca_tickets 세미조인으로 직접 처리하지만, 아래
+  //   countWithdrawn 은 crm_students 를 직접 쿼리하므로 여기서 id 로 좁혀 줘야
+  //   "탈퇴 N명 자동 제외" 배지가 같은 모집단 위에서 계산된다.
+  //   반환 [] 는 "조건은 걸렸는데 0명" 이므로 zeroResult 로 확정한다(null 과 구분).
+  const ticketStudentIds = await loadIncludedClassStudentIds(
+    supabase,
+    f.includeClassIds ?? [],
+    f.includeClassDates ?? [],
+  );
+  if (ticketStudentIds !== null && ticketStudentIds.length === 0) {
+    return zero();
+  }
+  allowedStudentIds = intersectAllowedIds(allowedStudentIds, ticketStudentIds);
+  if (allowedStudentIds !== null && allowedStudentIds.length === 0) {
+    return zero();
   }
 
   let allowedSchools: string[] | null = null;

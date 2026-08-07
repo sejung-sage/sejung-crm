@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Loader2, MinusCircle, X } from "lucide-react";
 import type { Grade, StudentStatus } from "@/types/database";
 import type { ClassOption } from "@/lib/classes/list-class-options";
+import { IncludeClassPicker } from "./include-class-picker";
 import {
   groupBuilderFilterOptionsAction,
   listClassOptionsAction,
@@ -105,6 +106,10 @@ export interface FilterChipValue {
   excludeSchools: string[];
   /** 강좌별 제외 — 칩 라벨 표시용 메타도 함께 보관. */
   excludeClasses: ClassOption[];
+  /** 강좌별 포함(0118) — 이 강좌 수강권이 있는 학생만. 빈 배열이면 조건 없음. */
+  includeClasses: ClassOption[];
+  /** 회차(수업일) 포함(0118) — 'YYYY-MM-DD'. 빈 배열이면 선택 강좌의 전 회차. */
+  includeClassDates: string[];
   unmappedSchool: boolean;
   mappedSchool: boolean;
 }
@@ -141,6 +146,8 @@ export function FilterChipPanel({
     statuses,
     excludeSchools,
     excludeClasses,
+    includeClasses,
+    includeClassDates,
     unmappedSchool,
     mappedSchool,
   } = value;
@@ -408,6 +415,39 @@ export function FilterChipPanel({
               />
             ))}
           </div>
+        </Field>
+
+        <Field
+          label="강좌 · 회차"
+          hint={
+            includeClasses.length === 0
+              ? "선택 안 함 = 강좌 무관. 고르면 그 강좌 수강생에게만 보냅니다"
+              : includeClassDates.length > 0
+                ? `${includeClasses[0]?.name ?? ""} · ${includeClassDates.length}개 회차`
+                : `${includeClasses.length}개 강좌 · 전 회차`
+          }
+        >
+          <IncludeClassPicker
+            options={dynamicClassOptions}
+            selected={includeClasses}
+            selectedDates={includeClassDates}
+            branch={branch}
+            onToggleClass={(c) => {
+              const next = includeClasses.find((x) => x.id === c.id)
+                ? includeClasses.filter((x) => x.id !== c.id)
+                : [...includeClasses, c];
+              // 강좌 구성이 바뀌면 회차 선택은 무효 — 다른 강좌의 날짜가 남아
+              // 엉뚱한 학생이 잡히는 걸 막는다.
+              patch({ includeClasses: next, includeClassDates: [] });
+            }}
+            onRemoveClass={(id) =>
+              patch({
+                includeClasses: includeClasses.filter((x) => x.id !== id),
+                includeClassDates: [],
+              })
+            }
+            onChangeDates={(dates) => patch({ includeClassDates: dates })}
+          />
         </Field>
       </section>
 

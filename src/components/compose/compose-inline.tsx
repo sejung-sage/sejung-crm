@@ -43,6 +43,7 @@ import {
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { VirtualRecipientList } from "@/components/messaging/virtual-recipient-list";
 import { TestSendCard } from "@/components/messaging/test-send-card";
+import { LegacyTokenWarning } from "@/components/messaging/legacy-token-warning";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import {
@@ -177,6 +178,8 @@ function emptyChipValue(): FilterChipValue {
     statuses: [],
     excludeSchools: [],
     excludeClasses: [],
+    includeClasses: [],
+    includeClassDates: [],
     unmappedSchool: false,
     mappedSchool: false,
   };
@@ -298,6 +301,8 @@ export function ComposeInline({
         excludeStudentIds: [],
         excludeSchools: [],
         excludeClassIds: [],
+        includeClassIds: [],
+        includeClassDates: [],
         unmappedSchool: false,
         mappedSchool: false,
       };
@@ -314,6 +319,8 @@ export function ComposeInline({
         excludeStudentIds: Array.from(deselected),
         excludeSchools: [],
         excludeClassIds: [],
+        includeClassIds: [],
+        includeClassDates: [],
         unmappedSchool: false,
         mappedSchool: false,
       };
@@ -331,6 +338,8 @@ export function ComposeInline({
       excludeStudentIds: Array.from(deselected),
       excludeSchools: chip.excludeSchools,
       excludeClassIds: chip.excludeClasses.map((c) => c.id),
+      includeClassIds: chip.includeClasses.map((c) => c.id),
+      includeClassDates: chip.includeClassDates,
       unmappedSchool: chip.unmappedSchool,
       mappedSchool: chip.mappedSchool,
     };
@@ -352,6 +361,8 @@ export function ComposeInline({
         excludeStudentIds: [],
         excludeSchools: [],
         excludeClassIds: [],
+        includeClassIds: [],
+        includeClassDates: [],
         unmappedSchool: false,
         mappedSchool: false,
       };
@@ -369,6 +380,8 @@ export function ComposeInline({
       excludeStudentIds: [],
       excludeSchools: chip.excludeSchools,
       excludeClassIds: chip.excludeClasses.map((c) => c.id),
+      includeClassIds: chip.includeClasses.map((c) => c.id),
+      includeClassDates: chip.includeClassDates,
       unmappedSchool: chip.unmappedSchool,
       mappedSchool: chip.mappedSchool,
     };
@@ -685,15 +698,24 @@ export function ComposeInline({
   const visibleRecipients = recipients;
   const truncated = total > recipients.length;
 
-  // 발송 가능 여부.
-  const canSend =
-    !!step2.body.trim() &&
-    (step2.type === "SMS" || !!(step2.subject && step2.subject.trim())) &&
-    !!preview &&
-    preview.recipientCount > 0 &&
-    !bodyOverflow &&
-    !subjectOverflow &&
-    (mode === "now" || !!scheduleAt);
+  // 발송 가능 여부 — 막힌 이유를 문자열로 돌려준다.
+  // 버튼만 회색으로 잠기면 왜 안 되는지 알 수 없어 "예약등록에 금지 커서가
+  // 뜬다" 는 문의가 반복됐다 (2026-08-07). 사유를 버튼 옆에 그대로 노출한다.
+  const sendBlockReason = ((): string | null => {
+    if (!step2.body.trim()) return "문자 내용을 입력하세요.";
+    if (step2.type === "LMS" && !step2.subject?.trim())
+      return "LMS 는 제목을 입력해야 합니다.";
+    if (bodyOverflow) return "내용이 바이트 한도를 넘었습니다.";
+    if (subjectOverflow) return "제목이 바이트 한도를 넘었습니다.";
+    if (previewLoading) return "발송 대상을 확인하는 중입니다.";
+    if (!preview) return "오른쪽에서 받는 사람 조건을 골라 주세요.";
+    if (preview.recipientCount === 0)
+      return "조건에 맞는 발송 대상이 0명입니다.";
+    if (mode === "schedule" && !scheduleAt) return "예약 시각을 선택하세요.";
+    return null;
+  })();
+
+  const canSend = sendBlockReason === null;
 
   const openConfirm = () => {
     if (!canSend) return;
@@ -829,14 +851,14 @@ export function ComposeInline({
               </div>
             </fieldset>
 
-            {/* 템플릿 불러오기 */}
+            {/* 상용문구 불러오기 */}
             {templates.length > 0 && (
               <div className="space-y-1">
                 <label
                   htmlFor="compose-template"
                   className="text-[12px] text-[color:var(--text-muted)]"
                 >
-                  저장된 템플릿 불러오기 (선택)
+                  저장된 상용문구 불러오기 (선택)
                 </label>
                 <select
                   id="compose-template"
@@ -983,6 +1005,11 @@ export function ComposeInline({
                   초과했습니다.
                 </p>
               )}
+              {/* Aca2000 문구를 붙여넣는 경우가 잦아 발송 전에 잡아준다. */}
+              <LegacyTokenWarning
+                body={step2.body}
+                onConvert={(next) => setStep2((s) => ({ ...s, body: next }))}
+              />
             </div>
           </section>
 
@@ -1330,19 +1357,27 @@ export function ComposeInline({
                 <Loader2 className="inline ml-2 size-4 animate-spin text-[color:var(--text-muted)]" aria-hidden />
               )}
             </div>
-            <button
-              type="button"
-              onClick={openConfirm}
-              disabled={!canSend || isSending}
-              className="inline-flex items-center gap-1.5 h-11 px-6 rounded-lg bg-[color:var(--action)] text-[color:var(--action-text)] text-[15px] font-medium hover:bg-[color:var(--action-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
-              <Send className="size-4" strokeWidth={1.75} aria-hidden />
-              {isSending
-                ? "처리 중..."
-                : mode === "now"
-                  ? "지금 발송"
-                  : "예약 등록"}
-            </button>
+            <div className="flex items-center gap-3 flex-wrap">
+              {sendBlockReason && !isSending && (
+                <p className="text-[13px] text-[color:var(--text-muted)]">
+                  {sendBlockReason}
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={openConfirm}
+                disabled={!canSend || isSending}
+                title={sendBlockReason ?? undefined}
+                className="inline-flex items-center gap-1.5 h-11 px-6 rounded-lg bg-[color:var(--action)] text-[color:var(--action-text)] text-[15px] font-medium hover:bg-[color:var(--action-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                <Send className="size-4" strokeWidth={1.75} aria-hidden />
+                {isSending
+                  ? "처리 중..."
+                  : mode === "now"
+                    ? "지금 발송"
+                    : "예약 등록"}
+              </button>
+            </div>
           </div>
         )}
       </div>

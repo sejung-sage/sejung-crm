@@ -104,6 +104,8 @@ function emptyChipValue(): FilterChipValue {
     statuses: [],
     excludeSchools: [],
     excludeClasses: [],
+    includeClasses: [],
+    includeClassDates: [],
     unmappedSchool: false,
     mappedSchool: false,
   };
@@ -186,6 +188,8 @@ export function SeminarComposeWizard({
       excludeStudentIds: Array.from(deselected),
       excludeSchools: chip.excludeSchools,
       excludeClassIds: chip.excludeClasses.map((c) => c.id),
+      includeClassIds: chip.includeClasses.map((c) => c.id),
+      includeClassDates: chip.includeClassDates,
       unmappedSchool: chip.unmappedSchool,
       mappedSchool: chip.mappedSchool,
     };

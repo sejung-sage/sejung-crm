@@ -69,6 +69,7 @@ export function isEmptyFilterCohort(filters: GroupFilters): boolean {
     filters.statuses.length === 0 &&
     (filters.excludeSchools?.length ?? 0) === 0 &&
     (filters.excludeClassIds?.length ?? 0) === 0 &&
+    (filters.includeClassIds?.length ?? 0) === 0 &&
     !filters.unmappedSchool &&
     !filters.mappedSchool
   );
@@ -180,6 +181,38 @@ export const GroupFiltersSchema = z.object({
    * 백워드 호환: `.default([])` 라 옛 그룹 JSONB 에 키가 없어도 빈 배열 = "제외 없음".
    */
   excludeClassIds: z.array(z.string().uuid()).default([]),
+  /**
+   * 강좌별 **포함** (2026-08-07 개강문자 요청). crm_classes.id (UUID) 목록.
+   * 해당 강좌(들)에 수강권(aca_tickets)이 있는 학생만 남긴다.
+   *
+   * 용도: "○○강좌 수강생에게 개강 안내".
+   *
+   * ── 기준이 excludeClassIds 와 다른 이유 ─────────────────
+   * 제외는 crm_enrollments(강좌 전체 등록) 기준이지만, 포함은 aca_tickets(수강권)
+   * 기준이다. 티켓은 "학생 × 수업일" 단위라 회차(includeClassDates)까지 내려갈 수
+   * 있고, 강좌 필터와 회차 필터가 같은 소스를 써야 모집단이 어긋나지 않는다.
+   * enrollments 기준으로 강좌를 고르고 tickets 기준으로 회차를 고르면, 회차를
+   * 푸는 순간 인원이 튀어 운영자가 이유를 알 수 없다.
+   *
+   * 해석 위치: search_recipients / search_recipients_bulk RPC (0118) 의
+   * aca_tickets 세미조인. 선택 강좌가 전부 aca_class_id NULL(자체 등록)이면
+   * 매칭 0명 — 조건을 조용히 무시해 전원 발송되는 사고를 막는다.
+   *
+   * 백워드 호환: `.default([])` 라 옛 그룹 JSONB 에 키가 없어도 "조건 없음".
+   */
+  includeClassIds: z.array(z.string().uuid()).default([]),
+  /**
+   * 회차(수업일) 포함 — 'YYYY-MM-DD' 목록. includeClassIds 와 함께만 의미가 있다.
+   *
+   * 빈 배열 = 선택 강좌의 **전 회차**. 값이 있으면 그 수업일에 수강권이 있는
+   * 학생만. 8회 중 7회만 듣는 학생은 안 듣는 날 티켓 행이 없어 자동 제외된다.
+   *
+   * includeClassIds 가 비어 있으면 이 값은 무시된다(강좌 없이 날짜만으론
+   * 의미가 없다 — 전 강좌 대상 날짜 필터는 요청 범위 밖).
+   */
+  includeClassDates: z
+    .array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "수업일 형식이 올바르지 않습니다"))
+    .default([]),
   /**
    * 학교 미등록 학생만. 학생 명단의 unmappedSchool 와 정확히 동일 의미.
    * school IS NULL OR school IN (UNMAPPED_SCHOOL_PATTERNS).

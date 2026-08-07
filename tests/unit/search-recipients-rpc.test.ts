@@ -138,3 +138,66 @@ describe("buildSearchRecipientsParams · custom 모드", () => {
     expect(p.p_unmapped_school).toBe(false);
   });
 });
+
+// ─── 강좌 + 회차 포함 필터 (0118) ──────────────────────────
+
+describe("buildSearchRecipientsParams · 강좌/회차 포함 (0118)", () => {
+  it("강좌 미선택 → 강좌·회차 모두 null (조건 미적용)", () => {
+    const p = buildSearchRecipientsParams(filter(), "반포", true, false);
+    expect(p.p_include_class_ids).toBeNull();
+    expect(p.p_include_class_dates).toBeNull();
+  });
+
+  it("강좌만 선택 → 강좌는 전달, 회차는 null (= 전 회차)", () => {
+    const p = buildSearchRecipientsParams(
+      filter({ includeClassIds: [UUID_A] }),
+      "반포",
+      true,
+      false,
+    );
+    expect(p.p_include_class_ids).toEqual([UUID_A]);
+    expect(p.p_include_class_dates).toBeNull();
+  });
+
+  it("강좌 + 회차 선택 → 둘 다 전달", () => {
+    const p = buildSearchRecipientsParams(
+      filter({
+        includeClassIds: [UUID_A],
+        includeClassDates: ["2026-08-12"],
+      }),
+      "반포",
+      true,
+      false,
+    );
+    expect(p.p_include_class_ids).toEqual([UUID_A]);
+    expect(p.p_include_class_dates).toEqual(["2026-08-12"]);
+  });
+
+  it("강좌 없이 회차만 있으면 회차는 무시 (날짜 단독은 의미 없음)", () => {
+    const p = buildSearchRecipientsParams(
+      filter({ includeClassDates: ["2026-08-12"] }),
+      "반포",
+      true,
+      false,
+    );
+    expect(p.p_include_class_ids).toBeNull();
+    expect(p.p_include_class_dates).toBeNull();
+  });
+
+  it("custom(고정 명단) 모드에서는 강좌·회차를 무시", () => {
+    const p = buildSearchRecipientsParams(
+      GroupFiltersSchema.parse({
+        kind: "custom",
+        includeStudentIds: [UUID_C],
+        includeClassIds: [UUID_A],
+        includeClassDates: ["2026-08-12"],
+      }),
+      "반포",
+      true,
+      false,
+    );
+    expect(p.p_include_class_ids).toBeNull();
+    expect(p.p_include_class_dates).toBeNull();
+    expect(p.p_include_ids).toEqual([UUID_C]);
+  });
+});

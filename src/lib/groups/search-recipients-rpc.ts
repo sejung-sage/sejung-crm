@@ -42,6 +42,10 @@ export interface SearchRecipientsParams {
   p_exclude_class_ids: string[] | null;
   p_require_parent_phone: boolean;
   p_exclude_unsubscribed: boolean;
+  /** 강좌 포함(0118). aca_tickets 세미조인 — 이 강좌에 수강권 있는 학생만. */
+  p_include_class_ids: string[] | null;
+  /** 회차(수업일) 포함(0118). NULL 이면 선택 강좌의 전 회차. */
+  p_include_class_dates: string[] | null;
 }
 
 /** 빈 배열은 null 로 (RPC 측 "필터 미적용"). */
@@ -96,6 +100,13 @@ export function buildSearchRecipientsParams(
     p_exclude_class_ids: custom ? null : nullIfEmpty(filters.excludeClassIds),
     p_require_parent_phone: requireParentPhone,
     p_exclude_unsubscribed: excludeUnsubscribed,
+    // 강좌/회차 포함(0118) — 조건 필터 전용. custom 은 고정 명단이 모집단이라 무시.
+    // 회차는 강좌가 있을 때만 의미가 있으므로 강좌가 비면 날짜도 NULL 로 떨군다.
+    p_include_class_ids: custom ? null : nullIfEmpty(filters.includeClassIds),
+    p_include_class_dates:
+      custom || (filters.includeClassIds?.length ?? 0) === 0
+        ? null
+        : nullIfEmpty(filters.includeClassDates),
   };
 }
 
