@@ -5,10 +5,11 @@ import { listClassSignupOptions } from "@/lib/seminars/list-class-signup-options
 import { getSchoolOptions } from "@/lib/groups/school-options";
 import { listStudentFilterOptions } from "@/lib/profile/list-filter-options";
 import { listClassOptions } from "@/lib/classes/list-class-options";
+import { listTemplates } from "@/lib/templates/list-templates";
 import { SeminarComposeWizard } from "@/components/seminars/seminar-compose-wizard";
 import type { Branch } from "@/config/branches";
 import { DEFAULT_DIVISION, type Division } from "@/config/divisions";
-import type { ClassSignupOption } from "@/types/database";
+import type { ClassSignupOption, TemplateRow } from "@/types/database";
 
 /**
  * F5 · 설명회 문자 (/seminars/compose) — 발송 위저드 단일 페이지.
@@ -76,14 +77,21 @@ export default async function SeminarsHubPage({
     );
   }
 
-  const [classOptions, schoolOptions, filterOptions, studentClassOptions] =
-    await Promise.all([
-      listClassSignupOptions({ branch: branchFilter }),
-      getSchoolOptions(branchFilter),
-      listStudentFilterOptions({ branch: branchFilter, includeHidden: true }),
-      listClassOptions(branchFilter),
-    ]);
+  const [
+    classOptions,
+    schoolOptions,
+    filterOptions,
+    studentClassOptions,
+    templatesResult,
+  ] = await Promise.all([
+    listClassSignupOptions({ branch: branchFilter }),
+    getSchoolOptions(branchFilter),
+    listStudentFilterOptions({ branch: branchFilter, includeHidden: true }),
+    listClassOptions(branchFilter),
+    listTemplates({ q: "", branch: branchFilter, page: 1 }),
+  ]);
   const classes: ClassSignupOption[] = classOptions;
+  const templates: TemplateRow[] = templatesResult.items;
 
   // 발신 명의 잠금: 마스터는 발송 시 명의를 직접 고를 수 있어 잠금 없음(null).
   // 비마스터는 자기 계정의 명의로 고정(미지정이면 본원). 위저드에서 셀렉트가
@@ -116,6 +124,7 @@ export default async function SeminarsHubPage({
         classOptions={studentClassOptions}
         availableGrades={filterOptions.availableGrades}
         availableRegions={filterOptions.availableRegions}
+        templates={templates}
         devMode={devMode}
         optOutNumber={process.env.SMS_OPT_OUT_NUMBER ?? "080-123-4567"}
       />

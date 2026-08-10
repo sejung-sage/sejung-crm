@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ClassSignupOption, Grade } from "@/types/database";
+import type { ClassSignupOption, Grade, TemplateRow } from "@/types/database";
 import type { ClassOption } from "@/lib/classes/list-class-options";
 import {
   branchDivisions,
@@ -78,6 +78,8 @@ interface Props {
   availableGrades?: Grade[];
   /** 분원 매칭 학생이 있는 지역 set. */
   availableRegions?: string[];
+  /** 상용문구 — 분원 기준 목록(불러오기 셀렉트). */
+  templates: TemplateRow[];
   /** dev-seed 모드면 매칭 명단이 빈 배열이라 안내문 노출. */
   devMode: boolean;
   /** 환경변수 SMS_OPT_OUT_NUMBER — 광고 footer 미리보기에 표시. */
@@ -120,6 +122,7 @@ export function SeminarComposeWizard({
   classOptions,
   availableGrades,
   availableRegions,
+  templates,
   devMode,
   optOutNumber,
 }: Props) {
@@ -368,6 +371,7 @@ export function SeminarComposeWizard({
         optOutNumber={optOutNumber}
         branch={branch}
         senderDivision={senderDivision}
+        templates={templates}
       />
 
       {/* ── 발송 대상 (필터 + 학생 체크, 전체폭) ── */}

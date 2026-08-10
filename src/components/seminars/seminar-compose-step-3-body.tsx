@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useRef } from "react";
-import { AlertTriangle, Link as LinkIcon } from "lucide-react";
-import type { ClassSignupOption } from "@/types/database";
+import { useMemo, useRef, useState, useTransition } from "react";
+import { AlertTriangle, BookmarkPlus, Link as LinkIcon } from "lucide-react";
+import type { ClassSignupOption, TemplateRow } from "@/types/database";
 import { countEucKrBytes } from "@/lib/messaging/sms-bytes";
 import { BYTE_LIMITS, type TemplateTypeLiteral } from "@/lib/schemas/template";
 import {
@@ -11,9 +11,10 @@ import {
   insertUnsubscribeFooter,
   branchBrandName,
 } from "@/lib/messaging/guards";
+import { createTemplateAction } from "@/app/(features)/templates/actions";
 import { PhonePreviewCard } from "@/components/messaging/phone-preview-card";
 import { TestSendCard } from "@/components/messaging/test-send-card";
-import { formatKstDateTime } from "@/lib/datetime";
+import { applyDateToken } from "@/lib/messaging/personalize";
 import type { Division } from "@/config/divisions";
 import type { SeminarComposeState, SmsType } from "./seminar-compose-wizard";
 
@@ -21,7 +22,7 @@ import type { SeminarComposeState, SmsType } from "./seminar-compose-wizard";
  * F5 · 설명회 발송 — 본문 작성 (작성 박스 | 미리보기 박스 좌우 구성).
  *
  * 상단에 유형·광고성·테스트발송을 모으고, 아래를 두 박스로 분리한다.
- *  - 상단 바: 유형 토글 · 광고성 토글.
+ *  - 상단 바: 유형 토글 · 광고성 토글 · 상용문구(불러오기 + 현재 내용 저장).
  *  - 테스트 발송 카드(상단 오른쪽).
  *  - 박스 1 "세정학원 문자": 제목·본문 직접 입력(바이트는 라벨 옆 표기) + 변수 삽입.
  *  - 박스 2 "미리보기": PhonePreviewCard(읽기 전용) — (광고)·세정학원·무료수신거부
@@ -31,7 +32,9 @@ import type { SeminarComposeState, SmsType } from "./seminar-compose-wizard";
  * 바이트 카운터·overflow 가 가공 결과 기준이 되게 한다. 서버 가드가 최종 검증선.
  *
  * 변수 토큰: 설명회는 sendon name 슬롯을 `{초대링크}` URL 치환에 hijack 하므로
- * `{이름}` 은 사용 불가 — 변수 삽입 버튼은 `{초대링크}` 만 노출한다.
+ * `{이름}` 은 사용 불가(서버 createSeminarBroadcastAction 이 blocked 로 거절).
+ * `{날짜}` 는 모든 수신자가 같은 값이라 drain-campaign 이 발송 직전 1회 치환하므로
+ * 사용 가능 — 변수 삽입 버튼은 `{초대링크}` · `{날짜}` 두 개만 노출한다.
  *
  * 바이트 한도: `{초대링크}` 는 발송 시 250바이트 안팎 URL 로 치환되므로 본문
  * 바이트 + 250 을 한도와 비교해 미리 경고한다.
@@ -49,6 +52,28 @@ interface Props {
   branch: string;
   /** 발신 명의(division) — 브랜드명(수학관 반영)·테스트 발송에 사용. */
   senderDivision: Division;
+  /** 상용문구 — 분원 기준 목록(불러오기 셀렉트의 초기값). */
+  templates: TemplateRow[];
+}
+
+/**
+ * 셀렉트·불러오기에 필요한 최소 필드만 (일반 /compose 와 동일한 축약형).
+ * 저장 직후 서버 왕복 없이 목록에 끼워 넣어야 해서 created_at 같은 서버 값은 뺀다.
+ */
+type ComposeTemplate = Pick<
+  TemplateRow,
+  "id" | "name" | "type" | "subject" | "body" | "is_ad"
+>;
+
+function toComposeTemplate(t: TemplateRow): ComposeTemplate {
+  return {
+    id: t.id,
+    name: t.name,
+    type: t.type,
+    subject: t.subject,
+    body: t.body,
+    is_ad: t.is_ad,
+  };
 }
 
 /** `{초대링크}` 가 발송 시점에 치환되는 URL 의 예상 바이트 (sendon 단축 URL 미사용). */
@@ -94,8 +119,22 @@ export function SeminarComposeStep3Body({
   optOutNumber,
   branch,
   senderDivision,
+  templates,
 }: Props) {
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+
+  // 상용문구 — 목록은 서버가 내려주지만 이 화면에서 바로 저장할 수 있으므로
+  // 로컬 state 로 들고 새로 만든 문구를 즉시 셀렉트에 반영한다(새로고침 없이).
+  const [templateList, setTemplateList] = useState<ComposeTemplate[]>(() =>
+    templates.map(toComposeTemplate),
+  );
+  const [templateId, setTemplateId] = useState("");
+  const [saveOpen, setSaveOpen] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [isSaving, startSaving] = useTransition();
+
   const brandName = useMemo(
     () => branchBrandName(branch, senderDivision),
     [branch, senderDivision],
@@ -128,16 +167,11 @@ export function SeminarComposeStep3Body({
 
   const hasInviteVar = state.body.includes("{초대링크}");
 
-  // 첫 강좌(설명회) 날짜 — sample 의 `{날짜}` 자리 치환 참고용.
-  const sampleDateLabel = useMemo(() => {
-    const primary = selectedClasses[0];
-    if (!primary?.held_at) return null;
-    return formatKstDateTime(primary.held_at);
-  }, [selectedClasses]);
-
   // 미리보기 본문 — 브랜드 머리(+광고)는 insertSenderHeader 로 반영, footer(무료
   // 수신거부)는 PhonePreviewCard 가 footer prop 으로 따로 렌더하므로 제외(중복 방지).
-  // {초대링크} → 예시 URL, 변수 없으면 자동 부착, {날짜} → 첫 설명회 시간.
+  // {초대링크} → 예시 URL, 변수 없으면 자동 부착.
+  // {날짜} → 발송일 'M월 D일' — 실제 발송(drain-campaign)이 applyDateToken 으로
+  // 같은 치환을 하므로 동일 함수를 써서 미리보기가 실제와 어긋나지 않게 한다.
   const previewBody = useMemo(() => {
     let next = insertSenderHeader(state.body, state.isAd, brandName)
       .split("{초대링크}")
@@ -145,17 +179,13 @@ export function SeminarComposeStep3Body({
     if (!hasInviteVar && state.body.trim().length > 0) {
       next = `${next}\n신청하기: ${SAMPLE_INVITE_URL}`;
     }
-    if (sampleDateLabel) {
-      next = next.split("{날짜}").join(sampleDateLabel);
-    }
-    return next;
-  }, [state.body, state.isAd, hasInviteVar, sampleDateLabel, brandName]);
+    return applyDateToken(next, new Date());
+  }, [state.body, state.isAd, hasInviteVar, brandName]);
 
   /** 변수 토큰을 본문 textarea 의 cursor 위치에 삽입. */
-  const insertInviteToken = () => {
+  const insertToken = (token: string) => {
     const ta = bodyRef.current;
     const current = state.body;
-    const token = "{초대링크}";
     if (!ta) {
       onChange({ body: current + token });
       return;
@@ -170,6 +200,78 @@ export function SeminarComposeStep3Body({
       const cursor = start + token.length;
       node.focus();
       node.setSelectionRange(cursor, cursor);
+    });
+  };
+
+  /** 저장된 상용문구를 불러와 유형·제목·본문·광고성을 한 번에 채운다. */
+  const onPickTemplate = (id: string) => {
+    setTemplateId(id);
+    if (!id) return;
+    const t = templateList.find((x) => x.id === id);
+    if (!t) return;
+    onChange({
+      type: t.type,
+      subject: t.subject,
+      body: t.body,
+      isAd: t.is_ad,
+    });
+  };
+
+  /**
+   * 지금 작성 중인 설명회 문자를 상용문구로 저장 (일반 /compose 와 동일 규약).
+   * `{초대링크}` 변수도 그대로 저장돼 다음 설명회에서 바로 재사용된다.
+   *
+   * 저장 분원은 발송 분원(branch). 서버는 master 일 때만 이 값을 쓰고 그 외
+   * 역할은 본인 분원으로 강제한다.
+   */
+  const handleSaveTemplate = () => {
+    const name = saveName.trim();
+    const body = state.body.trim();
+    const subject = state.subject?.trim() ?? "";
+    setSaveError(null);
+    setSaveNotice(null);
+
+    if (!name) {
+      setSaveError("문구 이름을 입력하세요.");
+      return;
+    }
+    if (!body) {
+      setSaveError("본문을 먼저 입력하세요.");
+      return;
+    }
+    if (state.type === "LMS" && !subject) {
+      setSaveError("LMS 는 제목이 있어야 저장할 수 있습니다.");
+      return;
+    }
+
+    startSaving(async () => {
+      const result = await createTemplateAction({
+        name,
+        type: state.type,
+        subject: state.type === "SMS" ? null : subject,
+        body,
+        is_ad: state.isAd,
+        branch,
+      });
+      if (result.status === "success") {
+        const saved: ComposeTemplate = {
+          id: result.id,
+          name,
+          type: state.type,
+          subject: state.type === "SMS" ? null : subject,
+          body,
+          is_ad: state.isAd,
+        };
+        setTemplateList((prev) => [...prev, saved]);
+        setTemplateId(saved.id);
+        setSaveOpen(false);
+        setSaveName("");
+        setSaveNotice(`'${name}' 문구를 저장했어요.`);
+      } else if (result.status === "dev_seed_mode") {
+        setSaveError("개발용 시드 모드라 저장되지 않습니다.");
+      } else {
+        setSaveError(result.reason);
+      }
     });
   };
 
@@ -191,7 +293,8 @@ export function SeminarComposeStep3Body({
 
       {/* ── 상단: 유형·광고성 + 테스트 발송 (한 줄) ────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
-        <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 flex flex-col sm:flex-row sm:items-start gap-x-6 gap-y-4">
+        <div className="rounded-xl border border-[color:var(--border)] bg-bg-card p-4 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-x-6 gap-y-4">
           {/* 유형 */}
           <fieldset className="space-y-1.5 shrink-0">
             <legend className="text-[12px] text-[color:var(--text-muted)]">
@@ -270,6 +373,89 @@ export function SeminarComposeStep3Body({
               </span>
             </label>
           </div>
+          </div>
+
+          {/* 상용문구 — 불러오기 + 이 화면에서 바로 저장 */}
+          <div className="space-y-1.5 border-t border-[color:var(--border)] pt-4">
+            <div className="flex items-center justify-between gap-2">
+              <label
+                htmlFor="seminar-template"
+                className="text-[12px] text-[color:var(--text-muted)]"
+              >
+                상용문구
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setSaveOpen((v) => !v);
+                  setSaveError(null);
+                  setSaveNotice(null);
+                }}
+                className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full border border-[color:var(--border)] bg-bg-card text-[12px] text-[color:var(--text)] hover:bg-[color:var(--bg-hover)] transition-colors"
+              >
+                <BookmarkPlus className="size-3.5" strokeWidth={1.75} aria-hidden />
+                현재 내용 저장
+              </button>
+            </div>
+
+            <select
+              id="seminar-template"
+              value={templateId}
+              onChange={(e) => onPickTemplate(e.target.value)}
+              disabled={templateList.length === 0}
+              className="w-full h-10 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] focus:outline-none focus:border-[color:var(--border-strong)] cursor-pointer disabled:cursor-not-allowed disabled:text-[color:var(--text-dim)]"
+            >
+              <option value="">
+                {templateList.length === 0
+                  ? "저장된 상용문구가 없습니다"
+                  : "— 새로 작성 —"}
+              </option>
+              {templateList.map((t) => (
+                <option key={t.id} value={t.id}>
+                  [{t.type}] {t.name}
+                </option>
+              ))}
+            </select>
+
+            {saveOpen && (
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  value={saveName}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSaveTemplate();
+                    }
+                  }}
+                  placeholder="문구 이름 (예: 겨울 설명회 안내)"
+                  maxLength={40}
+                  autoFocus
+                  className="flex-1 h-10 rounded-md px-2 bg-bg-card border border-[color:var(--border)] text-[14px] text-[color:var(--text)] placeholder:text-[color:var(--text-dim)] focus:outline-none focus:border-[color:var(--border-strong)]"
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveTemplate}
+                  disabled={isSaving}
+                  className="inline-flex items-center h-10 px-3 rounded-md bg-[color:var(--action)] text-[color:var(--action-text)] text-[13px] font-medium hover:bg-[color:var(--action-hover)] disabled:opacity-50 transition-colors"
+                >
+                  {isSaving ? "저장 중..." : "저장"}
+                </button>
+              </div>
+            )}
+
+            {saveError && (
+              <p role="alert" className="text-[12px] text-[color:var(--danger)]">
+                {saveError}
+              </p>
+            )}
+            {saveNotice && (
+              <p role="status" className="text-[12px] text-[color:var(--text-muted)]">
+                {saveNotice}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* 테스트 발송 — 유형·광고성과 한 줄 오른쪽 */}
@@ -308,7 +494,7 @@ export function SeminarComposeStep3Body({
               </span>
               <button
                 type="button"
-                onClick={insertInviteToken}
+                onClick={() => insertToken("{초대링크}")}
                 className="
                   inline-flex items-center gap-1 h-8 px-3 rounded-full
                   border border-[color:var(--border)] bg-bg-card
@@ -328,6 +514,21 @@ export function SeminarComposeStep3Body({
                 >
                   {"{초대링크}"}
                 </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => insertToken("{날짜}")}
+                className="
+                  inline-flex items-center justify-center h-8 px-3 rounded-full
+                  border border-[color:var(--border)] bg-bg-card
+                  text-[12px] text-[color:var(--text)]
+                  hover:bg-[color:var(--bg-hover)]
+                  focus:outline-none focus:ring-2 focus:ring-[color:var(--border-strong)]
+                  transition-colors
+                "
+                aria-label="날짜 변수 삽입"
+              >
+                {"{날짜}"}
               </button>
             </div>
           </div>
