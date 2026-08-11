@@ -41,6 +41,11 @@ yarn-error.log*
 next-env.d.ts
 supabase/.temp/
 
+# 디자인 원본 — 앱은 public/sejung-logo.png 를 쓰고 .ai/.psd 는 빌드에 안 들어간다.
+# 수 MB 바이너리라 레포에 두면 clone 만 무거워진다(원본은 디자인 폴더에 보관).
+*.ai
+*.psd
+
 # ETL · Python
 .venv/
 scripts/etl/.env
