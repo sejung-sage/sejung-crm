@@ -1086,10 +1086,11 @@ export async function createSeminarBroadcastAction(
   // 발신번호를 다시 해석한다. 여기서 막아 적재 전에 실패를 알린다.
   const fromNumber = sendonFromNumber(parsed.branch, division);
   if (!fromNumber || fromNumber.length === 0) {
-    await safeMarkCampaignFailed(supabase, campaignId);
+    const reason = `${parsed.branch} 분원의 발신번호 환경변수가 설정되지 않았습니다`;
+    await safeMarkCampaignFailed(supabase, campaignId, reason);
     return {
       status: "failed",
-      reason: `${parsed.branch} 분원의 발신번호 환경변수가 설정되지 않았습니다`,
+      reason,
     };
   }
 
@@ -1152,10 +1153,11 @@ export async function createSeminarBroadcastAction(
       break;
     }
     if (!chunkDone) {
-      await safeMarkCampaignFailed(supabase, campaignId);
+      const reason = `invitation 생성 실패: ${lastError ?? "알 수 없는 오류"}`;
+      await safeMarkCampaignFailed(supabase, campaignId, reason);
       return {
         status: "failed",
-        reason: `invitation 생성 실패: ${lastError ?? "알 수 없는 오류"}`,
+        reason,
       };
     }
   }
@@ -1187,10 +1189,11 @@ export async function createSeminarBroadcastAction(
       }
     ).insert(slice)) as { error: { message: string } | null };
     if (itemsError) {
-      await safeMarkCampaignFailed(supabase, campaignId);
+      const reason = `invitation 카드 생성 실패: ${itemsError.message}`;
+      await safeMarkCampaignFailed(supabase, campaignId, reason);
       return {
         status: "failed",
-        reason: `invitation 카드 생성 실패: ${itemsError.message}`,
+        reason,
       };
     }
   }
@@ -1222,10 +1225,11 @@ export async function createSeminarBroadcastAction(
       }
     ).insert(messageRows)) as { error: { message: string } | null };
     if (msgErr) {
-      await safeMarkCampaignFailed(supabase, campaignId);
+      const reason = `메시지 큐 적재 실패: ${msgErr.message}`;
+      await safeMarkCampaignFailed(supabase, campaignId, reason);
       return {
         status: "failed",
-        reason: `메시지 큐 적재 실패: ${msgErr.message}`,
+        reason,
       };
     }
   }
@@ -1248,10 +1252,11 @@ export async function createSeminarBroadcastAction(
   //    (send-campaign runImmediateSend 와 동일 패턴 — 일관성·진행률 폴링 공유.)
   const drainSecret = process.env.DRAIN_SECRET;
   if (!drainSecret) {
-    await safeMarkCampaignFailed(supabase, campaignId);
+    const reason = "DRAIN_SECRET 환경변수가 설정되어 있지 않습니다";
+    await safeMarkCampaignFailed(supabase, campaignId, reason);
     return {
       status: "failed",
-      reason: "DRAIN_SECRET 환경변수가 설정되어 있지 않습니다",
+      reason,
     };
   }
   waitUntil(
@@ -1280,11 +1285,19 @@ export async function createSeminarBroadcastAction(
   };
 }
 
-/** campaigns.status='실패' 로 안전 갱신 — 부분 INSERT 후 롤백 대용. */
+/**
+ * campaigns.status='실패' 로 안전 갱신 — 부분 INSERT 후 롤백 대용.
+ * 사유(failed_reason, 0120)도 함께 남긴다 — 메시지 행이 0건인 단계에서 죽으면
+ * 이 컬럼이 유일한 사후 단서다.
+ */
 async function safeMarkCampaignFailed(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   campaignId: string,
+  failedReason: string,
 ): Promise<void> {
+  console.error(
+    `[seminars/broadcast] campaign=${campaignId} 실패 reason=${failedReason}`,
+  );
   await (
     supabase.from("crm_campaigns") as unknown as {
       update: (v: Record<string, unknown>) => {
@@ -1295,7 +1308,7 @@ async function safeMarkCampaignFailed(
       };
     }
   )
-    .update({ status: "실패" })
+    .update({ status: "실패", failed_reason: failedReason })
     .eq("id", campaignId);
 }
 

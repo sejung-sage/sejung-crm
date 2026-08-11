@@ -116,11 +116,18 @@ export async function updateMessage(
     .eq("id", id);
 }
 
-/** crm_campaigns.status 갱신. */
+/**
+ * crm_campaigns.status 갱신.
+ *
+ * status='실패' 로 보낼 때는 failedReason 을 반드시 함께 넘긴다 — 사유를 남기지
+ * 않으면 큐 적재 전 실패처럼 메시지 행이 0건인 경우 사후 추적이 불가능하다
+ * (2026-08-10 발송 실패 원인 규명 실패 → 0120 에서 컬럼 추가).
+ */
 export async function safeUpdateCampaignStatus(
   supabase: SupabaseSrv,
   campaignId: string,
   status: CampaignStatus,
+  failedReason?: string,
 ): Promise<void> {
   await (
     supabase.from("crm_campaigns") as unknown as {
@@ -132,7 +139,9 @@ export async function safeUpdateCampaignStatus(
       };
     }
   )
-    .update({ status })
+    .update(
+      failedReason ? { status, failed_reason: failedReason } : { status },
+    )
     .eq("id", campaignId);
 }
 

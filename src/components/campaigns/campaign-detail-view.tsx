@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { AlertTriangle, ChevronLeft } from "lucide-react";
 import type { CampaignListItem, CampaignMessageRow } from "@/types/database";
 import type { CampaignMessageCounts } from "@/lib/campaigns/get-campaign-message-counts";
 import { BranchBadge } from "@/components/groups/branch-badge";
@@ -126,6 +126,30 @@ export function CampaignDetailView({
             {isInFlight && (
               <p className="text-[12px] text-[color:var(--text-muted)]">
                 발송이 진행 중입니다. 화면이 5초마다 자동 갱신됩니다.
+              </p>
+            )}
+
+            {/* 실패 사유 (0120) — 큐 적재 전에 죽으면 건별 메시지가 0건이라
+                이 줄이 유일한 단서다. 2026-08-11 이전 실패는 값이 없다. */}
+            {campaign.status === "실패" && (
+              <p
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border border-[color:var(--border)] bg-[color:var(--bg-muted)] px-3 py-2.5 text-[13px] leading-relaxed"
+              >
+                <AlertTriangle
+                  className="size-4 mt-0.5 shrink-0 text-[color:var(--danger)]"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                <span className="min-w-0">
+                  <span className="font-medium text-[color:var(--text)]">
+                    실패 사유
+                  </span>{" "}
+                  <span className="text-[color:var(--text-muted)] break-words">
+                    {campaign.failed_reason ??
+                      "기록되지 않았습니다. 2026-08-11 이전 발송은 사유를 저장하지 않았습니다."}
+                  </span>
+                </span>
               </p>
             )}
 

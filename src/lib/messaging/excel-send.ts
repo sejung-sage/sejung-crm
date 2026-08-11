@@ -255,7 +255,10 @@ export async function excelSend(
     }));
     const ins = await insertMessages(supabase, rows);
     if (!ins.ok) {
-      await safeUpdateCampaignStatus(supabase, campaignId, "실패");
+      console.error(
+        `[excel-send] 수신거부 행 적재 실패 campaign=${campaignId} reason=${ins.reason}`,
+      );
+      await safeUpdateCampaignStatus(supabase, campaignId, "실패", ins.reason);
       return withSkips(
         { status: "failed", reason: ins.reason },
         {
@@ -291,7 +294,10 @@ export async function excelSend(
   // 7-b) eligible → '대기' 행 INSERT. id/phone 을 회신받아 발송 후 update 매핑.
   const queued = await insertEligibleMessages(supabase, campaignId, eligible);
   if (!queued.ok) {
-    await safeUpdateCampaignStatus(supabase, campaignId, "실패");
+    console.error(
+      `[excel-send] 큐 적재 실패 campaign=${campaignId} recipients=${eligible.length} reason=${queued.reason}`,
+    );
+    await safeUpdateCampaignStatus(supabase, campaignId, "실패", queued.reason);
     return withSkips(
       { status: "failed", reason: queued.reason },
       {
@@ -306,7 +312,12 @@ export async function excelSend(
   const adapter = createSmsAdapter(user.branch, sendDivision);
   const fromNumber = readFromNumber(adapter.name, user.branch, sendDivision);
   if (!fromNumber) {
-    await safeUpdateCampaignStatus(supabase, campaignId, "실패");
+    await safeUpdateCampaignStatus(
+      supabase,
+      campaignId,
+      "실패",
+      "발신번호 환경변수가 설정되어 있지 않습니다",
+    );
     return withSkips(
       {
         status: "failed",

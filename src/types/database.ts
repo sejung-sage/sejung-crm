@@ -349,6 +349,12 @@ export interface CampaignRow {
    * cron 이 이 시각 이후 1회 점검하고 NULL 로 비운다. 서버 쿼리로만 다룸 → optional.
    */
   sendon_check_due_at?: string | null;
+  /**
+   * 캠페인 실패 사유. status='실패' 로 전이시킨 경로가 기록한다. 0120 추가.
+   * 메시지 큐 적재 전에 실패하면 crm_messages 행이 0건이라 건별 사유가 남지 않으므로
+   * 이 컬럼이 유일한 단서다. 발송 내역 상세에 그대로 노출된다.
+   */
+  failed_reason?: string | null;
   created_at: string;
   updated_at: string;
 }

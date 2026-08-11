@@ -116,8 +116,9 @@ export async function drainCampaignChunk(
     return doneResult(campaignId);
   }
   if (!campaign.body || !campaign.type) {
-    await updateCampaignStatus(supabase, campaignId, "실패");
-    throw new Error("캠페인 body/type 누락 — 발송 불가");
+    const reason = "캠페인 body/type 누락 — 발송 불가";
+    await updateCampaignStatus(supabase, campaignId, "실패", reason);
+    throw new Error(reason);
   }
 
   // 2) 본문 가드 + 어댑터 + 발신번호 (반복 호출 전 1회만 준비)
@@ -183,8 +184,9 @@ export async function drainCampaignChunk(
   // 분원×division별 발신번호 — 캠페인 기준(미설정 분원/division 은 본원 번호로 폴백).
   const fromNumber = readFromNumber(adapter.name, campaign.branch, senderDivision);
   if (!fromNumber) {
-    await updateCampaignStatus(supabase, campaignId, "실패");
-    throw new Error("발신번호 환경변수가 설정되어 있지 않습니다");
+    const reason = "발신번호 환경변수가 설정되어 있지 않습니다";
+    await updateCampaignStatus(supabase, campaignId, "실패", reason);
+    throw new Error(reason);
   }
   const type = campaign.type as TemplateType;
 
@@ -683,10 +685,15 @@ async function markMessagesFailed(
   }
 }
 
+/**
+ * status='실패' 로 보낼 때는 failedReason 을 함께 남긴다 — 사유 없이 '실패' 만
+ * 찍히면 사후에 원인을 알 수 없다(0120).
+ */
 async function updateCampaignStatus(
   supabase: SrvClient,
   campaignId: string,
   status: CampaignStatus,
+  failedReason?: string,
 ): Promise<void> {
   await (
     supabase.from("crm_campaigns") as unknown as {
@@ -698,7 +705,9 @@ async function updateCampaignStatus(
       };
     }
   )
-    .update({ status })
+    .update(
+      failedReason ? { status, failed_reason: failedReason } : { status },
+    )
     .eq("id", campaignId);
 }
 

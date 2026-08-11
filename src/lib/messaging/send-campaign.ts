@@ -363,7 +363,18 @@ async function runImmediateSend(args: {
 
     const inserted = await insertMessages(supabase, rows);
     if (!inserted.ok) {
-      await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
+      // 여기서 죽으면 메시지 행이 0건이라 사후 추적 단서가 이 로그·컬럼뿐이다
+      // (2026-08-10 실패 건 원인 규명 실패 → 로깅 추가).
+      console.error(
+        `[send-campaign] 큐 적재 실패 campaign=${campaignId} recipients=${eligible.length} reason=${inserted.reason}`,
+      );
+      await safeUpdateCampaignStatus(
+        supabase,
+        campaignId,
+        "실패",
+        0,
+        inserted.reason,
+      );
       return { status: "failed", reason: inserted.reason };
     }
   }
@@ -390,7 +401,16 @@ async function runImmediateSend(args: {
 
     const inserted = await insertMessages(supabase, rows);
     if (!inserted.ok) {
-      await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
+      console.error(
+        `[send-campaign] 수신거부 행 적재 실패 campaign=${campaignId} reason=${inserted.reason}`,
+      );
+      await safeUpdateCampaignStatus(
+        supabase,
+        campaignId,
+        "실패",
+        0,
+        inserted.reason,
+      );
       return { status: "failed", reason: inserted.reason };
     }
   }
@@ -428,11 +448,10 @@ async function runImmediateSend(args: {
   if (!drainSecret) {
     // 보안 가드: 시크릿 없으면 큐 적재까지만 완료하고 알려준다.
     // 운영 배포 전 반드시 설정해야 한다.
-    await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0);
-    return {
-      status: "failed",
-      reason: "DRAIN_SECRET 환경변수가 설정되어 있지 않습니다",
-    };
+    const reason = "DRAIN_SECRET 환경변수가 설정되어 있지 않습니다";
+    console.error(`[send-campaign] campaign=${campaignId} ${reason}`);
+    await safeUpdateCampaignStatus(supabase, campaignId, "실패", 0, reason);
+    return { status: "failed", reason };
   }
 
   // Vercel runtime 에서 응답 송출 후에도 fetch 가 resolve 될 때까지 함수
@@ -669,11 +688,16 @@ async function insertMessages(
   return { ok: true };
 }
 
+/**
+ * status='실패' 로 보낼 때는 failedReason 을 함께 남긴다 — 큐 적재 전 실패는
+ * crm_messages 행이 0건이라 이 컬럼이 유일한 사후 단서다(0120).
+ */
 async function safeUpdateCampaignStatus(
   supabase: SupabaseSrv,
   campaignId: string,
   status: "발송중" | "완료" | "실패" | "예약됨" | "취소" | "임시저장",
   totalCost: number,
+  failedReason?: string,
 ): Promise<void> {
   await (
     supabase.from("crm_campaigns") as unknown as {
@@ -685,6 +709,10 @@ async function safeUpdateCampaignStatus(
       };
     }
   )
-    .update({ status, total_cost: totalCost })
+    .update(
+      failedReason
+        ? { status, total_cost: totalCost, failed_reason: failedReason }
+        : { status, total_cost: totalCost },
+    )
     .eq("id", campaignId);
 }
