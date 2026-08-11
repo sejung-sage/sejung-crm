@@ -6,6 +6,7 @@ import { BranchBadge } from "@/components/groups/branch-badge";
 import { CampaignStatusBadge } from "@/components/campaigns/campaign-status-badge";
 import { CampaignMessagesTable } from "@/components/campaigns/campaign-messages-table";
 import { ResendFailedButton } from "@/components/campaigns/resend-failed-button";
+import { ResendSameFiltersButton } from "@/components/campaigns/resend-same-filters-button";
 import { ResumeStuckButton } from "@/components/campaigns/resume-stuck-button";
 import { CancelScheduledButton } from "@/components/campaigns/cancel-scheduled-button";
 import { RescheduleButton } from "@/components/campaigns/reschedule-button";
@@ -47,6 +48,12 @@ export function CampaignDetailView({
 }: Props) {
   const isInFlight = campaign.status === "발송중";
   const isScheduled = campaign.status === "예약됨";
+  // 같은 조건 재발송 가능 여부 — 실패·취소 건 + 발송 조건 스냅샷(0121) 보유.
+  // 완료 건은 중복 발송 위험이 커 제외(서버도 같은 규칙으로 재검증한다).
+  const canResendSameFilters =
+    (campaign.status === "실패" || campaign.status === "취소") &&
+    !campaign.is_test &&
+    campaign.send_filters != null;
 
   // 접수 성공 = sendon 큐에 들어간 건수 (vendor 응답 status=queued)
   // sendon webhook/polling 미구현이라 "도달" 통계는 보유 X.
@@ -227,6 +234,15 @@ export function CampaignDetailView({
                   campaignId={campaign.id}
                   failedCount={failedCount}
                 />
+                {/* 같은 조건으로 다시 보내기 (0121) — 실패·취소 건이면서 발송 조건이
+                    저장돼 있을 때만. 큐 적재 전에 죽어 실패 메시지 행이 0건이라
+                    "실패 건 재발송" 이 안 먹는 경우의 복구 경로다. */}
+                {canResend && canResendSameFilters && (
+                  <ResendSameFiltersButton
+                    campaignId={campaign.id}
+                    totalRecipients={campaign.total_recipients}
+                  />
+                )}
               </>
             )}
             {/* sendon 실제 발송 결과 점검 — master 전용(canRevealPhone=master). */}

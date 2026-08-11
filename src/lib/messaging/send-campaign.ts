@@ -336,6 +336,9 @@ async function runImmediateSend(args: {
     send_to_student: targets.sendToStudent,
     // NULL = 본원 기본. drain 이 발송 시 다시 읽어 발신번호·브랜드로 관통한다.
     sender_division: input.senderDivision ?? null,
+    // 발송 대상 조건 스냅샷(0121) — "같은 조건으로 다시 보내기" 의 단일 소스.
+    // 그룹 기반 발송도 해석된 filters 를 저장해 그룹이 나중에 바뀌어도 재현된다.
+    send_filters: target.filters,
   };
 
   const insertedCampaign = await insertCampaign(supabase, campaignInsert);

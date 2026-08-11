@@ -18,6 +18,7 @@
 import { revalidatePath } from "next/cache";
 import { resendFailedMessages } from "@/lib/messaging/resend-failed";
 import { resendSingleMessage } from "@/lib/messaging/resend-single";
+import { resendCampaignSameFilters } from "@/lib/messaging/resend-campaign-same-filters";
 import {
   resumeStuckCampaign,
   type ResumeStuckResult,
@@ -57,6 +58,23 @@ export async function resendFailedAction(
     return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
   }
   return await resendFailedMessages(campaignId);
+}
+
+/**
+ * 같은 조건으로 다시 보내기 — 저장된 발송 조건(0121)으로 새 캠페인을 만든다.
+ * 큐 적재 전에 죽어 메시지 행이 0건인 실패 건도 이 경로로 복구된다.
+ */
+export async function resendCampaignSameFiltersAction(
+  campaignId: string,
+): Promise<SendCampaignResult> {
+  if (typeof campaignId !== "string" || campaignId.length === 0) {
+    return { status: "failed", reason: "캠페인 ID 가 유효하지 않습니다" };
+  }
+  const result = await resendCampaignSameFilters(campaignId);
+  if (result.status === "success" || result.status === "scheduled") {
+    revalidatePath("/campaigns");
+  }
+  return result;
 }
 
 export async function resendSingleMessageAction(

@@ -355,6 +355,19 @@ export interface CampaignRow {
    * 이 컬럼이 유일한 단서다. 발송 내역 상세에 그대로 노출된다.
    */
   failed_reason?: string | null;
+  /**
+   * 발송 대상 조건(GroupFilters) 스냅샷. 0121 추가.
+   * 필터·그룹 기반 발송만 채워지고 엑셀·설명회 발송은 NULL.
+   * DB 에서 읽은 JSON 이라 신뢰하지 않는다 — 사용하는 쪽에서 GroupFiltersSchema 로
+   * Zod 재검증한 뒤 쓸 것(그래서 타입은 unknown).
+   */
+  send_filters?: unknown;
+  /**
+   * 발신 명의(본원/수학관 등). NULL=본원 기본. 0111 추가.
+   * drain/resend 가 이 값으로 발신번호·브랜드명을 다시 해석한다. 서버 쿼리로만
+   * 다루던 값이라 optional (일부 매퍼·dev-seed 가 하이드레이트하지 않음).
+   */
+  sender_division?: Division | null;
   created_at: string;
   updated_at: string;
 }
