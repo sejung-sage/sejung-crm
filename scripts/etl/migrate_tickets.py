@@ -86,8 +86,9 @@ BATCH_SIZE = int(os.getenv("BATCH_SIZE", "500"))
 RUN_STARTED = datetime.now().astimezone().isoformat()
 
 # sweep 안전 상한(%). 한 분원에서 이 비율을 넘게 지워야 하면 원본 추출이 부분
-# 실패했을 가능성이 높다고 보고 삭제를 건너뛴다. 정상 운영 실측은 run 당 ≈10행
-# (분원 최대 27만행 기준 0.004%) 이라 5% 는 매우 넉넉한 경계다.
+# 실패했을 가능성이 높다고 보고 삭제를 건너뛴다. 정상 운영 실측은 주간 ≈5,000행
+# ÷ 매시간 168 run = run 당 ≈30행 (분원 최대 27만행 기준 0.01%) 이라 5% 는
+# 매우 넉넉한 경계다.
 SWEEP_MAX_DELETE_PCT = float(os.getenv("SWEEP_MAX_DELETE_PCT", "5.0"))
 
 if not PASSWORD:
