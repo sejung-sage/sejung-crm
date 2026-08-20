@@ -110,6 +110,11 @@ export async function getCampaign(
     send_to_student: (row.send_to_student ?? false) as boolean,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
+    // 0120/0121 컬럼 — 상세 화면이 직접 읽는다. 여기서 빠뜨리면 타입이 optional
+    // 이라 컴파일은 통과하고, 화면은 "실패 사유 기록되지 않았습니다" 폴백을 띄우며
+    // '같은 조건으로 다시 보내기' 버튼이 사라진다(2026-08-20 현장 발견).
+    failed_reason: (row.failed_reason ?? null) as string | null,
+    send_filters: row.send_filters ?? null,
     template_name: templateName,
     group_name: groupName,
     delivered_count: 0,
