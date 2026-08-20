@@ -60,6 +60,7 @@ import {
   SCHEDULE_MIN_LEAD_MS,
   SCHEDULE_MIN_LEAD_LABEL,
 } from "@/lib/messaging/schedule-window";
+import { formatScheduleDisplay } from "@/lib/messaging/format-schedule";
 import { ConfirmSendDialog } from "./confirm-send-dialog";
 import {
   DedupeCountNote,
@@ -1654,13 +1655,6 @@ function toUiResult(r: SendCampaignResult): SendUiResult {
 function toLocalDatetimeInput(d: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-
-function formatScheduleDisplay(input: string): string {
-  const d = new Date(input);
-  if (Number.isNaN(d.getTime())) return input;
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
 function formatKstDateLabel(scheduleAt: string | null): string {

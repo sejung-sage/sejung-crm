@@ -28,14 +28,14 @@ describe("insertUnsubscribeFooter · 기본 번호 삽입", () => {
   it("env 없고 인자 없음 → 기본 번호 footer", () => {
     vi.stubEnv("SMS_OPT_OUT_NUMBER", "");
     const out = insertUnsubscribeFooter("본문", true);
-    expect(out).toBe(`본문\n\n무료수신거부 ${DEFAULT_FOOTER_NUMBER}`);
+    expect(out).toBe(`본문\n\n\n무료수신거부 ${DEFAULT_FOOTER_NUMBER}`);
   });
 
-  it("본문과 footer 사이 빈 줄 1개(개행 2개)", () => {
+  it("본문과 footer 사이 빈 줄 2개(개행 3개)", () => {
     vi.stubEnv("SMS_OPT_OUT_NUMBER", "");
     const out = insertUnsubscribeFooter("본문", true);
     const nlCount = (out.match(/\n/g) ?? []).length;
-    expect(nlCount).toBe(2);
+    expect(nlCount).toBe(3);
   });
 });
 
@@ -43,19 +43,19 @@ describe("insertUnsubscribeFooter · 번호 우선순위", () => {
   it("env 설정 시 env 번호 사용", () => {
     vi.stubEnv("SMS_OPT_OUT_NUMBER", "080-999-8888");
     const out = insertUnsubscribeFooter("본문", true);
-    expect(out).toBe("본문\n\n무료수신거부 080-999-8888");
+    expect(out).toBe("본문\n\n\n무료수신거부 080-999-8888");
   });
 
   it("인자 > env · 인자가 우선", () => {
     vi.stubEnv("SMS_OPT_OUT_NUMBER", "080-999-8888");
     const out = insertUnsubscribeFooter("본문", true, "080-111-2222");
-    expect(out).toBe("본문\n\n무료수신거부 080-111-2222");
+    expect(out).toBe("본문\n\n\n무료수신거부 080-111-2222");
   });
 
   it("인자가 공백뿐 → 공백 trim 후 env 폴백", () => {
     vi.stubEnv("SMS_OPT_OUT_NUMBER", "080-999-8888");
     const out = insertUnsubscribeFooter("본문", true, "   ");
-    expect(out).toBe("본문\n\n무료수신거부 080-999-8888");
+    expect(out).toBe("본문\n\n\n무료수신거부 080-999-8888");
   });
 });
 
