@@ -1,5 +1,6 @@
 "use client";
 
+import { formatScheduleDisplay, isNightSchedule } from "@/lib/messaging/format-schedule";
 import { AlertTriangle, Send, CalendarClock } from "lucide-react";
 import type { DedupeCounts } from "@/types/messaging";
 import { shouldShowLegBreakdown } from "./dedupe-count-note";
@@ -73,6 +74,10 @@ export function ConfirmSendDialog({
     mode === "schedule" && scheduleAt
       ? formatScheduleDisplay(scheduleAt)
       : null;
+  // 오전/오후를 잘못 고른 대표 증상이 "밤 시간대 예약" 이다. 광고 문자는 서버가
+  // 21~08시를 차단하지만 비광고는 그대로 나가므로, 확정 전에 눈에 띄게 알린다.
+  const scheduleAtNight =
+    mode === "schedule" && scheduleAt != null && isNightSchedule(scheduleAt);
 
   return (
     <div
@@ -154,6 +159,22 @@ export function ConfirmSendDialog({
               )
             }
           />
+          {scheduleAtNight && (
+            <p
+              role="alert"
+              className="flex items-start gap-2 rounded-lg border border-[color:var(--warning)] px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text)]"
+            >
+              <AlertTriangle
+                className="size-4 mt-0.5 shrink-0 text-[color:var(--warning)]"
+                strokeWidth={1.75}
+                aria-hidden
+              />
+              <span className="min-w-0">
+                밤 시간대({scheduleLabel})로 예약되어 있습니다. 오전/오후를
+                잘못 고르지 않았는지 확인해 주세요.
+              </span>
+            </p>
+          )}
           <Row
             label="예상 비용"
             value={
@@ -223,17 +244,4 @@ function Row({
   );
 }
 
-/**
- * datetime-local 문자열 → 한국어 표시.
- * compose-step-4-send 의 동일 헬퍼와 같은 시맨틱 — 중복 import 회피용 inline.
- */
-function formatScheduleDisplay(scheduleAt: string): string {
-  const d = new Date(scheduleAt);
-  if (Number.isNaN(d.getTime())) return scheduleAt;
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${y}-${m}-${day} ${hh}:${mm}`;
-}
+
