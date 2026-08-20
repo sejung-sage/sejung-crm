@@ -41,7 +41,10 @@ import { resolveSenderDivision } from "./resolve-sender-division";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  createSupabaseServiceClient,
+} from "@/lib/supabase/server";
 import {
   ExcelSendInputSchema,
   type ExcelSendInput,
@@ -205,7 +208,12 @@ export async function excelSend(
     );
   }
 
-  const supabase = await createSupabaseServerClient();
+  // 캠페인·메시지 쓰기는 service 클라이언트(RLS 우회). 위에서 getCurrentUser +
+  // can(user,'send','campaign',user.branch) 로 RLS 정책(can_send_branch)과 동일한
+  // 검사를 마쳤고, 캠페인 branch 도 user.branch 로 고정된다 — 권한 판정 불변.
+  // 사용자 세션으로 쓰면 authenticated 롤의 짧은 statement_timeout 에 걸려 DB 가
+  // 바쁜 시간대에 큐 적재가 통째로 실패한다(send-campaign 주석 참조).
+  const supabase = createSupabaseServiceClient();
   const totalRecipients = eligible.length + unsubscribed.length;
 
   // 6) 캠페인 INSERT (group_id=null, is_test=false, title 자동)

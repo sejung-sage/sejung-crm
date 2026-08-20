@@ -1051,8 +1051,18 @@ export async function createSeminarBroadcastAction(
     send_to_student: false,
   };
 
+  // 여기부터는 전부 쓰기 — service 클라이언트(RLS 우회)로 수행한다.
+  //   근거: 위 assertSeminarWrite(parsed.branch) 가 can(user,'write','group',branch) 를
+  //   통과시켰다. crm_messages INSERT 의 RLS 정책 can_send_branch(= master | 본인 분원
+  //   admin/manager)보다 오히려 좁은 검사다(manager 는 group write 불가) — 권한이
+  //   느슨해지지 않는다.
+  //   이유: 사용자 세션으로 쓰면 authenticated 롤의 짧은 statement_timeout 을 그대로
+  //   받아, DB 가 바쁜 시간대에 대량 INSERT(invitations = 학생 x 신청페이지, messages)
+  //   가 통째로 잘린다. 발송 경로를 조회 부하에서 떼어낸다.
+  //   ※ 위쪽 수신자·강좌 조회는 사용자 세션 유지 — RLS 2차 방어 보존.
+  const dbWrite = createSupabaseServiceClient();
   const { data: campaignInserted, error: campaignError } = (await (
-    supabase.from("crm_campaigns") as unknown as {
+    dbWrite.from("crm_campaigns") as unknown as {
       insert: (v: Record<string, unknown>) => {
         select: (cols: string) => {
           single: () => Promise<{
@@ -1087,7 +1097,7 @@ export async function createSeminarBroadcastAction(
   const fromNumber = sendonFromNumber(parsed.branch, division);
   if (!fromNumber || fromNumber.length === 0) {
     const reason = `${parsed.branch} 분원의 발신번호 환경변수가 설정되지 않았습니다`;
-    await safeMarkCampaignFailed(supabase, campaignId, reason);
+    await safeMarkCampaignFailed(dbWrite, campaignId, reason);
     return {
       status: "failed",
       reason,
@@ -1119,7 +1129,7 @@ export async function createSeminarBroadcastAction(
         };
       });
       const { data: invRows, error: invError } = (await (
-        supabase.from("crm_class_signup_invitations") as unknown as {
+        dbWrite.from("crm_class_signup_invitations") as unknown as {
           insert: (v: Record<string, unknown>[]) => {
             select: (cols: string) => Promise<{
               data: Array<{ id: string; student_id: string }> | null;
@@ -1154,7 +1164,7 @@ export async function createSeminarBroadcastAction(
     }
     if (!chunkDone) {
       const reason = `invitation 생성 실패: ${lastError ?? "알 수 없는 오류"}`;
-      await safeMarkCampaignFailed(supabase, campaignId, reason);
+      await safeMarkCampaignFailed(dbWrite, campaignId, reason);
       return {
         status: "failed",
         reason,
@@ -1182,7 +1192,7 @@ export async function createSeminarBroadcastAction(
   for (let i = 0; i < itemRows.length; i += BROADCAST_INSERT_CHUNK) {
     const slice = itemRows.slice(i, i + BROADCAST_INSERT_CHUNK);
     const { error: itemsError } = (await (
-      supabase.from("crm_class_signup_items") as unknown as {
+      dbWrite.from("crm_class_signup_items") as unknown as {
         insert: (v: Record<string, unknown>[]) => Promise<{
           error: { message: string } | null;
         }>;
@@ -1190,7 +1200,7 @@ export async function createSeminarBroadcastAction(
     ).insert(slice)) as { error: { message: string } | null };
     if (itemsError) {
       const reason = `invitation 카드 생성 실패: ${itemsError.message}`;
-      await safeMarkCampaignFailed(supabase, campaignId, reason);
+      await safeMarkCampaignFailed(dbWrite, campaignId, reason);
       return {
         status: "failed",
         reason,
@@ -1218,7 +1228,7 @@ export async function createSeminarBroadcastAction(
       created_at: nowIso,
     }));
     const { error: msgErr } = (await (
-      supabase.from("crm_messages") as unknown as {
+      dbWrite.from("crm_messages") as unknown as {
         insert: (v: Record<string, unknown>[]) => Promise<{
           error: { message: string } | null;
         }>;
@@ -1226,7 +1236,7 @@ export async function createSeminarBroadcastAction(
     ).insert(messageRows)) as { error: { message: string } | null };
     if (msgErr) {
       const reason = `메시지 큐 적재 실패: ${msgErr.message}`;
-      await safeMarkCampaignFailed(supabase, campaignId, reason);
+      await safeMarkCampaignFailed(dbWrite, campaignId, reason);
       return {
         status: "failed",
         reason,
@@ -1253,7 +1263,7 @@ export async function createSeminarBroadcastAction(
   const drainSecret = process.env.DRAIN_SECRET;
   if (!drainSecret) {
     const reason = "DRAIN_SECRET 환경변수가 설정되어 있지 않습니다";
-    await safeMarkCampaignFailed(supabase, campaignId, reason);
+    await safeMarkCampaignFailed(dbWrite, campaignId, reason);
     return {
       status: "failed",
       reason,

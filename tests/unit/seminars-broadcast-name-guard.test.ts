@@ -96,6 +96,9 @@ vi.mock("@vercel/functions", () => ({
 vi.mock("@/lib/supabase/server", () => {
   return {
     createSupabaseServerClient: vi.fn(async () => makeFakeSupabase()),
+    // 쓰기 경로는 service 클라이언트로 분리됨(RLS/statement_timeout 회피).
+    // 가짜 클라이언트는 상태를 갖지 않으므로 별도 인스턴스로 돌려줘도 무방.
+    createSupabaseServiceClient: vi.fn(() => makeFakeSupabase()),
   };
 });
 
