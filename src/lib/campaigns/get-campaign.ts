@@ -108,6 +108,14 @@ export async function getCampaign(
     // 0077 발송 대상. DEFAULT(parent=true, student=false)로 기존 행도 채워짐.
     send_to_parent: (row.send_to_parent ?? true) as boolean,
     send_to_student: (row.send_to_student ?? false) as boolean,
+    // 실패 사유(0120)·발송 조건 스냅샷(0121) — 상세 화면의 실패 사유 표시와
+    // "같은 조건으로 다시 보내기" 버튼 노출 조건이 이 두 값을 읽는다.
+    failed_reason: (row.failed_reason ?? null) as string | null,
+    send_filters: row.send_filters ?? null,
+    // 발신 명의(0111) — 같은 조건 재발송이 이 값으로 발신번호를 다시 해석한다.
+    // 누락되면 수학관 등 분원 내 명의가 본원으로 되돌아간다.
+    sender_division: (row.sender_division ??
+      null) as CampaignListItem["sender_division"],
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
     template_name: templateName,
