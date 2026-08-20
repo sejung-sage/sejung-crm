@@ -20,12 +20,21 @@ export function formatPhone(raw: string | null | undefined): string {
   return raw;
 }
 
+/** 이미 마스킹된 표시 형태(010-****-1234 / ***-****-1234). maskPhone 멱등 판정용. */
+const MASKED_PATTERN = /^(\d{3}|\*{3})-\*{4}-\d{4}$/;
+
 /**
  * 로그·스냅샷 용 마스킹. 항상 010-****-XXXX 형태.
  * PRD 6.3: "학부모 연락처 로그 마스킹 (010-****-1234)"
+ *
+ * 멱등이다 — 이미 마스킹된 문자열을 다시 넣어도 그대로 돌아온다.
+ * 서버에서 미리 마스킹해 내려보낸 값을 클라이언트가 한 번 더 마스킹해도
+ * 접두가 '***' 로 뭉개지지 않게 하기 위함(권한 없는 사용자에게 원본을
+ * 아예 전송하지 않는 경로에서 필요).
  */
 export function maskPhone(raw: string | null | undefined): string {
   if (!raw) return "";
+  if (MASKED_PATTERN.test(raw)) return raw;
   const digits = raw.replace(/\D/g, "");
   if (digits.length < 4) return "***";
   const last4 = digits.slice(-4);
