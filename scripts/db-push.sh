@@ -36,9 +36,20 @@ PW="${SUPABASE_DB_PASSWORD:-}"
 [[ -z "$PW" ]] && PW="$(read_env SUPABASE_DB_PASSWORD)"
 [[ -z "$PW" ]] && PW="$(read_env SUPABASE_DATABASE_PASSWORD)"
 
+# 비밀번호를 통째 URL 로 갖고 있는 경우(DATABASE_OWNER_URL) 거기서 뽑는다.
+#   ⚠️ 그 URL 의 호스트(db.<ref>.supabase.co)는 직결 전용이라 IPv6 만 뜬다 —
+#      일반 사무실/가정 회선에서는 이름 해석부터 실패한다. 그래서 URL 을 그대로
+#      쓰지 않고 **비밀번호만** 꺼내 CLI 에 넘긴다. CLI 는 풀러(IPv4)로 붙는다.
+if [[ -z "$PW" ]]; then
+  OWNER_URL="$(read_env DATABASE_OWNER_URL)"
+  if [[ -n "$OWNER_URL" ]]; then
+    PW="$(python3 -c 'import sys,urllib.parse; print(urllib.parse.urlsplit(sys.argv[1]).password or "")' "$OWNER_URL")"
+  fi
+fi
+
 if [[ -z "$PW" ]]; then
   echo "❌ DB 비밀번호를 찾지 못했습니다." >&2
-  echo "   $ENV_FILE 에 SUPABASE_DB_PASSWORD=... 를 넣어주세요." >&2
+  echo "   $ENV_FILE 에 SUPABASE_DB_PASSWORD=... 또는 DATABASE_OWNER_URL=... 을 넣어주세요." >&2
   echo "   (Supabase 대시보드 → Project Settings → Database → Database password)" >&2
   exit 1
 fi
