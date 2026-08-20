@@ -35,7 +35,10 @@ import type { GroupFilters } from "@/lib/schemas/group";
 import { isDevSeedMode } from "@/lib/profile/students-dev-seed";
 import { getCurrentUser } from "@/lib/auth/current-user";
 import { can } from "@/lib/auth/can";
-import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  createSupabaseServerClient,
+  createSupabaseServiceClient,
+} from "@/lib/supabase/server";
 import { SENDON_MIN_RESERVATION_MS } from "./schedule-window";
 import type { Division } from "@/config/divisions";
 
@@ -236,7 +239,17 @@ export async function sendCampaign(
     };
   }
 
-  const supabase = await createSupabaseServerClient();
+  // 큐 적재·캠페인 쓰기는 service 클라이언트(RLS 우회)로 수행한다.
+  //   근거: 위 2) 에서 getCurrentUser + can(user,'send','campaign',branch) 로 RLS
+  //   정책 can_send_branch 와 동일한 검사를 이미 통과했다(master | 본인 분원
+  //   admin/manager, 비활성 계정은 getCurrentUser 가 null 처리). 권한 판정은 그대로다.
+  //   이유: 사용자 세션으로 쓰면 authenticated 롤의 짧은 statement_timeout 을 그대로
+  //   받는다. student_profiles 뷰 집계가 DB 를 점유한 시간대에 155건짜리 INSERT 조차
+  //   잘려 캠페인이 통째로 실패했다
+  //   (2026-08-20 '메시지 큐 적재 실패: canceling statement due to statement timeout').
+  //   발송 경로가 학생 명단 조회 부하에 휘둘리지 않도록 쓰기만 떼어낸다.
+  //   ※ 수신자 조회(reloadEligibleRecipients)는 사용자 세션 유지 — RLS 2차 방어 보존.
+  const supabase = createSupabaseServiceClient();
 
   // 4) 발송 — 즉시(scheduledAt=null) / 예약(미래) 모두 동일 경로.
   //    예약이면 drain 이 sendon reservation 으로 접수하고 캠페인을 '예약됨' 마감.
