@@ -31,15 +31,18 @@ const CACHE_SECONDS = 300;
  *  사용되므로 칩 클릭 시 자동으로 패널이 reorder 됨).
  *  schools 도 적용 안 함 (선택한 학교만 남으면 다른 학교 추가 못 함).
  *
- * 성능:
- *  - students 테이블에서 school 컬럼만 직접 조회 (무거운 student_profiles 뷰 회피).
+ * 성능 (0122):
+ *  - distinct 를 SQL 로 내림 — `list_student_filter_options` RPC 1회 호출.
+ *  - students 테이블 베이스 (무거운 student_profiles 뷰 회피).
  *  - service client. 필터가 많은 조합이라 unstable_cache 효과 작음 → 매번 페치.
- *  - 0046 인덱스(branch+status+school_level+grade) 활용해 distinct 1초 이내.
+ *  - 0046 인덱스(branch+status+school_level+grade) 활용.
  *  - school_regions 매핑은 한 번 조회 (매핑 수 수십~수백 행, 가벼움).
+ *
+ *  ※ 이전 구현은 1,000행씩 최대 10페이지(=상위 10,000행)만 훑어 distinct 를
+ *    앱 메모리에서 모았다. 대치(탈퇴 제외 65,570명) 기준 실제 학교 2,393개 중
+ *    999개만 노출되고, ORDER BY 가 없어 새로고침마다 목록이 바뀌었다
+ *    (2026-08-20 현장 제보 "발송 대상을 찾지를 못한다"). 상한 자체를 없앤다.
  */
-
-const PAGE_SIZE = 1000;
-const MAX_PAGES = 10; // 안전상한 — 1만 행까지. branch 필터 적용 시 충분.
 
 // 지역 옵션 SSOT 사용 — UI 칩과 동일 순서/내용 보장.
 import {
@@ -114,71 +117,62 @@ async function collectFromSupabase(
   // service client — 쿠키 의존 없음 + unstable_cache 호환.
   const supabase = createSupabaseServiceClient();
 
-  // 1) 학생 distinct (school, grade, school_level) — 동일 필터 적용.
+  // 1) 학생 distinct (school, grade, school_level) — RPC 1회 (0122).
   //    학생 명단의 list-students 와 정합. region/schools 만 제외.
   //
   //    학년 칩의 옵션을 구할 때 grades 필터 자체가 들어가면 자기 자신 좁힘 →
   //    옵션 셋 산정 시 grades 는 제외. school_level/region 도 동일 이유로 본 함수가
   //    자기 자신을 좁힘 회피 — 다만 학교 옵션의 필터 정책(자기 외 모두 적용)을
   //    그대로 가져가서 학년/지역 옵션도 같은 정책 사용.
-  const schoolSet = new Set<string>();
-  const gradeSet = new Set<Grade>();
-  const levelSet = new Set<SchoolLevel>();
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const from = page * PAGE_SIZE;
-    const to = from + PAGE_SIZE - 1;
+  //
+  //    숨김 학년은 상수를 그대로 넘긴다 — SQL 에 '졸업','미정' 을 또 박지 않고
+  //    HIDDEN_GRADES_BY_DEFAULT 를 단일 소스로 유지하기 위함.
+  const rpcResult = await (
+    supabase.rpc as unknown as (
+      fn: "list_student_filter_options",
+      params: {
+        p_branch: string | null;
+        p_statuses: string[] | null;
+        p_hidden_grades: string[] | null;
+      },
+    ) => Promise<{
+      data: Array<{
+        schools: string[] | null;
+        grades: string[] | null;
+        school_levels: string[] | null;
+      }> | null;
+      error: { message: string } | null;
+    }>
+  )("list_student_filter_options", {
+    p_branch:
+      input.branch && input.branch !== "전체" ? input.branch : null,
+    p_statuses:
+      input.statuses && input.statuses.length > 0 ? [...input.statuses] : null,
+    p_hidden_grades:
+      input.includeHidden === true ? null : [...HIDDEN_GRADES_BY_DEFAULT],
+  });
 
-    let query = supabase
-      .from("crm_students")
-      .select("school, grade, school_level")
-      .neq("status", "탈퇴")
-      .range(from, to);
-
-    if (input.branch && input.branch !== "전체") {
-      query = query.eq("branch", input.branch);
-    }
-    if (input.statuses && input.statuses.length > 0) {
-      query = query.in("status", input.statuses);
-    }
-    // 학년/학교급/지역 필터 자체는 옵션을 좁히는 데 쓰지 않음 (자기 자신 좁힘 방지).
-    // includeHidden 만 적용 — 졸업/미정 학생 학교/지역도 함께 숨김.
-    if (input.includeHidden !== true) {
-      query = query.not(
-        "grade",
-        "in",
-        `(${HIDDEN_GRADES_BY_DEFAULT.join(",")})`,
-      );
-    }
-
-    const { data, error } = await query;
-    if (error) {
-      return {
-        teachers: [],
-        schools: [],
-        schoolGroups: emptyGroups(),
-        availableGrades: [],
-        availableSchoolLevels: [],
-        availableRegions: [],
-      };
-    }
-
-    const rows = (data ?? []) as unknown as Array<{
-      school: string | null;
-      grade: Grade | null;
-      school_level: SchoolLevel | null;
-    }>;
-    if (rows.length === 0) break;
-
-    for (const row of rows) {
-      if (typeof row.school === "string" && row.school.trim().length > 0) {
-        schoolSet.add(row.school.trim());
-      }
-      if (row.grade) gradeSet.add(row.grade);
-      if (row.school_level) levelSet.add(row.school_level);
-    }
-
-    if (rows.length < PAGE_SIZE) break;
+  if (rpcResult.error) {
+    return {
+      teachers: [],
+      schools: [],
+      schoolGroups: emptyGroups(),
+      availableGrades: [],
+      availableSchoolLevels: [],
+      availableRegions: [],
+    };
   }
+
+  const row = rpcResult.data?.[0];
+  const schoolSet = new Set<string>(
+    (row?.schools ?? [])
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0),
+  );
+  const gradeSet = new Set<Grade>((row?.grades ?? []) as Grade[]);
+  const levelSet = new Set<SchoolLevel>(
+    (row?.school_levels ?? []) as SchoolLevel[],
+  );
 
   // 2) school_regions 매핑 전체 조회 (수십~수백 행, 가벼움).
   const { data: mappingRows } = await supabase
