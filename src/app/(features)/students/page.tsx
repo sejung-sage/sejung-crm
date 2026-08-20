@@ -8,6 +8,7 @@ import { getCurrentUser } from "@/lib/auth/current-user";
 import { StudentsTable } from "@/components/students/students-table";
 import { StudentsFilters } from "@/components/students/students-filters";
 import { Pagination } from "@/components/students/pagination";
+import { maskPhone } from "@/lib/phone";
 
 /**
  * F1-01 · 학생 목록 페이지 (/students)
@@ -48,6 +49,24 @@ export default async function StudentsPage({
     getCurrentUser(),
   ]);
   const canPickBranch = currentUser?.role === "master";
+
+  // 번호를 못 푸는 사용자에게는 **원본을 아예 내려보내지 않는다**.
+  //   StudentsTable 은 클라이언트 컴포넌트라 props 가 그대로 페이지 페이로드에
+  //   실린다. 지금까지는 원본을 보내고 화면에서만 maskPhone 으로 가렸는데,
+  //   그건 표시상의 가림일 뿐 가드가 아니다(페이로드를 열면 원본이 보인다).
+  //   목록의 번호는 표시 전용이라(액션·링크에 쓰이지 않음) 서버에서 미리
+  //   마스킹해도 기능 손실이 없다. maskPhone 은 멱등이라 클라이언트가 한 번 더
+  //   마스킹해도 결과가 같다.
+  //   ※ 학생 상세는 다르다 — 거기 도달했다면 master 이거나 본인 분원이라
+  //     번호를 풀 권한이 있고(canRevealPhone), UnsubscribeControl 이 수신거부
+  //     등록·해제에 원본을 서버 액션으로 되돌려 보내므로 마스킹하면 깨진다.
+  const safeRows = canPickBranch
+    ? result.rows
+    : result.rows.map((r) => ({
+        ...r,
+        parent_phone: maskPhone(r.parent_phone),
+        phone: maskPhone(r.phone),
+      }));
 
   return (
     <div className="max-w-7xl space-y-6">
@@ -90,7 +109,7 @@ export default async function StudentsPage({
         />
 
         {/* 테이블 */}
-        <StudentsTable rows={result.rows} canRevealPhone={canPickBranch} />
+        <StudentsTable rows={safeRows} canRevealPhone={canPickBranch} />
 
         {/* 페이지네이션 */}
       <Pagination
