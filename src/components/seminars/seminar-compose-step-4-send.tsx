@@ -17,7 +17,10 @@ import {
   SCHEDULE_MIN_LEAD_MS,
   SCHEDULE_MIN_LEAD_LABEL,
 } from "@/lib/messaging/schedule-window";
-import { formatKstDateTime } from "@/lib/datetime";
+import {
+  formatScheduleDisplay,
+  isNightSchedule,
+} from "@/lib/messaging/format-schedule";
 import { createSeminarBroadcastAction } from "@/app/(features)/seminars/actions";
 import type { SeminarComposeState } from "./seminar-compose-wizard";
 
@@ -268,6 +271,7 @@ export function SeminarComposeStep4Send({
         <ConfirmDialog
           onCancel={() => setConfirmOpen(false)}
           onConfirm={handleSend}
+          scheduleAt={mode === "schedule" ? scheduleAt : null}
           summary={{
             seminarCount: selectedClasses.length,
             recipientCount,
@@ -305,7 +309,7 @@ function ResultBox({
         </div>
         <p className="text-[13px] text-[color:var(--text-muted)] tabular-nums">
           {result.scheduledAt
-            ? `${result.queued.toLocaleString()}건이 ${formatKstDateTime(result.scheduledAt)} 에 발송되도록 예약되었습니다. 발송 전까지 캠페인 상세에서 취소·변경할 수 있어요.`
+            ? `${result.queued.toLocaleString()}건이 ${formatScheduleDisplay(result.scheduledAt)} 에 발송되도록 예약되었습니다. 발송 전까지 캠페인 상세에서 취소·변경할 수 있어요.`
             : `${result.queued.toLocaleString()}건이 발송 대기열에 적재되었습니다. 진행 상황은 캠페인 상세에서 실시간으로 확인할 수 있습니다.`}
         </p>
         <Link
@@ -367,15 +371,28 @@ function ResultBox({
 
 // ─── 확인 다이얼로그 ──────────────────────────────────────
 
+/**
+ * 확인 다이얼로그.
+ *
+ * 예약 발송이면 고른 시각을 입력과 같은 어법(오전/오후 + 요일)으로 되읽어 준다 —
+ * 24시간 표기로는 오전/오후 착오가 눈에 안 들어온다(운영 요청 2026-08-20).
+ * 밤 시간대(21~08시)면 경고까지 띄운다. /compose 확인 다이얼로그와 같은 규약.
+ */
 function ConfirmDialog({
   onCancel,
   onConfirm,
+  scheduleAt,
   summary,
 }: {
   onCancel: () => void;
   onConfirm: () => void;
+  /** datetime-local 값. 즉시 발송이면 null. */
+  scheduleAt: string | null;
   summary: { seminarCount: number; recipientCount: number };
 }) {
+  const scheduleLabel = scheduleAt ? formatScheduleDisplay(scheduleAt) : null;
+  const scheduleAtNight = scheduleAt != null && isNightSchedule(scheduleAt);
+
   return (
     <div
       role="dialog"
@@ -391,7 +408,7 @@ function ConfirmDialog({
           id="seminar-broadcast-confirm-title"
           className="text-[17px] font-semibold text-[color:var(--text)]"
         >
-          지금 발송할까요?
+          {scheduleAt ? "예약 발송을 등록할까요?" : "지금 발송할까요?"}
         </h3>
         <div className="rounded-lg bg-[color:var(--bg-muted)] p-3 text-[13px] text-[color:var(--text)] space-y-1">
           <div>
@@ -400,7 +417,26 @@ function ConfirmDialog({
           <div className="tabular-nums">
             대상 학생 약 <strong>{summary.recipientCount.toLocaleString()}</strong>명
           </div>
+          <div>
+            발송 시점 <strong>{scheduleLabel ?? "즉시"}</strong>
+          </div>
         </div>
+        {scheduleAtNight && (
+          <p
+            role="alert"
+            className="flex items-start gap-2 rounded-lg border border-[color:var(--warning)] px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text)]"
+          >
+            <AlertTriangle
+              className="size-4 mt-0.5 shrink-0 text-[color:var(--warning)]"
+              strokeWidth={1.75}
+              aria-hidden
+            />
+            <span className="min-w-0">
+              밤 시간대({scheduleLabel})로 예약되어 있습니다. 오전/오후를 잘못
+              고르지 않았는지 확인해 주세요.
+            </span>
+          </p>
+        )}
         <p className="text-[13px] text-[color:var(--text-muted)] leading-relaxed">
           발송 후에는 학생별 신청 페이지가 즉시 활성화됩니다. 학생별 초대 행은
           취소할 수 없으니 본문과 대상을 한 번 더 확인해 주세요.
@@ -418,7 +454,7 @@ function ConfirmDialog({
             onClick={onConfirm}
             className="inline-flex items-center h-10 px-5 rounded-lg bg-[color:var(--action)] text-[color:var(--action-text)] text-[14px] font-semibold hover:bg-[color:var(--action-hover)] transition-colors"
           >
-            확인하고 발송
+            {scheduleAt ? "확인하고 예약" : "확인하고 발송"}
           </button>
         </div>
       </div>
