@@ -46,6 +46,7 @@ const h = vi.hoisted(() => ({
     failed_reason:
       "메시지 큐 적재 실패: canceling statement due to statement timeout",
     send_filters: { kind: "filter", grades: ["고1"], schools: ["중대부고"] },
+    sender_division: "수학관",
   } as Record<string, unknown>,
 }));
 
@@ -111,19 +112,31 @@ describe("getCampaign · 상세 화면 컬럼 패스스루", () => {
     });
   });
 
+  it("sender_division 을 그대로 실어 나른다 (재발송 발신번호 해석용)", async () => {
+    // resend-campaign-same-filters 가 getCampaign 결과의 이 값으로 발신번호·
+    // 브랜드명을 다시 해석한다. 빠지면 수학관 캠페인이 조용히 본원 번호로 나간다.
+    const getCampaign = await loadGetCampaign();
+    const c = await getCampaign(CAMPAIGN_ID);
+    expect(c?.sender_division).toBe("수학관");
+  });
+
   it("컬럼이 NULL 이면 null 로 내려온다 (undefined 아님)", async () => {
     const prevReason = h.row.failed_reason;
     const prevFilters = h.row.send_filters;
+    const prevDivision = h.row.sender_division;
     h.row.failed_reason = null;
     h.row.send_filters = null;
+    h.row.sender_division = null;
     try {
       const getCampaign = await loadGetCampaign();
       const c = await getCampaign(CAMPAIGN_ID);
       expect(c?.failed_reason).toBeNull();
       expect(c?.send_filters).toBeNull();
+      expect(c?.sender_division).toBeNull();
     } finally {
       h.row.failed_reason = prevReason;
       h.row.send_filters = prevFilters;
+      h.row.sender_division = prevDivision;
     }
   });
 });

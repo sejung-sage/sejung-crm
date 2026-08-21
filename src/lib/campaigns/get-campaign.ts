@@ -115,6 +115,11 @@ export async function getCampaign(
     // '같은 조건으로 다시 보내기' 버튼이 사라진다(2026-08-20 현장 발견).
     failed_reason: (row.failed_reason ?? null) as string | null,
     send_filters: row.send_filters ?? null,
+    // 발신 명의(0111). resend-campaign-same-filters 가 이 값으로 발신번호·브랜드명을
+    // 다시 해석한다 — 빠지면 수학관 등 비본원 명의 캠페인을 재발송할 때 조용히
+    // 본원 번호로 나간다(2026-08-20 발견, 실제 피해 전).
+    sender_division: (row.sender_division ??
+      null) as CampaignListItem["sender_division"],
     template_name: templateName,
     group_name: groupName,
     delivered_count: 0,
