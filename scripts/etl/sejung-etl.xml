@@ -1,16 +1,16 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>세정학원 CRM · Aca2000 MSSQL → Supabase ETL 매 시간 동기화 (KST)</Description>
+    <Description>세정학원 CRM · Aca2000 MSSQL → Supabase ETL 30분 주기 동기화 · 09:00~24:00 KST</Description>
     <URI>\Sejung\CRM-ETL-Hourly</URI>
   </RegistrationInfo>
   <Triggers>
     <CalendarTrigger>
-      <StartBoundary>2026-05-22T00:00:00</StartBoundary>
+      <StartBoundary>2026-05-22T09:00:00</StartBoundary>
       <Enabled>true</Enabled>
       <Repetition>
-        <Interval>PT1H</Interval>
-        <Duration>P1D</Duration>
+        <Interval>PT30M</Interval>
+        <Duration>PT15H</Duration>
         <StopAtDurationEnd>false</StopAtDurationEnd>
       </Repetition>
       <ScheduleByDay>
