@@ -1,6 +1,6 @@
 # 학원 노트북(Windows) ETL 자동 셋업 가이드
 
-**매 시간** Aca2000 → Supabase 자동 동기화 + 수동 즉시 동기화 지원.
+**30분마다(09:00~24:00 KST)** Aca2000 → Supabase 자동 동기화 + 수동 즉시 동기화 지원.
 학원 노트북 1대에서 끝까지 운영.
 
 ## 1. 사전 준비 (한 번만)
@@ -60,14 +60,14 @@ SUPABASE_SECRET_KEY=<Vercel env 의 SUPABASE_SECRET_KEY 동일 값>
 
 > `sync_now.bat` 은 평소에도 운영자가 **수동 동기화** 가 필요할 때 더블클릭으로 쓰는 진입점입니다. 자동 스케줄과 별개로 언제든 실행 가능.
 
-## 5. 작업 스케줄러 등록 (매 시간 자동 실행)
+## 5. 작업 스케줄러 등록 (30분 주기 · 09:00~24:00 자동 실행)
 
 ### 방법 A. XML import (1분)
 
 1. **시작 → 작업 스케줄러** 검색해서 실행
 2. 우측 "작업 가져오기" 클릭
 3. `C:\sejung-crm\scripts\etl\sejung-etl.xml` 선택
-4. 열린 창에서 그냥 **확인** — 경로(`C:\sejung-crm`)·트리거(매일 00:00 시작 + 매 1시간 반복)가 XML 에 이미 박혀 있어 수정 불필요
+4. 열린 창에서 그냥 **확인** — 경로(`C:\sejung-crm`)·트리거(매일 09:00 시작 + 30분마다 반복, 15시간 = 24:00 까지)가 XML 에 이미 박혀 있어 수정 불필요
    - ⚠️ `C:\sejung-crm` 가 **아닌** 다른 경로에 clone 했다면, **Actions 탭** 더블클릭 후 Arguments·Start in 의 `C:\sejung-crm` 를 실제 경로로 바꿀 것
 5. (선택) **General 탭** → "사용자가 로그온 여부와 관계없이 실행" 체크
 6. 확인 → Windows 계정 비밀번호 입력 → 등록 완료
@@ -81,18 +81,20 @@ $action = New-ScheduledTaskAction `
   -WorkingDirectory "C:\sejung-crm"
 
 $trigger = New-ScheduledTaskTrigger `
-  -Once -At (Get-Date).Date `
-  -RepetitionInterval (New-TimeSpan -Hours 1)
+  -Once -At (Get-Date).Date.AddHours(9) `
+  -RepetitionInterval (New-TimeSpan -Minutes 30) `
+  -RepetitionDuration (New-TimeSpan -Hours 15)
 
 Register-ScheduledTask `
   -TaskName "Sejung\CRM-ETL-Hourly" `
   -Action $action -Trigger $trigger `
-  -Description "세정학원 ETL 매시간 자동 동기화"
+  -Description "세정학원 ETL 30분 주기 자동 동기화 (09:00~24:00)"
 ```
 
-### 매 시간 정책 메모
+### 주기 정책 메모
 
-- ETL 1회 평균 5~15분. 매 시간 실행해도 다음 시간 전에 충분히 끝남.
+- 09:00~24:00 사이 30분마다 실행. 심야(00:00~09:00)는 원본 변경이 없어 쉰다.
+- ETL 1회 평균 15~20분. 30분 주기면 대개 다음 발사 전에 끝난다.
 - 작업 스케줄러 정책 `IgnoreNew` — 이전 실행이 안 끝나면 새 실행 무시 (중복 발사 차단).
 - 실행 시간 제한 55분 — 다음 정각 직전에 강제 종료.
 
@@ -109,12 +111,12 @@ Register-ScheduledTask `
 | 확인 항목 | 위치 |
 |---|---|
 | 최근 ETL 결과 | `scripts\etl\logs\오늘날짜.log` |
-| 매 시간 잘 돌고 있나? | 작업 스케줄러 → Sejung\CRM-ETL-Hourly → "지난 실행 결과" |
+| 30분마다 잘 돌고 있나? | 작업 스케줄러 → Sejung\CRM-ETL-Hourly → "지난 실행 결과" |
 | 실패 단계 | 로그에서 `FAIL ✗` 검색 |
 
 ### 절전·덮개 설정 (필수)
 
-매 시간 실행되려면 노트북이 깨어 있어야 합니다.
+09:00~24:00 사이 실행되려면 노트북이 깨어 있어야 합니다.
 
 1. **설정 → 시스템 → 전원 및 절전**
    - "절전 모드 진입": **사용 안 함**
@@ -157,4 +159,4 @@ pip install -r scripts\etl\requirements.txt
 | `sync_now.bat` | **운영자 수동 동기화** (더블클릭) |
 | `run_all.bat` | 작업 스케줄러가 자동 호출 (수동 X) |
 | `sejung-etl.xml` | 작업 스케줄러 import 한 번 |
-| `logs\YYYY-MM-DD.log` | 매 시간 결과 기록 |
+| `logs\YYYY-MM-DD.log` | 매 실행 결과 기록 |

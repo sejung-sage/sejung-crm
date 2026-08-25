@@ -325,6 +325,10 @@ export type ListMatchedRecipientsResult =
 const ListMatchedRecipientsInputSchema = z.object({
   filters: GroupFiltersSchema,
   branch: z.string().trim().min(1, "분원을 선택하세요").max(20),
+  /** 발송 대상 — 학부모 대표번호 레그. 미설정 시 true(세정 기본값). */
+  sendToParent: z.boolean().optional(),
+  /** 발송 대상 — 학생 개인번호 레그. 미설정 시 false. */
+  sendToStudent: z.boolean().optional(),
 });
 export type ListMatchedRecipientsInput = z.infer<
   typeof ListMatchedRecipientsInputSchema
@@ -343,6 +347,9 @@ const MATCHED_LIST_CAP = 100_000;
  *
  * - recipients: 매칭 학생 (MATCHED_LIST_CAP 까지 전원), 이름 가나다순 정렬.
  *   발송 경로와 동일한 모집단(분원·탈퇴 가드, exclude 차감)을 1:1 공유한다.
+ *   보낼 수 있는 번호(레그)가 하나도 없는 학생은 뺀다 — 학부모 번호가 수신거부라
+ *   RPC 가 번호를 NULL 로 가린 학생이 명단엔 체크된 채 남아 "명단 N명 ≠ 발송 대상 M명"
+ *   으로 보이던 문제(2026-08-25).
  * - total: 전체 매칭 수. previewAction 과 동일한 countRecipients 로 산출해
  *   "N명 중 M명 선택" 카운트가 미리보기 인원수와 일치한다. (체크 해제 학생은
  *   프런트가 filters.excludeStudentIds 로 실어 다음 미리보기/발송에 반영.)
@@ -385,6 +392,10 @@ export async function listMatchedRecipientsAction(
       buildSearchRecipientsParams(parsed.filters, parsed.branch, false, true),
       MATCHED_LIST_CAP,
     );
+    // 발송 대상 번호 토글(미설정 = 세정 기본값: 학부모만). 미리보기
+    // resolvePreviewTargets 와 동일 기본값이라 두 화면의 인원이 일치한다.
+    const sendToParent = parsed.sendToParent ?? true;
+    const sendToStudent = parsed.sendToStudent ?? false;
     const recipients: MatchedRecipient[] = rows
       .map((r) => ({
         studentId: r.id,
@@ -392,13 +403,23 @@ export async function listMatchedRecipientsAction(
         parentPhone: (r.parent_phone ?? "").replace(/\D/g, ""),
         studentPhone: (r.phone ?? "").replace(/\D/g, ""),
       }))
+      // 켜진 레그 중 실제로 보낼 번호가 하나라도 있는 학생만. RPC 가 수신거부 번호를
+      // NULL 로 가려 보내주므로(0106) 여기서 걸러지면 곧 "발송 불가" 다.
+      .filter(
+        (r) =>
+          (sendToParent && r.parentPhone.length > 0) ||
+          (sendToStudent && r.studentPhone.length > 0),
+      )
       // 이름 가나다순 — 동명이인은 안정적이도록 studentId 로 2차 정렬.
       .sort(
         (a, b) =>
           a.name.localeCompare(b.name, "ko-KR") ||
           a.studentId.localeCompare(b.studentId),
       );
-    return { status: "success", recipients, total };
+    // total 은 RPC 의 전체 매칭 수라 위 필터를 모른다 — 걸러낸 만큼 차감한다.
+    // (rows 가 MATCHED_LIST_CAP 에서 잘린 초대형 코호트에선 차감이 표시분에 한정된다.)
+    const dropped = rows.length - recipients.length;
+    return { status: "success", recipients, total: total - dropped };
   } catch (e) {
     const reason =
       e instanceof Error ? e.message : "수신자 명단 조회에 실패했습니다";

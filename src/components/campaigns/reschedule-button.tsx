@@ -2,8 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
-import { CalendarClock } from "lucide-react";
+import { AlertTriangle, CalendarClock } from "lucide-react";
 import { rescheduleCampaignAction } from "@/app/(features)/campaigns/actions";
+import {
+  formatScheduleDisplay,
+  isNightSchedule,
+} from "@/lib/messaging/format-schedule";
 import { ACTION_BTN_DEFAULT } from "./action-button-styles";
 
 /**
@@ -11,6 +15,9 @@ import { ACTION_BTN_DEFAULT } from "./action-button-styles";
  *
  * sendon 은 예약 수정을 미지원하므로 서버가 "취소 후 재예약"으로 처리한다.
  * 클릭 → datetime-local 입력 → rescheduleCampaignAction.
+ *
+ * 고른 시각은 입력과 같은 어법(오전/오후 + 요일)으로 되읽어 준다 — 24시간 표기로는
+ * 오전/오후 착오가 눈에 안 들어온다(운영 요청 2026-08-20). 밤 시간대면 경고까지.
  */
 interface Props {
   campaignId: string;
@@ -106,6 +113,32 @@ export function RescheduleButton({ campaignId }: Props) {
                 focus:outline-none focus:border-[color:var(--border-strong)]
               "
             />
+            {value && (
+              <p className="text-[14px] text-[color:var(--text)]">
+                <span className="text-[color:var(--text-muted)] mr-2">
+                  변경할 시각
+                </span>
+                <strong className="font-medium">
+                  {formatScheduleDisplay(value)}
+                </strong>
+              </p>
+            )}
+            {value && isNightSchedule(value) && (
+              <p
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border border-[color:var(--warning)] px-3 py-2 text-[13px] leading-relaxed text-[color:var(--text)]"
+              >
+                <AlertTriangle
+                  className="size-4 mt-0.5 shrink-0 text-[color:var(--warning)]"
+                  strokeWidth={1.75}
+                  aria-hidden
+                />
+                <span className="min-w-0">
+                  밤 시간대로 예약됩니다. 오전/오후를 잘못 고르지 않았는지 확인해
+                  주세요.
+                </span>
+              </p>
+            )}
             {error && (
               <p role="alert" className="text-[13px] text-[color:var(--danger)]">
                 {error}
