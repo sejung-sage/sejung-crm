@@ -444,6 +444,8 @@ export function ComposeInline({
         const r = await listMatchedRecipientsAction({
           filters: listFilters,
           branch,
+          sendToParent: step2.sendToParent,
+          sendToStudent: step2.sendToStudent,
         });
         if (myReq !== listReqRef.current) return;
         if (r.status === "success") {
@@ -482,8 +484,14 @@ export function ComposeInline({
     };
     // listFilters 는 chip/deselected 파생 — deselected 변화로 재조회하지 않도록
     // 의존성을 명시 필드로 좁힌다(체크 토글이 명단 재조회를 트리거하면 안 됨).
+    // 발송 대상 번호 토글은 명단 모집단을 바꾸므로(보낼 번호 없는 학생 제외) 재조회한다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [branch, JSON.stringify(listFilters)]);
+  }, [
+    branch,
+    JSON.stringify(listFilters),
+    step2.sendToParent,
+    step2.sendToStudent,
+  ]);
 
   // 미리보기 — 칩/분원/체크해제/발송옵션 변경 시 디바운스 트리거.
   useEffect(() => {
