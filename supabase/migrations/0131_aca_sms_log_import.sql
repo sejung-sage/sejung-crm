@@ -84,7 +84,7 @@ COMMENT ON COLUMN public.aca_sms_messages.subject              IS '문자 제목
 COMMENT ON COLUMN public.aca_sms_messages.body_hash            IS 'aca_sms_bodies 참조 키. 본문 원문은 그 테이블에 있다.';
 COMMENT ON COLUMN public.aca_sms_messages.reply_number         IS '회신(발신)번호 원문. 이 값으로 분원·발신 division 을 해석했다.';
 COMMENT ON COLUMN public.aca_sms_messages.branch               IS 'reply_number 로 해석한 분원. 매핑에 없는 번호(개인 휴대폰 등)는 NULL.';
-COMMENT ON COLUMN public.aca_sms_messages.division             IS 'reply_number 로 해석한 발신 division(본원/수학관 등). 매핑에 없으면 NULL.';
+COMMENT ON COLUMN public.aca_sms_messages.division             IS 'reply_number 로 해석한 발신 division. 025670606=본원 / 0262651010=수학관 / 025531010=독학관. 매핑에 없으면 NULL.';
 COMMENT ON COLUMN public.aca_sms_messages.result               IS '발송 결과(성공/실패 등) 아카 원문.';
 COMMENT ON COLUMN public.aca_sms_messages.carrier_accepted_at  IS '이동통신사 접수 시각 원문 문자열. 파싱하지 않고 원문 보존.';
 COMMENT ON COLUMN public.aca_sms_messages.carrier_responded_at IS '이동통신사 응답 시각 원문 문자열. 실제 전송 완료 시점으로 볼 수 있다.';

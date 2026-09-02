@@ -78,7 +78,7 @@ COMMENT ON TABLE public.send_analysis_all IS
 COMMENT ON COLUMN public.send_analysis_all.출처         IS '''CRM''(CRM 경유 발송) 또는 ''ACA''(아카2000 발송).';
 COMMENT ON COLUMN public.send_analysis_all.발송키       IS '발송 건 식별자. CRM 은 캠페인 uuid, 아카는 (발송일|보낸이|division|제목|본문해시) 조합 문자열.';
 COMMENT ON COLUMN public.send_analysis_all.branch       IS '분원. 아카는 회신번호로 해석하며 매핑 실패 시 NULL.';
-COMMENT ON COLUMN public.send_analysis_all.division     IS '발신 division(본원/수학관 등). 아카 회신번호 025531010 은 소속 미확인이라 ''미상관''.';
+COMMENT ON COLUMN public.send_analysis_all.division     IS '발신 division. 아카는 회신번호로 해석한다 — 025670606=본원 / 0262651010=수학관 / 025531010=독학관. CRM 은 crm_campaigns.sender_division 그대로이며 미기록분은 NULL.';
 COMMENT ON COLUMN public.send_analysis_all.보낸사람     IS '발송한 사람. CRM 은 계정 표시명, 아카는 보낸이 컬럼.';
 COMMENT ON COLUMN public.send_analysis_all.전송일       IS '발송일. CRM 은 KST 변환값, 아카는 원본 날짜.';
 COMMENT ON COLUMN public.send_analysis_all.요일         IS '전송일의 한글 요일(월~일). 발송 루틴 분석용.';
