@@ -54,3 +54,8 @@ scripts/etl/logs/
 __pycache__/
 *.pyc
 .env*.local
+
+# 아카2000 문자 로그 원본 (MS Access). 파일 하나가 최대 2GB 라 절대 커밋하지 않는다.
+# 0131 마이그레이션의 aca_sms_messages / aca_sms_bodies 로 적재한 뒤 로컬에서만 보관.
+*.mdb
+*.mdb *
